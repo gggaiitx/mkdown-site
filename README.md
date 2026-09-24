@@ -68,7 +68,7 @@ npm run tauri build
 
 ### macOS 构建
 
-macOS 包无法在 Windows 上交叉编译，仓库提供 GitHub Actions 云端构建（`.github/workflows/build-mac.yml`）：打 `v*` 标签 push 或在 Actions 页手动触发，自动产出 **Apple Silicon + Intel 双架构 dmg**。
+
 
 ## 目录结构（关键）
 
