@@ -32,10 +32,10 @@
 
 :root[data-theme='dark'] {
   --mk-bg: rgb(19 20 22);
-  --mk-panel: rgb(25 25 28);
+  --mk-panel: rgb(25 25 28);            /* chrome 还原：飞总诉求是调亮字体，不动背景 */
   --mk-panel-muted: rgb(27 27 30);
-  --mk-fg: rgb(215 215 219);
-  --mk-fg-muted: rgb(151 152 157);
+  --mk-fg: rgb(232 233 238);            /* 字体提亮：飞总诉求调亮字体，背景不动 */
+  --mk-fg-muted: rgb(190 191 197);      /* 图标/次要文字提亮，与 panel 25 拉开对比 */
   --mk-border: rgb(110 110 114 / 0.28);
   --mk-border-strong: rgb(110 110 114 / 0.45);
   --mk-hover: rgb(46 47 51);
