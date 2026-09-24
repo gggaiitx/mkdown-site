@@ -224,6 +224,7 @@
     .nav-links a{padding:11px 12px;border-radius:9px;font-size:15px}
     .nav-links a:hover{background:var(--panel-2);color:var(--text)}
     .menu-toggle{display:inline-block}
+    .nav.open .nav-links{display:flex}
     .hero-grid{grid-template-columns:1fr;gap:40px}
     .hero .shot-wrap{order:-1}
     .features{grid-template-columns:1fr}
@@ -514,12 +515,15 @@
   const mt=document.querySelector('.menu-toggle');
   const links=document.querySelector('.nav-links');
   if(mt&&links){
-    mt.addEventListener('click',(e)=>{e.stopPropagation();links.style.display=links.style.display==='flex'?'none':'flex';});
-    links.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>{links.style.display='none';}));
-    document.addEventListener('click',(e)=>{
-      if(!links.contains(e.target)&&!mt.contains(e.target)&&links.style.display==='flex'){links.style.display='none';}
+    const navEl=document.querySelector('.nav')||links.closest('.nav');
+    mt.addEventListener('click',(e)=>{
+      e.stopPropagation();
+      const open=navEl.classList.toggle('open');
+      mt.setAttribute('aria-expanded',open?'true':'false');
     });
-    window.addEventListener('resize',()=>{ if(window.innerWidth>880) links.style.display=''; });
+    // 点击菜单项不再强制收起；仅点击菜单/汉堡以外区域才收起
+    document.addEventListener('click',(e)=>{ if(!navEl.contains(e.target)) navEl.classList.remove('open'); });
+    window.addEventListener('resize',()=>{ if(window.innerWidth>880) navEl.classList.remove('open'); });
   }
 </script>
 </body>
