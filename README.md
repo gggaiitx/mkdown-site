@@ -1,4 +1,4 @@
-# 码克 - Markdown 桌面编辑与阅读器 
+# 码克 - MarkDown 桌面编辑与阅读器 
 
 > 本地优先的 Markdown 编辑与阅读器 · Rust + Tauri 2.x 外壳 · Vue 3 + Vite + TypeScript + Pinia 前端 · md-editor-v3 v7 编辑内核
 >
