@@ -63,8 +63,8 @@
   }
   .logo::after{content:"";position:absolute;right:5px;bottom:6px;width:7px;height:9px;background:var(--brand);border-radius:1px}
   .nav-links{display:flex;gap:28px;align-items:center}
-  .nav-links a{color:var(--muted);font-size:14.5px;transition:color .2s}
-  .nav-links a:hover{color:var(--text)}
+  .nav-links a{color:#c7d0e0;font-size:14.5px;transition:color .2s}
+  .nav-links a:hover{color:#fff}
   .btn{
     display:inline-flex;align-items:center;gap:8px;
     padding:10px 20px;border-radius:10px;font-size:14.5px;font-weight:600;
@@ -76,8 +76,8 @@
   .btn-ghost:hover{border-color:var(--brand);color:var(--brand)}
   .menu-toggle{display:none;background:none;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 10px;cursor:pointer;font-size:18px}
   .nav-right{display:flex;align-items:center;gap:12px}
-  .gh-link{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:9px;border:1px solid var(--border);color:var(--text);transition:border-color .2s,color .2s,background .2s}
-  .gh-link:hover{border-color:var(--brand);color:var(--brand);background:var(--panel-2)}
+  .gh-link{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:9px;color:var(--muted);transition:color .2s,background .2s}
+  .gh-link:hover{color:var(--text);background:var(--panel-2)}
   .gh-link svg{width:20px;height:20px}
 
   /* hero */
@@ -461,7 +461,7 @@
       w=c.width=Math.floor(innerWidth*dpr);
       h=c.height=Math.floor(innerHeight*dpr);
       c.style.width=innerWidth+'px';c.style.height=innerHeight+'px';
-      const count=Math.min(90,Math.floor(innerWidth*innerHeight/16000));
+      const count=Math.min(150,Math.floor(innerWidth*innerHeight/9000));
       pts=[];
       for(let i=0;i<count;i++){
         pts.push({
