@@ -54,5 +54,5 @@ jobs:
         with:
           name: makeke-macos-${{ matrix.target }}
           path: |
-            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
