@@ -256,6 +256,13 @@
   .cta-box code{white-space:normal;word-break:break-word}
   .reveal{opacity:0;transform:translateY(24px);transition:opacity .6s ease,transform .6s ease}
   .reveal.show{opacity:1;transform:none}
+  /* macOS 无签名提示（低调内联，避免喧宾夺主） */
+  .mac-tip{margin-top:18px;font-size:12.5px;line-height:1.75;color:#9fb0d0;text-align:left}
+  .mac-tip-steps{margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;color:#9fb0d0}
+  .mac-tip-steps b{color:#cdd8ee;font-weight:600}
+  .mac-tip code{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:4px;font-size:12px;color:#bcd3ee;word-break:break-all}
+  .mac-tip-note{margin-top:8px;font-size:12px;color:#8aa0c4}
+  @media(max-width:560px){.mac-tip{font-size:12px}}
 </style>
 </head>
 <body>
@@ -430,7 +437,14 @@
         <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.1.0/Mkdown_0.1.0_aarch64.dmg" class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
         <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.1.0/Mkdown_0.1.0_x64.dmg" class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
       </div>
-      <p style="position:relative;margin-top:18px;font-size:12.5px;color:rgba(200,214,236,.75);line-height:1.8">应用未做 Apple 开发者签名，首次打开若提示「无法验证开发者」或「已损坏」：① 打开 <b>系统设置 → 隐私与安全性</b>，底部点「仍要打开」；② 或在终端执行 <code style="background:rgba(255,255,255,.12);padding:1px 6px;border-radius:4px">xattr -cr /Applications/码克.app</code> 后正常打开。M 系列芯片选 Apple 芯片版，老款 Intel 机型选 Intel 版。</p>
+      <div class="mac-tip">
+        <div>本应用未做 Apple 开发者签名，首次打开若提示「无法验证开发者」或「已损坏」，任选其一绕过（仅需操作一次）：</div>
+        <ol class="mac-tip-steps">
+          <li>打开 <b>系统设置 → 隐私与安全性</b>，拉到最底部，点击「仍要打开」。</li>
+          <li>或在「终端」执行 <code>xattr -cr /Applications/码克.app</code> 后正常打开。</li>
+        </ol>
+        <div class="mac-tip-note">M 系列芯片（M1/M2/M3/M4）选「Apple 芯片版」；Intel 机型选「Intel 版」。</div>
+      </div>
     </div>
   </div>
 </section>
