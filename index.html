@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>码克 MkDown · 本地优先的 Markdown 编辑器</title>
+<meta name="description" content="码克（MkDown）是一款基于 Tauri 2 + Rust + Vue3 的本地优先 Markdown 编辑与阅读器，支持实时预览、多工作区、富媒体预览与图表渲染。" />
+<style>
+  :root{
+    --bg:#0a0c12;
+    --bg-soft:#0f131c;
+    --panel:#121826;
+    --panel-2:#161d2e;
+    --border:#222c40;
+    --text:#e6ecf7;
+    --muted:#8b97ad;
+    --brand:#378ADD;
+    --brand-2:#0C447C;
+    --brand-soft:rgba(55,138,221,.14);
+    --accent:#5ad1c4;
+    --radius:16px;
+    --maxw:1140px;
+    --font:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font);
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+    position:relative;
+  }
+  /* particle background */
+  #particles{position:fixed;inset:0;z-index:-1;pointer-events:none;display:block}
+  .page{position:relative;z-index:1}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .muted{color:var(--muted)}
+
+  /* nav */
+  header.nav{
+    position:sticky;top:0;z-index:50;
+    background:rgba(10,12,18,.72);
+    backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border);
+  }
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:.5px}
+  .brand-sub{
+    font-weight:500;font-size:13.5px;color:var(--muted);
+    letter-spacing:1.2px;margin-left:2px;padding-left:12px;
+    border-left:1px solid var(--border);line-height:1;
+    transform:translateY(1px);
+  }
+  .logo{
+    width:30px;height:30px;border-radius:8px;
+    background:linear-gradient(135deg,#E6F1FB,#9cc7f5);
+    display:flex;align-items:center;justify-content:center;
+    color:#0C447C;font-weight:800;font-size:17px;position:relative;
+  }
+  .logo::after{content:"";position:absolute;right:5px;bottom:6px;width:7px;height:9px;background:var(--brand);border-radius:1px}
+  .nav-links{display:flex;gap:28px;align-items:center}
+  .nav-links a{color:var(--muted);font-size:14.5px;transition:color .2s}
+  .nav-links a:hover{color:var(--text)}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:10px 20px;border-radius:10px;font-size:14.5px;font-weight:600;
+    cursor:pointer;border:1px solid transparent;transition:transform .15s,background .2s,border-color .2s;
+  }
+  .btn-primary{background:var(--brand);color:#fff}
+  .btn-primary:hover{background:#4a99e6;transform:translateY(-1px)}
+  .btn-ghost{border-color:var(--border);color:var(--text);background:transparent}
+  .btn-ghost:hover{border-color:var(--brand);color:var(--brand)}
+  .menu-toggle{display:none;background:none;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 10px;cursor:pointer;font-size:18px}
+
+  /* hero */
+  .hero{position:relative;padding:90px 0 80px;overflow:hidden}
+  .hero::before{
+    content:"";position:absolute;inset:0;
+    background:radial-gradient(620px 320px at 80% 4%,rgba(55,138,221,.22),transparent 60%),
+      radial-gradient(520px 300px at 10% 92%,rgba(90,209,196,.12),transparent 60%);
+    pointer-events:none;
+  }
+  .hero-grid{position:relative;display:grid;grid-template-columns:.78fr 1.35fr;gap:44px;align-items:center}
+  .tag{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:6px 14px;border-radius:999px;border:1px solid var(--border);
+    background:var(--bg-soft);font-size:13px;color:var(--muted);margin-bottom:22px;
+  }
+  .tag .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .hero-title{margin-bottom:22px}
+  .hero-title .sub{
+    display:block;font-size:clamp(17px,1.9vw,23px);font-weight:600;
+    color:#aeb9cf;letter-spacing:.5px;line-height:1.45;margin-bottom:8px;
+  }
+  .hero-title .main{
+    display:block;font-size:clamp(30px,3.8vw,44px);font-weight:800;
+    line-height:1.05;letter-spacing:-1px;
+    background:linear-gradient(90deg,#5ad1c4,#378ADD);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 6px 26px rgba(55,138,221,.28));
+  }
+  .lead{font-size:17px;color:var(--muted);max-width:520px;margin-bottom:30px}
+  .hero-cta{display:flex;gap:14px;flex-wrap:wrap}
+  .hero-meta{display:flex;gap:26px;margin-top:34px;flex-wrap:wrap}
+  .hero-meta div span{display:block;font-size:22px;font-weight:700;color:var(--text)}
+  .hero-meta div small{color:var(--muted);font-size:13px}
+
+  /* placeholder screenshot */
+  .shot{
+    position:relative;border-radius:14px;overflow:hidden;
+    border:1px solid var(--border);background:var(--panel);
+    aspect-ratio:16/10;display:flex;flex-direction:column;
+  }
+  .shot .bar{height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid var(--border);background:var(--panel-2)}
+  .shot .bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
+  .shot .bar .r{background:#ff5f57}.shot .bar .y{background:#febc2e}.shot .bar .g{background:#28c840}
+  .shot .body{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+  .shot img{
+    width:100%;height:100%;object-fit:cover;object-position:top center;
+    display:block;transition:transform .5s ease;
+  }
+  .shot:hover img{transform:scale(1.035)}
+  .shot .ph{text-align:center;color:var(--muted);font-size:13px}
+  .shot .ph svg{width:46px;height:46px;opacity:.5;margin-bottom:8px}
+  .shot .label{
+    position:absolute;left:12px;bottom:12px;font-size:12px;color:var(--text);
+    background:rgba(10,12,18,.7);border:1px solid var(--border);padding:4px 10px;border-radius:7px;
+  }
+
+  /* hero product stage */
+  .shot-wrap{position:relative}
+  .hero .shot{
+    box-shadow:0 40px 90px -34px rgba(55,138,221,.65),0 0 0 1px rgba(55,138,221,.25);
+    border-color:rgba(55,138,221,.35);
+  }
+  .float-badge{
+    position:absolute;display:inline-flex;align-items:center;gap:7px;
+    padding:8px 13px;border-radius:11px;font-size:12.5px;font-weight:600;
+    background:rgba(18,24,38,.92);border:1px solid var(--border);
+    backdrop-filter:blur(6px);box-shadow:0 10px 28px -12px rgba(0,0,0,.7);
+    white-space:nowrap;animation:floaty 6s ease-in-out infinite;
+  }
+  .float-badge .bi{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+  .float-badge.b1{top:18px;right:-14px;animation-delay:0s}
+  .float-badge.b2{bottom:64px;left:-22px;animation-delay:1.4s}
+  .float-badge.b3{bottom:-14px;right:34px;animation-delay:2.6s}
+  .float-badge.b2 .bi{background:var(--brand)}
+  .float-badge.b3 .bi{background:#ffb454}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+
+  /* sections */
+  section{padding:84px 0}
+  .section-head{text-align:center;max-width:680px;margin:0 auto 52px}
+  .kicker{color:var(--brand);font-weight:700;font-size:13.5px;letter-spacing:2px;text-transform:uppercase}
+  .section-head h2{font-size:clamp(26px,3.4vw,38px);font-weight:800;margin:12px 0 14px;letter-spacing:-.3px}
+  .section-head p{color:var(--muted);font-size:16px}
+
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .card{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:26px;transition:transform .2s,border-color .2s,background .2s;
+  }
+  .card:hover{transform:translateY(-4px);border-color:var(--brand);background:var(--panel-2)}
+  .card .ico{
+    width:44px;height:44px;border-radius:11px;background:var(--brand-soft);
+    display:flex;align-items:center;justify-content:center;margin-bottom:16px;color:var(--brand);
+  }
+  .card h3{font-size:17px;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:14.5px}
+
+  /* showcase */
+  .showcase{background:var(--bg-soft);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+  .shots{display:grid;grid-template-columns:repeat(2,1fr);gap:22px}
+  .shots .shot{aspect-ratio:16/10}
+  .shots .shot .ph{font-size:14px}
+
+  /* tech */
+  .tech-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:10px}
+  .tech{
+    background:var(--panel);border:1px solid var(--border);border-radius:12px;
+    padding:20px;text-align:center;transition:border-color .2s;
+  }
+  .tech:hover{border-color:var(--brand)}
+  .tech .t{font-weight:700;font-size:16px;margin-bottom:4px}
+  .tech .d{color:var(--muted);font-size:13px}
+  .tech .pill{display:inline-block;margin-top:10px;font-size:11.5px;color:var(--brand);border:1px solid var(--border);border-radius:999px;padding:2px 10px}
+
+  /* cta */
+  .cta-box{
+    background:linear-gradient(135deg,var(--brand-2),#0a2547);
+    border:1px solid var(--border);border-radius:20px;
+    padding:56px;text-align:center;position:relative;overflow:hidden;
+  }
+  .cta-box::after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(55,138,221,.5),transparent 70%)}
+  .cta-box h2{font-size:30px;margin-bottom:14px;position:relative}
+  .cta-box p{color:#c8d6ec;margin-bottom:26px;position:relative}
+
+  footer{border-top:1px solid var(--border);padding:40px 0;color:var(--muted);font-size:14px}
+  .foot-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+  .foot-links{display:flex;gap:22px}
+  .foot-links a:hover{color:var(--text)}
+
+  @media(max-width:880px){
+    .nav-links{display:none}
+    .menu-toggle{display:inline-block}
+    .hero-grid{grid-template-columns:1fr;gap:48px}
+    .hero .shot-wrap{order:-1}
+    .features{grid-template-columns:1fr}
+    .shots{grid-template-columns:1fr}
+    .tech-grid{grid-template-columns:repeat(2,1fr)}
+    .cta-box{padding:40px 24px}
+    .float-badge.b1{right:8px}
+    .float-badge.b2{left:8px}
+  }
+  .reveal{opacity:0;transform:translateY(24px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.show{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<canvas id="particles"></canvas>
+
+<div class="page">
+<header class="nav">
+  <div class="wrap nav-inner">
+    <div class="brand"><span class="logo">M</span> 码克 <span class="brand-sub">Markdown 编辑器</span></div>
+    <nav class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#showcase">界面</a>
+      <a href="#tech">技术架构</a>
+      <a href="#download">下载</a>
+    </nav>
+    <a href="#download" class="btn btn-primary">免费下载</a>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="tag"><span class="dot"></span> 本地优先 · 数据不出本机</div>
+      <h1 class="hero-title">
+        <span class="sub">为写作而生的</span>
+        <span class="main">Markdown 编辑器</span>
+      </h1>
+      <p class="lead">码克（MkDown）是一款基于 Tauri 2 与 Rust 打造的桌面级 Markdown 编辑与阅读器。极速启动、实时预览、多工作区管理，让文档创作回归纯粹。</p>
+      <div class="hero-cta">
+        <a href="#download" class="btn btn-primary">立即下载</a>
+        <a href="#features" class="btn btn-ghost">查看功能</a>
+      </div>
+      <div class="hero-meta">
+        <div><span>3 种</span><small>编辑 / 分屏 / 阅读模式</small></div>
+        <div><span>5+ 类</span><small>文档应用内预览</small></div>
+        <div><span>0</span><small>云端依赖</small></div>
+      </div>
+    </div>
+
+    <div class="shot-wrap reveal">
+      <div class="shot">
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/images/hero-editor.png" alt="码克欢迎页：打开工作区、从模板新建与最近文档" loading="eager" />
+        <div class="label">欢迎页 · 打开工作区 / 最近文档</div>
+      </div>
+      <div class="float-badge b1"><span class="bi"></span> 实时预览</div>
+      <div class="float-badge b2"><span class="bi"></span> 本地优先</div>
+      <div class="float-badge b3"><span class="bi"></span> 多工作区</div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Core Features</div>
+      <h2>专注写作的每一处细节</h2>
+      <p>从编辑器内核到文件管理，码克围绕本地文档工作流设计了一系列实用能力。</p>
+    </div>
+    <div class="features">
+      <div class="card reveal">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+        </div>
+        <h3>实时预览三模式</h3>
+        <p>编辑、分屏、阅读三种模式一键切换，左侧书写、右侧即时渲染，所见即所得。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        </div>
+        <h3>多工作区管理</h3>
+        <p>支持多目录工作区与最近列表，一键切换项目，工作文件井然有序。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3v5h5"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M9 13l2 2 4-4"/></svg>
+        </div>
+        <h3>富媒体应用内预览</h3>
+        <p>Word、Excel、图片、HTML 等格式无需离开应用即可预览，零额外 IO 开销。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+        </div>
+        <h3>图表与公式渲染</h3>
+        <p>内置 Mermaid 流程图与 KaTeX 数学公式支持，技术文档与论文写作得心应手。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg>
+        </div>
+        <h3>本地优先 · 隐私安全</h3>
+        <p>基于 Tauri 的本地应用，所有文档与图片均存储于本机，不上传任何云端。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15l-5-5-4 4-4-4-5 5"/><path d="M21 3v6h-6"/></svg>
+        </div>
+        <h3>粘贴即落盘</h3>
+        <p>复制粘贴的图片自动存入 ./assets/ 相对目录并入库，链接永不丢失。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SHOWCASE -->
+<section id="showcase" class="showcase">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Screenshots</div>
+      <h2>界面一览</h2>
+      <p>编辑、预览、多工作区与富媒体文档，一屏尽览。</p>
+    </div>
+    <div class="shots">
+      <div class="shot reveal">
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/images/workspace.png" alt="多工作区：切换工作区与最近文档列表" loading="lazy" />
+        <div class="label">多工作区 · 一键切换</div>
+      </div>
+      <div class="shot reveal">
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/images/preview-docx.png" alt="应用内预览 Word 文档" loading="lazy" />
+        <div class="label">富媒体预览 · Word 直接看</div>
+      </div>
+      <div class="shot reveal">
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/images/read-mode.png" alt="技术文档阅读：代码块高亮与大纲导航" loading="lazy" />
+        <div class="label">代码高亮 · 沉浸阅读</div>
+      </div>
+      <div class="shot reveal">
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/images/split-view.png" alt="分屏对照：左侧编辑右侧实时预览" loading="lazy" />
+        <div class="label">分屏对照 · 所见即所得</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TECH -->
+<section id="tech">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Tech Stack</div>
+      <h2>现代而稳健的技术底座</h2>
+      <p>以 Rust 与 Tauri 2 保证性能与安全，以 Vue3 与 Vite 提供流畅体验。</p>
+    </div>
+    <div class="tech-grid">
+      <div class="tech reveal"><div class="t">Rust</div><div class="d">系统级性能</div><span class="pill">核心后端</span></div>
+      <div class="tech reveal"><div class="t">Tauri 2</div><div class="d">轻量跨平台壳</div><span class="pill">桌面运行时</span></div>
+      <div class="tech reveal"><div class="t">Vue 3</div><div class="d">组合式 API</div><span class="pill">前端框架</span></div>
+      <div class="tech reveal"><div class="t">Vite</div><div class="d">极速构建</div><span class="pill">工程化</span></div>
+      <div class="tech reveal"><div class="t">Pinia</div><div class="d">状态管理</div><span class="pill">数据流</span></div>
+      <div class="tech reveal"><div class="t">TypeScript</div><div class="d">类型安全</div><span class="pill">开发语言</span></div>
+      <div class="tech reveal"><div class="t">md-editor-v3</div><div class="d">编辑器内核</div><span class="pill">编辑引擎</span></div>
+      <div class="tech reveal"><div class="t">SQLite</div><div class="d">本地配置存储</div><span class="pill">持久化</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA / DOWNLOAD -->
+<section id="download">
+  <div class="wrap">
+    <div class="cta-box reveal">
+      <h2>现在就开始书写</h2>
+      <p>支持 Windows / macOS / Linux，体积小巧，开箱即用。</p>
+      <div class="hero-cta" style="justify-content:center">
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.1.0/Mkdown_0.1.0_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
+        <a href="#" class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS / Linux</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>© 2026 码克 MkDown · 本地优先的 Markdown 编辑器</div>
+    <div class="foot-links">
+      <a href="#features">功能</a>
+      <a href="#showcase">界面</a>
+      <a href="#tech">技术</a>
+      <a href="#download">下载</a>
+    </div>
+  </div>
+</footer>
+</div>
+
+<script>
+  // 粒子背景
+  (function(){
+    const c=document.getElementById('particles');
+    const ctx=c.getContext('2d');
+    let w,h,dpr,pts,raf;
+    function resize(){
+      dpr=Math.min(window.devicePixelRatio||1,2);
+      w=c.width=Math.floor(innerWidth*dpr);
+      h=c.height=Math.floor(innerHeight*dpr);
+      c.style.width=innerWidth+'px';c.style.height=innerHeight+'px';
+      const count=Math.min(90,Math.floor(innerWidth*innerHeight/16000));
+      pts=[];
+      for(let i=0;i<count;i++){
+        pts.push({
+          x:Math.random()*w, y:Math.random()*h,
+          vx:(Math.random()-.5)*.25*dpr, vy:(Math.random()-.5)*.25*dpr,
+          r:(Math.random()*1.6+.6)*dpr
+        });
+      }
+    }
+    function step(){
+      ctx.clearRect(0,0,w,h);
+      const link=120*dpr;
+      for(let i=0;i<pts.length;i++){
+        const p=pts[i];
+        p.x+=p.vx;p.y+=p.vy;
+        if(p.x<0||p.x>w)p.vx*=-1;
+        if(p.y<0||p.y>h)p.vy*=-1;
+        ctx.beginPath();
+        ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+        ctx.fillStyle='rgba(90,209,196,.55)';
+        ctx.fill();
+        for(let j=i+1;j<pts.length;j++){
+          const q=pts[j],dx=p.x-q.x,dy=p.y-q.y,d=Math.hypot(dx,dy);
+          if(d<link){
+            ctx.beginPath();
+            ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);
+            ctx.strokeStyle='rgba(55,138,221,'+(.18*(1-d/link))+')';
+            ctx.lineWidth=dpr*.6;
+            ctx.stroke();
+          }
+        }
+      }
+      raf=requestAnimationFrame(step);
+    }
+    const mq=window.matchMedia('(prefers-reduced-motion: reduce)');
+    function start(){cancelAnimationFrame(raf);resize();step();}
+    let rt;
+    window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(resize,200)});
+    mq.addEventListener&&mq.addEventListener('change',start);
+    start();
+  })();
+
+  // reveal on scroll
+  const io=new IntersectionObserver((es)=>{
+    es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('show');io.unobserve(e.target);}});
+  },{threshold:.12});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+
+  // mobile menu toggle
+  const mt=document.querySelector('.menu-toggle');
+  const links=document.querySelector('.nav-links');
+  if(mt&&links){mt.addEventListener('click',()=>{links.style.display=links.style.display==='flex'?'none':'flex';});}
+</script>
+</body>
+</html>
