@@ -1,0 +1,135 @@
+classDiagram
+    class WorkspaceNode {
+      +String name
+      +String path
+      +NodeKind kind
+      +WorkspaceNode[] children
+      +Number size
+      +Number mtimeMs
+    }
+    class FileContent {
+      +String path
+      +String content
+      +String encoding
+      +Boolean hadBom
+      +Number size
+      +Number mtimeMs
+    }
+    class SaveResult {
+      +String path
+      +Number size
+      +Number mtimeMs
+    }
+    class FileMeta {
+      +String path
+      +Number size
+      +Number mtimeMs
+      +Boolean isDir
+      +Boolean isReadonly
+      +String encoding
+    }
+    class DocumentTab {
+      +String id
+      +String path
+      +String title
+      +String content
+      +String savedContent
+      +Boolean isDirty
+      +String encoding
+      +EditorMode mode
+      +Number cursorLine
+      +Number scrollRatio
+    }
+    class AppSettings {
+      +String theme
+      +Number fontSize
+      +String editorMode
+      +Boolean autoSave
+      +Number autoSaveDelayMs
+      +String lastWorkspace
+      +RecentFile[] recentFiles
+      +String language
+      +String previewTheme
+      +Boolean scrollSync
+      +Boolean wordWrap
+    }
+    class RecentFile {
+      +String path
+      +Number openedAtMs
+    }
+    class SearchQuery {
+      +String root
+      +String query
+      +Boolean caseSensitive
+      +Boolean isRegex
+      +String includeGlob
+      +Number maxResults
+    }
+    class SearchHit {
+      +String path
+      +String relPath
+      +Number line
+      +Number column
+      +String lineText
+      +Number matchStart
+      +Number matchEnd
+    }
+    class SavedImage {
+      +String absPath
+      +String relPath
+      +String fileName
+    }
+    class AppError {
+      +String code
+      +String message
+    }
+    class EditorMode {
+      <<enumeration>>
+      edit
+      split
+      preview
+      read
+    }
+    class NodeKind {
+      <<enumeration>>
+      file
+      dir
+    }
+    class IMarkdownEngine {
+      <<interface>>
+      +mount(options) Promise
+      +destroy()
+      +getValue() String
+      +setValue(value, opts)
+      +toggleMode(mode)
+      +getMode() EditorMode
+      +setTheme(theme)
+      +setFontSize(px)
+      +scrollToLine(line)
+      +insertText(text)
+      +insertImage(alt, src)
+      +getCursorLine() Number
+      +capabilities() EngineCapabilities
+      +onChange(cb) Function
+      +onScroll(cb) Function
+      +onSaveRequest(cb) Function
+    }
+    class MdEditorV3Engine {
+      +String kind
+      +mount(options)
+      +toggleMode(mode)
+      +capabilities() EngineCapabilities
+    }
+    class EngineFactory {
+      +createEngine(kind) IMarkdownEngine
+    }
+
+    IMarkdownEngine <|.. MdEditorV3Engine : implements
+    EngineFactory ..> IMarkdownEngine : creates
+    WorkspaceNode "1" o-- "*" WorkspaceNode : children
+    WorkspaceNode ..> NodeKind
+    DocumentTab ..> EditorMode
+    AppSettings "1" o-- "*" RecentFile
+    SearchQuery ..> SearchHit : produces
+    FileContent ..> DocumentTab : hydrates
+    AppError ..> FileContent : may-fail

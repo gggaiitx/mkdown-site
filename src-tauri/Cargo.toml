@@ -1,0 +1,55 @@
+[package]
+name = "mkdown"
+version = "0.1.0"
+description = "码克 - 本地 Markdown 编辑与阅读器"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "mkdown_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# 构建期兼容补丁（业务代码不依赖它）：
+# tauri 依赖链上的 schemars 0.8.22 在 preserve_order 下写
+# `indexmap::IndexMap<K, V>`（2 参数），而 indexmap 1.9.3 只在 feature="std"
+# 时才给第三泛型 S 默认值；该 feature 在本工程的解析结果里没被打开 → E0107。
+# 用本地副本显式补上第三参数（std 的 RandomState），待上游修复后可移除本段。
+[patch.crates-io]
+schemars = { path = "../vendor/schemars" }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+encoding_rs = "0.8"
+chardetng = "0.1"
+tempfile = "3"
+ignore = "0.4"
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+trash = "5"
+uuid = { version = "1", features = ["v4"] }
+rfd = "0.15"
+base64 = "0.22"
+regex = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+incremental = false
+
+# 本机 rustc 1.97.1 的 ICE 规避（"end of query stack"，100% 必现）：
+# 触发条件 = 增量编译 × lib 的 staticlib/cdylib crate-type 组合。
+# 关掉 dev 增量编译即可稳定构建（clippy 不受影响；release 本就是 incremental=false）。
+# rustc 修复后可改回 true。
+[profile.dev]
+incremental = false

@@ -1,0 +1,58 @@
+# 码克 macOS 构建流水线
+# 前提：仓库托管到 GitHub 后，push 或手动触发（Actions 页 Run workflow）。
+# 产物：.app 打包的 .dmg（Apple Silicon + Intel 双架构），在 Actions 运行页 Artifacts 下载。
+# 说明：Tauri 的 macOS 包只能在 macOS 上编译（Xcode 链路），本机 Windows 无法交叉编译，
+#       故借用 GitHub 免费的 macos-14 运行器。
+
+name: build-mac
+
+on:
+  workflow_dispatch: # 手动触发
+  push:
+    tags:
+      - 'v*' # 打 v* 标签时自动构建
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin # Apple Silicon (M1/M2/M3/M4)
+          - target: x86_64-apple-darwin # Intel
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust 编译缓存
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建（dmg）
+        run: |
+          rustup target add ${{ matrix.target }}
+          npx tauri build --target ${{ matrix.target }}
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: makeke-macos-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error

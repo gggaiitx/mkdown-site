@@ -1,0 +1,249 @@
+/* MkDown 全局样式 —— 设计 token 对齐 DBX（apps/desktop/src/styles/tokens.css）：
+   单色系、低饱和、细边框、ghost 交互；亮/暗两套，组件不写死颜色。 */
+
+:root {
+  --mk-font-size: 15px;
+
+  /* 亮色（对齐 DBX :root） */
+  --mk-bg: rgb(255 255 255);            /* content 背景 */
+  --mk-panel: rgb(250 250 250);         /* chrome：工具栏/侧栏/标签栏 */
+  --mk-panel-muted: rgb(245 245 245);   /* chrome-muted：次级面板 */
+  --mk-fg: rgb(10 10 10);
+  --mk-fg-muted: rgb(115 115 115);
+  --mk-border: rgb(229 229 229);
+  --mk-border-strong: rgb(212 212 212);
+  --mk-hover: rgb(245 245 245);         /* ghost hover（= accent） */
+  --mk-active: rgb(238 238 238);        /* active 按压 */
+  --mk-accent: rgb(23 23 23);           /* primary：主按钮/激活态 */
+  --mk-accent-fg: rgb(250 250 250);
+  --mk-accent-weak: rgb(0 0 0 / 0.06);  /* primary 12% 类效果 */
+  --mk-danger: rgb(231 0 11);
+  --mk-warn: rgb(217 119 6);
+  --mk-ok: rgb(22 163 74);
+  --mk-ol-1: rgb(23 23 23);
+  --mk-ol-2: rgb(82 82 82);
+  --mk-ol-3: rgb(115 115 115);
+  --mk-ol-4: rgb(161 161 161);
+  --mk-tip-bg: rgb(31 31 31);           /* 气泡提示：亮色主题用深底 */
+  --mk-tip-fg: rgb(240 240 240);
+  --mk-radius: 6px;
+  --mk-radius-sm: 4px;
+}
+
+:root[data-theme='dark'] {
+  --mk-bg: rgb(19 20 22);
+  --mk-panel: rgb(25 25 28);
+  --mk-panel-muted: rgb(27 27 30);
+  --mk-fg: rgb(215 215 219);
+  --mk-fg-muted: rgb(151 152 157);
+  --mk-border: rgb(110 110 114 / 0.28);
+  --mk-border-strong: rgb(110 110 114 / 0.45);
+  --mk-hover: rgb(46 47 51);
+  --mk-active: rgb(52 53 57);
+  --mk-accent: rgb(208 208 214);
+  --mk-accent-fg: rgb(19 20 22);
+  --mk-accent-weak: rgb(208 208 214 / 0.12);
+  --mk-danger: rgb(243 98 95);
+  --mk-warn: rgb(251 191 36);
+  --mk-ok: rgb(74 222 128);
+  --mk-ol-1: rgb(215 215 219);
+  --mk-ol-2: rgb(151 152 157);
+  --mk-ol-3: rgb(115 115 115);
+  --mk-ol-4: rgb(82 82 82);
+  --mk-tip-bg: rgb(238 238 240);        /* 气泡提示：暗色主题反转为浅底 */
+  --mk-tip-fg: rgb(28 28 30);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 表单控件字体继承：button/input 的 UA 默认样式不继承 font-family，
+   不重置则所有按钮文字回落 UA 字体（Segoe UI 系），与全局 Geist 栈不匹配 */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Geist Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  font-size: var(--mk-font-size);
+  color: var(--mk-fg);
+  background: var(--mk-bg);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- 滚动条全局美化：统一 10px 圆角、悬浮轨道透明、hover 加深（覆盖 CodeMirror/预览/侧栏/搜索等所有区域） ---- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--mk-border-strong);
+  border-radius: 6px;
+  border: 2.5px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mk-fg-muted);
+  border: 2.5px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:active {
+  background: var(--mk-fg-muted);
+}
+/* 窄侧栏（文件树/大纲）滚动条与全局同规格，保证粗细一致 */
+.tree::-webkit-scrollbar,
+.list::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+/* ---- Workbench 布局（现代分隔：chrome / content 分层，1px 细线） ---- */
+.workbench {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--mk-bg);
+}
+.workbench .main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden; /* 防止编辑器撑宽把大纲面板挤出视口 */
+}
+.workbench .center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workbench .editor-area {
+  flex: 1;
+  min-height: 0;
+  background: var(--mk-bg);
+}
+
+/* ---- 文本类标签容器（md/text/html 共用）----
+   引擎恒占满；html 三模式时容器加 html-mode + 模式类：
+   edit = 仅引擎；split = 引擎 50% + iframe 50%；read = 引擎隐藏（不卸载），iframe 独占 */
+.workbench .text-area {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+.workbench .text-area > :first-child {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.workbench .text-area.html-mode.split > :first-child {
+  flex: 0 0 50%;
+}
+.workbench .text-area.html-mode.read > :first-child {
+  display: none;
+}
+.workbench .text-area .html-frame-host {
+  flex: 1 1 50%;
+  min-width: 0;
+  border-left: 1px solid var(--mk-border);
+}
+
+/* ---- 轻提示 ---- */
+/* 右下角：不遮挡工具栏与正文顶部；bottom 让开 24px 高的状态栏 */
+.toast-host {
+  position: fixed;
+  right: 16px;
+  bottom: 34px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: min(420px, 62vw);
+  background: var(--mk-panel);
+  color: var(--mk-fg);
+  border: 1px solid var(--mk-border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  cursor: pointer; /* 点击立即关闭 */
+  word-break: break-word;
+}
+.toast-ic {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 2px;
+}
+.toast.success .toast-ic { color: var(--mk-ok); }
+.toast.error .toast-ic { color: var(--mk-danger); }
+.toast.info .toast-ic { color: var(--mk-fg-muted); }
+/* 同类提示连发时合并计数，避免刷屏 */
+.toast-count {
+  flex: none;
+  color: var(--mk-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+}
+.toast-move { transition: transform 0.22s ease; }
+
+/* ---- 气泡提示：JS 浮动方案（FloatTip.vue，Teleport 到 body 不受 overflow 裁剪） ---- */
+/* 用法：元素加 data-tip="文案"；对齐由 FloatTip 按 .win-btn（右）/ .tb-first·.row（左）/ 默认居中 决定 */
+/* 工具栏自身抬层：确保工具栏及内部下拉盖过下方侧栏/标签栏/编辑器 */
+.toolbar {
+  position: relative;
+  z-index: 9500;
+}
+
+/* ---- 打印（导出 PDF）：只打印预览 HTML ---- */
+.print-area {
+  display: none;
+}
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .print-area {
+    display: block !important;
+    position: absolute;
+    inset: 0;
+    background: #fff;
+    color: #24292f;
+  }
+  .print-area * {
+    visibility: visible !important;
+  }
+}

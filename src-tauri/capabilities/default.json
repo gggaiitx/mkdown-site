@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "MkDown 主窗口最小授权：核心 IPC + asset 协议 + 自定义标题栏所需的窗口操作。文件 IO 由自写 command 承担，不声明 fs:allow-*。",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-start-dragging",
+    "core:webview:allow-internal-toggle-devtools"
+  ]
+}

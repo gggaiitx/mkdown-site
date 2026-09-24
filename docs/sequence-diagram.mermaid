@@ -1,0 +1,127 @@
+%% @title MkDown 关键时序（4 张）
+%% 使用方法：将每个 sequenceDiagram 段落分别贴入支持 Mermaid 的渲染器。
+
+%% ============ 8.1 启动 → 加载工作区 → 恢复上次会话 ============
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant FE as Vue 前端
+    participant SS as settingsStore
+    participant WS as workspaceStore
+    participant TS as tabsStore
+    participant CMD as Tauri 命令/Rust
+    participant ST as tauri-plugin-store
+
+    U->>FE: 双击启动 MkDown
+    FE->>SS: load()
+    SS->>CMD: get_settings()
+    CMD->>ST: 读取 settings.json
+    ST-->>CMD: AppSettings
+    CMD-->>SS: AppSettings
+    SS->>FE: 应用主题/字号/模式
+    alt 存在 lastWorkspace
+        FE->>WS: openWorkspace(lastWorkspace)
+        WS->>CMD: allow_asset_dir(root)
+        CMD-->>WS: ok（asset scope 放行）
+        WS->>CMD: list_workspace_tree(root)
+        CMD-->>WS: WorkspaceNode 树
+        WS-->>FE: 渲染文件树
+    else 无工作区
+        FE-->>U: 显示 Welcome（最近打开/新建/打开文件夹）
+    end
+    FE->>TS: 恢复上次打开的标签页（recentFiles）
+    loop 每个待恢复文件
+        TS->>CMD: read_file(path)
+        CMD-->>TS: FileContent
+        TS->>TS: 建 Tab（isDirty=false）
+    end
+    TS-->>U: 显示标签页与内容
+
+%% ============ 8.2 打开文件 → 编辑 → Ctrl+S 原子保存 ============
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant FT as FileTree/TabBar
+    participant TS as tabsStore
+    participant CMD as Rust 命令
+    participant FSS as fs_service
+    participant ENG as IMarkdownEngine
+
+    U->>FT: 点击某 .md 文件
+    FT->>TS: openTab(path)
+    TS->>CMD: read_file(path)
+    CMD->>FSS: 读取 + 编码探测
+    FSS-->>CMD: FileContent(encoding, hadBom)
+    CMD-->>TS: FileContent
+    TS->>ENG: setValue(content, {resetHistory:true})
+    TS->>ENG: toggleMode(settings.editorMode)
+    ENG-->>U: 渲染编辑/预览
+
+    U->>ENG: 键入文本
+    ENG->>TS: onChange(value)
+    TS->>TS: markDirty(value)  → 标签页显示 ●
+
+    U->>ENG: Ctrl+S（内核 onSaveRequest）
+    ENG->>TS: onSaveRequest()
+    TS->>CMD: write_file_atomic(path, content, keepBom)
+    CMD->>FSS: write_atomic()（临时文件+sync+persist）
+    FSS-->>CMD: 成功（原文件不被写坏）
+    CMD-->>TS: SaveResult
+    TS->>TS: markSaved(content) → 清除 ●
+    TS-->>U: 状态栏「已保存」提示
+
+%% ============ 8.3 粘贴图片 → 落盘 → 插入相对路径 ============
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant ENG as IMarkdownEngine
+    participant HOST as EditorHost
+    participant IMG as imageApi
+    participant CMD as Rust image_cmd
+    participant IMS as image_service
+    participant AST as asset 协议
+
+    U->>ENG: Ctrl+V 粘贴截图
+    ENG->>HOST: 剪贴板 image blob
+    HOST->>HOST: Blob → Base64
+    HOST->>IMG: savePastedImage(docPath, dataB64, ext)
+    IMG->>CMD: save_pasted_image(docPath, data, ext)
+    CMD->>IMS: 计算 assets 目录 + 生成唯一文件名
+    IMS->>IMS: 写入 assets/img-<uuid>.png（原子写）
+    IMS-->>CMD: SavedImage(absPath, relPath)
+    CMD-->>IMG: SavedImage
+    IMG-->>HOST: SavedImage
+    HOST->>ENG: insertImage(alt, "./assets/img-xx.png")
+    ENG-->>U: 编辑区插入 ![](./assets/img-xx.png)
+    Note over ENG,AST: 预览渲染时 transformImageUrl<br/>将相对路径解析为 convertFileSrc(absPath) → asset://
+
+%% ============ 8.4 全局搜索（Rust 遍历 + Channel 流式返回） ============
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant SP as SearchPanel
+    participant SRS as searchStore
+    participant API as searchApi
+    participant CMD as Rust search_cmd
+    participant SES as search_service
+    participant CH as ipc::Channel
+
+    U->>SP: 输入关键词并回车
+    SP->>SRS: run()
+    SRS->>API: searchInFiles(query, onHit)
+    API->>CH: 创建 Channel<SearchHit>(onHit)
+    API->>CMD: search_in_files(query, on_hit=Channel)
+    CMD->>SES: 用 ignore+grep-searcher 遍历 root
+    loop 每个命中
+        SES-->>CMD: SearchHit
+        CMD->>CH: channel.send(SearchHit)
+        CH-->>API: onHit(hit)
+        API-->>SRS: hits.push(hit)
+        SRS-->>SP: 增量渲染结果条目
+    end
+    SES-->>CMD: 完成（命中总数）
+    CMD-->>API: usize 总数
+    API-->>SRS: total = n
+    SRS-->>SP: 结束态（共 n 条）
+    U->>SP: 点击某条命中
+    SP->>SRS: 打开文件并 scrollToLine(line)
