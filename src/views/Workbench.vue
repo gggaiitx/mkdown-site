@@ -5,6 +5,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { listen } from '@tauri-apps/api/event';
 import { AlertCircle, CheckCircle2, Info } from '@lucide/vue';
 
 import Toolbar from '../components/Toolbar.vue';
@@ -38,6 +39,7 @@ import {
   probePreviewKind,
   probeTextFile,
   saveAs as saveAsApi,
+  takePendingOpenArgs,
   writeFileAtomic,
 } from '../api/fileApi';
 import { exportHtml } from '../api/exportApi';
@@ -672,6 +674,15 @@ function onDragDrop(ev: { payload: { type: string; paths?: string[] } }) {
   })();
 }
 
+// ---------- 「打开方式」/ 双击关联文件 ----------
+// 首次启动：Rust setup 解析启动参数存入待打开队列，挂载后经命令取走；
+// 应用已运行：单实例插件把新文件路径经 open-file-args 事件转发过来。
+async function openArgsFiles(paths: string[]) {
+  if (!paths?.length) return;
+  for (const p of paths) await openFilePath(p);
+}
+let unlistenOpenArgs: (() => void) | null = null;
+
 // ---------- 生命周期 ----------
 onMounted(async () => {
   await settings.load();
@@ -690,6 +701,14 @@ onMounted(async () => {
   } catch {
     /* 非 Tauri 环境（浏览器/无头验证）无此事件，忽略 */
   }
+  try {
+    // 二次点击关联文件：单实例插件转发的事件
+    unlistenOpenArgs = await listen<string[]>('open-file-args', (e) => {
+      void openArgsFiles(e.payload);
+    });
+  } catch {
+    /* 非 Tauri 环境忽略 */
+  }
   // 恢复上次工作区
   if (settings.settings.lastWorkspace) {
     try {
@@ -698,11 +717,19 @@ onMounted(async () => {
       editor.showToast('上次工作区不可用，可重新打开', 'info');
     }
   }
+  // 首次启动带文件路径：工作区就绪后再开，标签落位更自然
+  try {
+    await openArgsFiles(await takePendingOpenArgs());
+  } catch {
+    /* 非 Tauri 环境忽略 */
+  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true);
   unlistenDrop?.();
   unlistenDrop = null;
+  unlistenOpenArgs?.();
+  unlistenOpenArgs = null;
   // 组件销毁时清掉未触发的提示定时器，避免回调访问已卸载的响应式状态
   for (const t of toasts.value) clearTimeout(t.timer);
   toasts.value = [];

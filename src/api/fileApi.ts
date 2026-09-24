@@ -3,6 +3,9 @@ import type { FileContent, FileMeta, SaveResult } from './types';
 
 export const readFile = (path: string) => call<FileContent>('read_file', { path });
 
+/** 取走「打开方式」启动参数解析出的待打开文件（取后即清） */
+export const takePendingOpenArgs = () => call<string[]>('take_pending_open_args');
+
 export const writeFileAtomic = (path: string, content: string, keepBom: boolean) =>
   call<SaveResult>('write_file_atomic', { path, content, keepBom });
 

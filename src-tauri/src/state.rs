@@ -20,6 +20,9 @@ pub struct AppState {
     /// 最近一轮搜索的取消令牌；新一轮开始时置停上一轮
     /// （ADR-03 不建索引，靠提前退出避免连打搜索时多轮全库扫描叠加）
     search_cancel: RwLock<Option<Arc<AtomicBool>>>,
+    /// 「打开方式」启动参数带来的待打开文件：setup 存入，
+    /// 前端挂载后经 take_pending_open_args 命令取走（事件先于监听器注册的竞态规避）
+    pending_open: RwLock<Vec<String>>,
 }
 
 impl AppState {
@@ -75,6 +78,21 @@ impl AppState {
             }
         }
         token
+    }
+
+    /// 存入启动参数解析出的待打开文件（覆盖式：启动时只解析一次）
+    pub fn set_pending_open(&self, files: Vec<String>) {
+        if let Ok(mut slot) = self.pending_open.write() {
+            *slot = files;
+        }
+    }
+
+    /// 取走待打开文件（取后即清）；前端挂载完成时调用一次
+    pub fn take_pending_open(&self) -> Vec<String> {
+        self.pending_open
+            .write()
+            .map(|mut slot| std::mem::take(&mut *slot))
+            .unwrap_or_default()
     }
 }
 

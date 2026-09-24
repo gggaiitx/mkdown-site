@@ -290,3 +290,10 @@ pub async fn open_url(url: String) -> AppResult<()> {
         Ok(())
     }
 }
+
+/// 取走「打开方式」启动参数解析出的待打开文件（取后即清）。
+/// 前端挂载完成时调用一次；规避了 setup 阶段 emit 事件而前端尚未注册监听的竞态。
+#[tauri::command]
+pub fn take_pending_open_args(state: State<'_, AppState>) -> Vec<String> {
+    state.take_pending_open()
+}
