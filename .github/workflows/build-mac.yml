@@ -56,3 +56,15 @@ jobs:
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
+
+      - name: 规范资产名并上传到 Release（仅 tag 触发）
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          # 资产名统一 ASCII（中文文件名在部分上传链路会被吞，见 2026-09-27 日志）
+          ARCH=${{ matrix.target }}   # aarch64-apple-darwin / x86_64-apple-darwin
+          mv "$DIR"/*.dmg "$DIR/Mkdown_${VERSION}_${ARCH}.dmg"
+          gh release upload "${{ github.ref_name }}" --clobber "$DIR/Mkdown_${VERSION}_${ARCH}.dmg"
