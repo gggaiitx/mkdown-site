@@ -291,6 +291,7 @@ function closeWindow() {
 .tb-btn {
   position: relative;
   display: inline-flex; align-items: center; justify-content: center;
+  flex: none; /* 窗体变窄时保持原宽不压缩，文字按钮不被裁字 */
   height: 28px; min-width: 28px;
   border: none; background: transparent;
   color: var(--mk-fg);
@@ -344,7 +345,7 @@ function closeWindow() {
   to { transform: rotate(360deg); }
 }
 
-.mode-seg { display: inline-flex; gap: 2px; }
+.mode-seg { display: inline-flex; gap: 2px; flex: none; }
 
 /* 窗口控制：方角、宽热区，关闭悬停红（Windows 惯例） */
 .win-btn { border-radius: 0; width: 40px; height: 32px; }
