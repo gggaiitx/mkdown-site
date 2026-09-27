@@ -14,6 +14,9 @@ on:
 
 jobs:
   build-macos:
+    # gh release upload 需要 GITHUB_TOKEN 具备 Release 写权限（默认只读会 403）
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
