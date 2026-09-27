@@ -11,6 +11,7 @@ import {
 } from '@lucide/vue';
 
 import type { EditorMode, ThemeKind } from '../api/types';
+import { useEditorStore } from '../stores/editorStore';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
 import AppDialog from './AppDialog.vue';
 
@@ -42,6 +43,7 @@ const emit = defineEmits<{
 }>();
 
 // 更新检测：挂载时向 GitHub 查询最新 Release，与本地版本比较；点击后后台下载并提示重启
+const editor = useEditorStore();
 const {
   state: updateState,
   latestVersion,
@@ -78,7 +80,8 @@ const updateTip = computed(() => {
   }
 });
 
-/** 点击更新：有可用更新则后台下载；下载完成则弹出重启确认；其余情况跳转发布页 */
+/** 点击更新：有可用更新则后台下载；下载完成则弹出重启确认；
+ *  已是最新时右上角 toast 提示、不跳转；检查失败才兜底跳转发布页 */
 function onUpdateClick() {
   if (updateState.value === 'available' && downloadUrl.value) {
     if (downloadState.value === 'downloading') return; // 下载中：忽略
@@ -89,7 +92,11 @@ function onUpdateClick() {
     void startDownload();
     return;
   }
-  // 无更新 / 检查失败：打开 Release 发布页
+  if (updateState.value === 'uptodate') {
+    editor.showToast(`已是最新版本 v${currentVersion.value}`, 'info');
+    return;
+  }
+  // 检查失败等异常态：打开 Release 发布页
   emit('update', releaseUrl.value);
 }
 
