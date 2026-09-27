@@ -1,16 +1,18 @@
 <script setup lang="ts">
 /** 顶栏 = 标题栏 + 工具栏（对齐 DBX AppToolbar）：无品牌块，左侧功能按钮，右侧窗口控制 */
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, computed, watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   FolderOpen, Folder, FilePlus2, Save, SaveAll,
-  Pencil, Columns2, BookOpen, Search, FileCode2, Printer,
-  Sun, Moon, Settings, Minus, Plus, Type,
+  Pencil, Columns2, BookOpen,   Search, FileCode2, Printer,
+  Sun, Moon, Settings, Minus, Plus, Type, Download,
   PanelLeftOpen,
   Minus as WinMin, Square, Copy, X,
 } from '@lucide/vue';
 
 import type { EditorMode, ThemeKind } from '../api/types';
+import { useUpdateCheck } from '../composables/useUpdateCheck';
+import AppDialog from './AppDialog.vue';
 
 defineProps<{
   mode: EditorMode;
@@ -35,7 +37,71 @@ const emit = defineEmits<{
   (e: 'export-html'): void;
   (e: 'print-pdf'): void;
   (e: 'settings'): void;
+  (e: 'github'): void;
+  (e: 'update', url: string): void;
 }>();
+
+// 更新检测：挂载时向 GitHub 查询最新 Release，与本地版本比较；点击后后台下载并提示重启
+const {
+  state: updateState,
+  latestVersion,
+  currentVersion,
+  releaseUrl,
+  downloadUrl,
+  downloadState,
+  progress,
+  startDownload,
+  applyUpdate,
+} = useUpdateCheck();
+
+const showUpdateDialog = ref(false);
+
+const updateTip = computed(() => {
+  if (downloadState.value === 'downloading') {
+    const p = progress.value;
+    const pct = p && p.total > 0 ? Math.floor((p.downloaded / p.total) * 100) : null;
+    return pct === null ? '正在下载更新…' : `正在下载更新 ${pct}%`;
+  }
+  if (downloadState.value === 'downloaded') return '更新已下载，点击重启以应用';
+  if (downloadState.value === 'error') return '更新下载失败，点击前往发布页';
+  switch (updateState.value) {
+    case 'available':
+      return `发现新版本 v${latestVersion.value}，点击下载`;
+    case 'uptodate':
+      return `已是最新 v${currentVersion.value}`;
+    case 'checking':
+      return '正在检查更新…';
+    case 'error':
+      return '更新检查失败，点击前往发布页';
+    default:
+      return '检查更新';
+  }
+});
+
+/** 点击更新：有可用更新则后台下载；下载完成则弹出重启确认；其余情况跳转发布页 */
+function onUpdateClick() {
+  if (updateState.value === 'available' && downloadUrl.value) {
+    if (downloadState.value === 'downloading') return; // 下载中：忽略
+    if (downloadState.value === 'downloaded') {
+      showUpdateDialog.value = true; // 已下载：再次弹出重启确认
+      return;
+    }
+    void startDownload();
+    return;
+  }
+  // 无更新 / 检查失败：打开 Release 发布页
+  emit('update', releaseUrl.value);
+}
+
+async function onApplyConfirm() {
+  showUpdateDialog.value = false;
+  await applyUpdate(); // 进程将在此退出并重启
+}
+
+// 下载完成自动弹出重启确认
+watch(downloadState, (s) => {
+  if (s === 'downloaded') showUpdateDialog.value = true;
+});
 
 const modes: { key: EditorMode; label: string; hint: string; icon: unknown }[] = [
   { key: 'edit', label: '仅编辑', hint: 'Alt+E', icon: Pencil },
@@ -151,6 +217,41 @@ function closeWindow() {
     <button class="tb-btn tb-btn--icon" @click="emit('settings')" data-tip="设置与快捷键 (F1)">
       <Settings class="icon" />
     </button>
+    <a
+      class="tb-btn tb-btn--icon"
+      href="https://github.com/gggaiitx/mkdown-site"
+      target="_blank"
+      rel="noopener noreferrer"
+      data-tip="GitHub 仓库"
+      @click.prevent="emit('github')"
+    >
+      <svg class="icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+      </svg>
+    </a>
+    <button
+      class="tb-btn tb-btn--icon"
+      :class="{ 'tb-btn--active': updateState === 'available' }"
+      :data-tip="updateTip"
+      @click="onUpdateClick"
+    >
+      <span v-if="downloadState === 'downloading'" class="spin" />
+      <Download v-else class="icon" />
+      <span
+        v-if="updateState === 'available' && downloadState !== 'downloading' && downloadState !== 'downloaded'"
+        class="update-dot"
+      />
+    </button>
+
+    <AppDialog
+      :visible="showUpdateDialog"
+      title="更新就绪"
+      :message="`新版本 v${latestVersion} 已下载完成，是否立即重启以应用更新？`"
+      confirm-text="立即更新"
+      cancel-text="稍后"
+      @confirm="onApplyConfirm"
+      @cancel="showUpdateDialog = false"
+    />
 
     <!-- 窗口控制 -->
     <div class="divider" />
@@ -197,6 +298,7 @@ function closeWindow() {
   cursor: pointer;
   white-space: nowrap;
   font-size: 11.5px;
+  text-decoration: none;
   transition: background-color 120ms ease, color 120ms ease;
 }
 /* 文字按钮：图标与文字同一色调（muted），hover 整体点亮，按钮内部不再双色混排 */
@@ -219,6 +321,27 @@ function closeWindow() {
   border-radius: 9999px;
   background: var(--mk-accent);
   transform: translateX(-50%);
+}
+
+/* 更新可用：右上角 accent 圆点提示 */
+.update-dot {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 6px; height: 6px;
+  border-radius: 9999px;
+  background: var(--mk-accent);
+}
+
+/* 下载中：加载转圈 */
+.spin {
+  width: 14px; height: 14px;
+  border: 2px solid var(--mk-border);
+  border-top-color: var(--mk-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .mode-seg { display: inline-flex; gap: 2px; }

@@ -114,6 +114,10 @@ pub fn run() -> tauri::Result<()> {
             commands::image_cmd::allow_asset_dir,
             // 导出
             commands::export_cmd::export_html,
+            // 更新检测
+            commands::update_cmd::check_update,
+            commands::update_cmd::download_update,
+            commands::update_cmd::apply_update,
             // 设置
             commands::settings_cmd::get_settings,
             commands::settings_cmd::set_settings,

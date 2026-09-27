@@ -34,6 +34,7 @@ import { useSearchStore } from '../stores/searchStore';
 
 import {
   openInSystem,
+  openUrl,
   pickOpenFile,
   pickWorkspaceDir,
   probePreviewKind,
@@ -57,6 +58,22 @@ const search = useSearchStore();
 const engineRef = ref<EngineHandle | null>(null);
 const activeDocPath = computed(() => tabs.activeTab?.path ?? null);
 const showSettings = ref(false);
+
+/** 顶栏 GitHub 入口：用系统默认浏览器打开仓库 */
+const GITHUB_URL = 'https://github.com/gggaiitx/mkdown-site';
+function openGithub() {
+  void openUrl(GITHUB_URL).catch(() => {
+    /* open_url 失败（无默认浏览器等）静默忽略，仓库链接已可手动复制 */
+  });
+}
+
+/** 顶栏「更新」入口：打开对应 Release 页（有更新时指向最新 Release，否则指向发布列表） */
+const GITHUB_RELEASES = 'https://github.com/gggaiitx/mkdown-site/releases';
+function openReleases(url: string) {
+  void openUrl(url || GITHUB_RELEASES).catch(() => {
+    /* 失败时静默忽略 */
+  });
+}
 /** 统一搜索面板（SearchHub）模式：'file' 文件内查找 / 'global' 全局搜索 */
 const hubMode = ref<'file' | 'global'>('file');
 /** 左侧工作区显示/隐藏（隐藏后经顶栏「展开侧边栏」恢复） */
@@ -763,6 +780,8 @@ watch(() => editor.mode, (m) => {
       @export-html="doExportHtml"
       @print-pdf="doPrintPdf"
       @settings="showSettings = true"
+      @github="openGithub"
+      @update="openReleases"
     />
 
     <div class="main">

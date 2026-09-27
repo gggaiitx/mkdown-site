@@ -9,6 +9,11 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
   },
+  // 预打包 Tauri API（含 @tauri-apps/api/app 的 getVersion），避免后续 HMR
+  // 发现新依赖时触发重新优化、改写 node_modules/.vite 触发 safe-delete 批量删除拦截
+  optimizeDeps: {
+    include: ['@tauri-apps/api', '@tauri-apps/api/app', '@tauri-apps/api/window', '@tauri-apps/api/core'],
+  },
   build: {
     target: 'chrome105',
     minify: 'esbuild',

@@ -60,6 +60,18 @@ impl From<std::io::Error> for AppError {
     }
 }
 
+impl From<reqwest::Error> for AppError {
+    fn from(e: reqwest::Error) -> Self {
+        AppError::Io(format!("网络请求失败: {e}"))
+    }
+}
+
+impl From<serde_json::Error> for AppError {
+    fn from(e: serde_json::Error) -> Self {
+        AppError::Encoding(format!("JSON 解析失败: {e}"))
+    }
+}
+
 pub type AppResult<T> = Result<T, AppError>;
 
 #[cfg(test)]
