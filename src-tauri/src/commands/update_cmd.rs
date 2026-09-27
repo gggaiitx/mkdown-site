@@ -3,7 +3,9 @@ use tauri::Emitter;
 
 use crate::error::{AppError, AppResult};
 
+/// camelCase：前端 UpdateApiResult 按 downloadUrl 读取，字段名必须对齐
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     /// 远端最新 Release 的 tag（可能含前导 v，如 "v0.2.0"），版本比较交给前端
     pub latest: String,

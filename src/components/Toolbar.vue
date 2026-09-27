@@ -330,7 +330,7 @@ function closeWindow() {
   top: 4px; right: 4px;
   width: 6px; height: 6px;
   border-radius: 9999px;
-  background: var(--mk-accent);
+  background: var(--mk-danger); /* 语义提示色：--mk-accent 是主按钮色，浅色主题下近黑，做提示点会发黑 */
 }
 
 /* 下载中：加载转圈 */

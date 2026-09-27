@@ -7,17 +7,18 @@ export type UpdateState = 'idle' | 'checking' | 'available' | 'uptodate' | 'erro
 export type DownloadState = 'idle' | 'downloading' | 'downloaded' | 'error';
 
 const RELEASES_PAGE = 'https://github.com/gggaiitx/mkdown-site/releases';
-const CACHE_KEY = 'mk_update_cache';
-// 6h 冷却：未鉴权 GitHub API 仅 60 次/小时，避免每次启动都打接口
-const COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
-interface Cache {
-  ts: number;
+/**
+ * 会话内检测结果备忘：仅在同一次运行中避免组件重挂载（如 HMR）重复请求，
+ * 不做跨会话持久化——长效缓存会让新发布的版本在冷却期内不可见（2026-09-27 实测踩坑）。
+ * 未鉴权 GitHub API 限额 60 次/小时，每次启动实时检测一次完全可以承受。
+ */
+interface SessionResult {
   latest: string;
   url: string;
   downloadUrl: string | null;
-  current: string;
 }
+let sessionResult: SessionResult | null = null;
 
 interface UpdateApiResult {
   latest: string;
@@ -63,33 +64,14 @@ export function useUpdateCheck() {
 
   let unlistenProgress: UnlistenFn | null = null;
 
-  function loadCache(): Cache | null {
-    try {
-      const raw = localStorage.getItem(CACHE_KEY);
-      return raw ? (JSON.parse(raw) as Cache) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function saveCache(c: Cache) {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(c));
-    } catch {
-      /* 缓存仅为优化，写入失败不影响功能 */
-    }
-  }
-
-  async function check(force = false) {
-    // 冷却期内直接用缓存结果，不再请求网络；但本地版本必须实时读取——
-    // 否则升级重启后，缓存里的旧 current 会让"有更新"红点错亮最多一个冷却周期
-    const cache = loadCache();
-    if (!force && cache && Date.now() - cache.ts < COOLDOWN_MS && cache.latest) {
+  /**
+   * 检测更新：每次应用启动实时请求一次 GitHub latest release。
+   * 同一会话内已有结果时直接复用（组件重挂载不重复请求）。
+   */
+  async function check() {
+    if (sessionResult) {
       currentVersion.value = await getVersion();
-      latestVersion.value = cache.latest;
-      releaseUrl.value = cache.url || RELEASES_PAGE;
-      downloadUrl.value = cache.downloadUrl ?? null;
-      state.value = compareVersion(cache.latest, currentVersion.value) > 0 ? 'available' : 'uptodate';
+      applyResult(sessionResult, currentVersion.value);
       return;
     }
 
@@ -97,22 +79,24 @@ export function useUpdateCheck() {
     try {
       currentVersion.value = await getVersion();
       const info = await call<UpdateApiResult>('check_update', {});
-      latestVersion.value = normalize(info.latest);
-      releaseUrl.value = info.url || RELEASES_PAGE;
-      downloadUrl.value = info.downloadUrl ?? null;
-      const isNewer = compareVersion(info.latest, currentVersion.value) > 0;
-      state.value = isNewer ? 'available' : 'uptodate';
-      saveCache({
-        ts: Date.now(),
-        latest: latestVersion.value,
-        url: releaseUrl.value,
-        downloadUrl: downloadUrl.value,
-        current: currentVersion.value,
-      });
+      sessionResult = {
+        latest: normalize(info.latest),
+        url: info.url || RELEASES_PAGE,
+        downloadUrl: info.downloadUrl ?? null,
+      };
+      applyResult(sessionResult, currentVersion.value);
     } catch {
       // 网络/鉴权失败时降级：保持可点击跳转发布页，不阻塞用户
       state.value = 'error';
     }
+  }
+
+  /** 用检测结果刷新各状态 ref */
+  function applyResult(r: SessionResult, current: string) {
+    latestVersion.value = r.latest;
+    releaseUrl.value = r.url;
+    downloadUrl.value = r.downloadUrl;
+    state.value = compareVersion(r.latest, current) > 0 ? 'available' : 'uptodate';
   }
 
   /** 后台下载安装包（带进度），完成时下载状态转为 downloaded */
