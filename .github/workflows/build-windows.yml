@@ -1,0 +1,59 @@
+# 码克 Windows 构建流水线
+# 产物：NSIS 安装包（x64），tag 触发时自动上传到同名 GitHub Release。
+# 说明：bundle.targets 里的 app/dmg 为 macOS 专属格式，Windows 侧用 --bundles nsis 显式限定。
+
+name: build-windows
+
+on:
+  workflow_dispatch: # 手动触发（可指定 ref 为某个 tag，补传历史版本安装包）
+  push:
+    tags:
+      - 'v*' # 打 v* 标签时自动构建
+
+jobs:
+  build-windows:
+    # gh release upload 需要 GITHUB_TOKEN 具备 Release 写权限（默认只读会 403）
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust 编译缓存
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建（NSIS 安装包）
+        run: npx tauri build --bundles nsis
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: makeke-windows-x64
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: 规范资产名并上传到 Release（仅 tag 触发）
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          DIR="src-tauri/target/release/bundle/nsis"
+          # 资产名统一 ASCII（productName 为中文，默认安装包名含中文在部分上传链路会被吞，见 2026-09-27 日志）
+          mv "$DIR"/*-setup.exe "$DIR/Mkdown_${VERSION}_x64-setup.exe"
+          gh release upload "${{ github.ref_name }}" --clobber "$DIR/Mkdown_${VERSION}_x64-setup.exe"
