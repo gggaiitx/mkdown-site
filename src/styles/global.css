@@ -3,6 +3,9 @@
 
 :root {
   --mk-font-size: 15px;
+  /* 编辑态（CodeMirror 窗格）正文：亮色与预览 default 主题一致（#3f4a54），
+     暗色在 #999（过暗）与 rgb(232,233,238)（过亮）之间取中档 */
+  --mk-editor-fg: rgb(63 74 84);
 
   /* 亮色（对齐 DBX :root） */
   --mk-bg: rgb(255 255 255);            /* content 背景 */
@@ -52,6 +55,7 @@
   --mk-ol-4: rgb(82 82 82);
   --mk-tip-bg: rgb(238 238 240);        /* 气泡提示：暗色主题反转为浅底 */
   --mk-tip-fg: rgb(28 28 30);
+  --mk-editor-fg: rgb(196 201 210);     /* 编辑态正文：中档亮度（亮 #3f4a54 / 暗 #e8e9ee 均被否） */
 }
 
 * {

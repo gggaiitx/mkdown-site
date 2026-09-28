@@ -117,6 +117,9 @@ const modes: { key: EditorMode; label: string; hint: string; icon: unknown }[] =
 ];
 
 // ---- 窗口控制（decorations=false，本栏即标题栏） ----
+// macOS：走 tauri.macos.conf.json 的原生红绿灯（titleBarStyle Overlay，左上角），
+// 隐藏右侧自绘三键并预留左上空间；Windows/Linux 维持自绘三键不变
+const isMac = /Mac/i.test(navigator.platform) || navigator.userAgent.includes('Macintosh');
 const win = getCurrentWindow();
 const isMaximized = ref(false);
 let unlistenResized: (() => void) | null = null;
@@ -139,7 +142,11 @@ function closeWindow() {
 </script>
 
 <template>
-  <header class="toolbar" data-tauri-drag-region>
+  <header class="toolbar" data-tauri-drag-region :class="{ 'is-mac': isMac }">
+    <!-- macOS 原生红绿灯占位（titleBarStyle Overlay 绘制在左上，此区域仅留白+可拖拽） -->
+    <div v-if="isMac" class="traffic-pad" data-tauri-drag-region />
+    <!-- 左侧功能区：deep 拖动区（子树内空白处可拖动/双击最大化，按钮自动阻断），为右侧窗口控制让位 -->
+    <div class="tb-main" data-tauri-drag-region="deep">
     <!-- 侧边栏隐藏时提供恢复入口 -->
     <button
       v-if="sidebarHidden"
@@ -153,7 +160,7 @@ function closeWindow() {
       <FolderOpen class="icon" />
       <span class="label">打开文件</span>
     </button>
-    <button class="tb-btn tb-btn--text" @click="emit('open-workspace')" data-tip="打开文件夹作为工作区">
+    <button class="tb-btn tb-btn--text tb-open-ws" @click="emit('open-workspace')" data-tip="打开文件夹作为工作区">
       <Folder class="icon" />
       <span class="label">打开工作区</span>
     </button>
@@ -168,7 +175,7 @@ function closeWindow() {
       <Save class="icon" />
       <span class="label">保存</span>
     </button>
-    <button class="tb-btn tb-btn--text" :disabled="!hasActive" @click="emit('save-as')" data-tip="另存为">
+    <button class="tb-btn tb-btn--text tb-save-as" :disabled="!hasActive" @click="emit('save-as')" data-tip="另存为">
       <SaveAll class="icon" />
       <span class="label">另存为</span>
     </button>
@@ -205,15 +212,17 @@ function closeWindow() {
 
     <div class="divider" />
 
-    <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" data-tip="减小字号（编辑与阅读全局生效）">
-      <Minus class="icon icon-sm" />
-    </button>
-    <button class="tb-btn tb-btn--icon" data-tip="字号" disabled>
-      <Type class="icon icon-sm" />
-    </button>
-    <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" data-tip="增大字号（编辑与阅读全局生效）">
-      <Plus class="icon icon-sm" />
-    </button>
+    <div class="font-seg">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" data-tip="减小字号（编辑与阅读全局生效）">
+        <Minus class="icon icon-sm" />
+      </button>
+      <button class="tb-btn tb-btn--icon tb-font-type" data-tip="字号" disabled>
+        <Type class="icon icon-sm" />
+      </button>
+      <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" data-tip="增大字号（编辑与阅读全局生效）">
+        <Plus class="icon icon-sm" />
+      </button>
+    </div>
 
     <div class="divider" />
 
@@ -225,7 +234,7 @@ function closeWindow() {
       <Settings class="icon" />
     </button>
     <a
-      class="tb-btn tb-btn--icon"
+      class="tb-btn tb-btn--icon tb-github"
       href="https://github.com/gggaiitx/mkdown-site"
       target="_blank"
       rel="noopener noreferrer"
@@ -250,6 +259,8 @@ function closeWindow() {
       />
     </button>
 
+    </div><!-- /tb-main -->
+
     <AppDialog
       :visible="showUpdateDialog"
       title="更新就绪"
@@ -260,18 +271,20 @@ function closeWindow() {
       @cancel="showUpdateDialog = false"
     />
 
-    <!-- 窗口控制 -->
-    <div class="divider" />
-    <button class="tb-btn tb-btn--icon win-btn" data-tip="最小化" @click="minimize">
-      <WinMin class="icon icon-sm" />
-    </button>
-    <button class="tb-btn tb-btn--icon win-btn" :data-tip="isMaximized ? '还原' : '最大化'" @click="toggleMaximize">
-      <Copy v-if="isMaximized" class="icon icon-sm" />
-      <Square v-else class="icon icon-sm" />
-    </button>
-    <button class="tb-btn tb-btn--icon win-btn win-btn--close" data-tip="关闭" @click="closeWindow">
-      <X class="icon icon-sm" />
-    </button>
+    <!-- 窗口控制：macOS 由系统红绿灯接管，不再自绘 -->
+    <template v-if="!isMac">
+      <div class="divider" />
+      <button class="tb-btn tb-btn--icon win-btn" data-tip="最小化" @click="minimize">
+        <WinMin class="icon icon-sm" />
+      </button>
+      <button class="tb-btn tb-btn--icon win-btn" :data-tip="isMaximized ? '还原' : '最大化'" @click="toggleMaximize">
+        <Copy v-if="isMaximized" class="icon icon-sm" />
+        <Square v-else class="icon icon-sm" />
+      </button>
+      <button class="tb-btn tb-btn--icon win-btn win-btn--close" data-tip="关闭" @click="closeWindow">
+        <X class="icon icon-sm" />
+      </button>
+    </template>
   </header>
 </template>
 
@@ -286,6 +299,18 @@ function closeWindow() {
   border-bottom: 1px solid var(--mk-border);
   flex: none;
   user-select: none;
+  /* 容器查询基准：按顶栏实际可用宽度（扣除侧边栏后）分级收纳功能区 */
+  container-type: inline-size;
+  overflow: hidden; /* 兜底：极端宽度下溢出内容不外泄 */
+}
+/* 左侧功能区：flex:1 + min-width:0，空间不足时先于窗口控制区收缩/裁剪 */
+.tb-main {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 .divider {
   width: 1px; height: 18px;
@@ -353,9 +378,40 @@ function closeWindow() {
 }
 
 .mode-seg { display: inline-flex; gap: 2px; flex: none; }
+.font-seg { display: inline-flex; gap: 2px; flex: none; }
 
-/* 窗口控制：方角、宽热区，关闭悬停红（Windows 惯例） */
-.win-btn { border-radius: 0; width: 40px; height: 32px; }
+/* 窗口控制：方角、宽热区，关闭悬停红（Windows 惯例）
+   flex:none 锚定右端，任何窗宽下不允许隐藏或压缩 */
+.win-btn { border-radius: 0; width: 36px; height: 32px; }
 .win-btn--close:hover:not(:disabled) { background: #e81123; }
 .win-btn--close:hover:not(:disabled) .icon { color: #fff; }
+
+/* macOS：原生红绿灯位于左上（trafficLightPosition x:12,y:14），
+   预留约 78px 留白避免功能区按钮压到红绿灯；右侧自绘三键已隐藏 */
+.toolbar.is-mac { padding-left: 0; }
+.traffic-pad { width: 78px; flex: none; align-self: stretch; }
+
+/* ---- 窄窗分级收纳（按 .toolbar 实际宽度，侧边栏占位自动计入）----
+   T1 ≤980px：文字按钮收成纯图标
+   T2 ≤720px：隐藏 GitHub、字号占位图标；分隔线收窄
+   T3 ≤600px：隐藏「打开工作区」「另存为」；间距进一步压缩
+   T4 ≤520px：隐藏字号调节组
+   窗口控制三键全程不参与收纳 */
+@container (max-width: 980px) {
+  .tb-btn--text .label { display: none; }
+  .tb-btn--text { padding: 0 4px; gap: 0; justify-content: center; }
+}
+@container (max-width: 720px) {
+  .tb-github, .tb-font-type { display: none; }
+  .divider { margin: 0 4px; }
+}
+@container (max-width: 600px) {
+  .toolbar, .tb-main { gap: 1px; }
+  .divider { margin: 0 2px; height: 14px; }
+  .tb-open-ws, .tb-save-as { display: none; }
+  .win-btn { width: 32px; }
+}
+@container (max-width: 520px) {
+  .font-seg { display: none; }
+}
 </style>

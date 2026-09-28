@@ -487,6 +487,15 @@ onBeforeUnmount(() => {
   font-size: var(--mk-font-size);
   line-height: 1.65;
 }
+/* ---- 编辑态文字亮度（编辑/分栏下的 CodeMirror 窗格）----
+   md-editor v7 的 CM 主题硬编码偏暗基色：亮色 #3f4a54、暗色 var(--md-color)=#999。
+   用独立 token --mk-editor-fg 校准：亮色对齐预览正文（#3f4a54），
+   暗色取中档 rgb(196,201,210)（#999 偏暗、rgb(232,233,238) 偏亮，两档均被否）。
+   仅作用于 .cm-editor 子树，md-editor 工具栏/目录等 chrome 不受影响。 */
+.engine-root :deep(.cm-editor) {
+  color: var(--mk-editor-fg, var(--mk-fg));
+  --md-color: var(--mk-editor-fg, var(--mk-fg));
+}
 .engine-root :deep(.cm-content) {
   font-family: Consolas, 'Cascadia Mono', 'Microsoft YaHei', monospace;
 }
