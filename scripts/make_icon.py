@@ -23,5 +23,5 @@ d.rounded_rectangle(
     [63 * K, 60 * K, 74 * K, 74 * K], radius=round(2.5 * K), fill=(55, 138, 221, 255)  # #378ADD
 )
 
-img.save("repro/app-icon.png")
+img.save("src-tauri/icons/app-icon-1024.png")
 print("ok", img.size)

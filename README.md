@@ -4,7 +4,7 @@
 >
 > 纯本地、离线优先、中文原生。文档、图片、配置全部落在本机磁盘，不上云、不登录、不联网。
 
-**下载安装**（Windows）：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases) 或[官网下载页](https://mkdown.opensites.net)获取 NSIS 安装包；安装器自带卸载程序（注册到系统「应用与功能」，卸载保留用户数据）。
+**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.3.0）或[官网下载页](https://mkdown.opensites.net)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
 
 ## 技术栈
 
@@ -22,7 +22,8 @@
 ### 编辑与阅读
 - **编辑 / 分屏 / 阅读** 三模式切换（分栏实时预览、滚动同步、沉浸阅读态）
 - **多标签页**，脏标记 ●，切换 / 关闭 / 退出均有未保存确认
-- **大纲面板**：随内容实时更新，点击跳转（编辑态 CodeMirror 定位 / 阅读态锚点滚动）
+- **大纲面板**：随内容实时更新，点击跳转（编辑态 CodeMirror 定位 / 阅读态锚点滚动）；左缘拖拽调宽（160–460px），拖到最右隐藏、拖动右缘边线复原
+- **会话快照**：重启后自动恢复上次的标签页与光标位置，未保存内容恢复后仍标记为未保存（不替用户写盘）
 - **模板库**：新建文档可套用「笔记 / 方案骨架」；**自动保存**（可开关，停顿后原子落盘）
 - **图表与公式**：Mermaid 流程图 + KaTeX 公式（内核按需懒加载）
 
@@ -68,14 +69,14 @@ npm run tauri build
 
 ### macOS 构建
 
-
+由 tag `v*` 触发 GitHub Actions（build-mac）云端构建，产出 Apple 芯片（`aarch64-apple-darwin`）与 Intel（`x86_64-apple-darwin`）双架构 dmg 并自动上传 Release。应用内「检查更新」在 macOS 上按当前架构选包：下载 dmg → `hdiutil` 挂载替换 → `xattr -cr` 清除隔离属性 → 自动重启。
 
 ## 目录结构（关键）
 
 ```
 src-tauri/src/
-  commands/        # 命令层（薄）：file/workspace/search/image/export/settings
-  services/        # 业务层（可单测）：fs原子写/编码/preview_kind、目录树、搜索、图片落盘、设置
+  commands/        # 命令层（薄）：file/workspace/search/image/export/settings/session
+  services/        # 业务层（可单测）：fs原子写/编码/preview_kind、目录树、搜索、图片落盘、设置、会话快照
   error.rs         # AppError：稳定错误码 {code, message} IPC 契约
   models.rs        # serde 结构体（camelCase 输出，与 src/api/types.ts 手工同步）
 src/
