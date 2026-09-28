@@ -19,4 +19,6 @@ export interface EngineHandle {
   highlight(keyword: string, caseSensitive?: boolean): void;
   /** 清除全部查找高亮 */
   clearHighlight(): void;
+  /** 导出 PDF：md-editor-v3 官方 ExportPDF 机制（window.print 只打印内嵌预览体）。三态通用。 */
+  exportPdf(): Promise<void>;
 }

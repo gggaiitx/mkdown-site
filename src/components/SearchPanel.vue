@@ -146,9 +146,10 @@ async function openHit(hit: SearchHit) {
 }
 .ipt:focus { border-color: var(--mk-accent); }
 .go {
-  border: 1px solid var(--mk-accent); background: var(--mk-accent); color: #fff;
-  border-radius: 6px; padding: 0 12px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--mk-accent); background: var(--mk-accent); color: var(--mk-accent-fg);
+  border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 600; cursor: pointer;
 }
+.go:hover { background: color-mix(in srgb, var(--mk-accent) 86%, var(--mk-accent-fg)); }
 .opts { display: flex; gap: 12px; padding: 4px 12px; font-size: 12px; color: var(--mk-fg-muted); }
 .opts label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .hint { padding: 6px 12px 0; font-size: 12px; color: var(--mk-fg-muted); margin: 0; }

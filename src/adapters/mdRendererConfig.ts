@@ -9,6 +9,11 @@
  */
 import { config } from 'md-editor-v3';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import mermaid from 'mermaid';
+import katex from 'katex';
+// v7 传 katex.instance 后不再注入 CDN 样式（index4.mjs 仅在无 instance 时注入），
+// 字体随包内 css 相对路径由 Vite 打进产物，CSP font-src 'self' 已放行
+import 'katex/dist/katex.min.css';
 
 import { mkFindExtension } from './findHighlight';
 
@@ -37,6 +42,16 @@ export function setupMdRenderer(): void {
   if (configured) return;
   configured = true;
   config({
+    // ---- mermaid / katex 本地实例：桌面离线渲染 ----
+    // v7 默认运行时从 unpkg.com CDN 加载渲染器（es/chunks/config.mjs 硬编码），
+    // 桌面应用离线即失效；instance 直传后内核跳过 CDN 注入。
+    // 版本锚定内核 CDN 同款：mermaid 11.17.2 / katex 0.18.5。
+    // 注意：config() 每次调用都是「默认值 deepMerge 传入项」，不累积——
+    // 所有自定义必须并入这一次调用，禁止在别处二次调用 config()。
+    editorExtensions: {
+      mermaid: { instance: mermaid },
+      katex: { instance: katex },
+    },
     markdownItConfig(md) {
       const defaultImage =
         md.renderer.rules.image ??

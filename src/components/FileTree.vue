@@ -483,7 +483,7 @@ watch(filteredTree, (nodes) => {
   border-radius: var(--mk-radius-sm);
   cursor: pointer;
 }
-.ws-remove:hover { border-color: var(--mk-danger, #A32D2D); color: #fff; background: var(--mk-danger, #A32D2D); }
+.ws-remove:hover { border-color: var(--mk-danger); color: var(--mk-danger-fg); background: var(--mk-danger); }
 .ws-remove-all { color: var(--mk-danger, #A32D2D); }
 .ws-remove-all .ws-item-name { color: var(--mk-danger, #A32D2D); }
 .ws-remove-all:hover { background: var(--mk-hover); }

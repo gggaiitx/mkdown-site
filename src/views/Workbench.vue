@@ -594,15 +594,16 @@ async function doExportHtml() {
 
 async function doPrintPdf() {
   if (tabs.activeIsPreview) {
-    editor.showToast('预览标签不支持打印', 'info');
+    editor.showToast('预览标签不支持打印，请切换到 Markdown 文档', 'info');
     return;
   }
-  if (!editor.previewHtml) {
-    editor.showToast('预览未就绪，请稍后重试', 'error');
-    return;
+  // 打印 PDF：引擎内官方 ExportPDF 的 trigger（window.print + 官方 @media print 裁剪，
+  // 打印范围 = #export-pdf-preview 导出预览体）。编辑/分栏/阅读三态通用。
+  try {
+    await engineRef.value?.exportPdf();
+  } catch (err) {
+    editor.showToast(`打印失败：${err instanceof Error ? err.message : String(err)}`, 'error');
   }
-  // WebView 打印路线（ADR：预览 HTML → WebView2 打印为 PDF），打印样式见 global.css
-  window.print();
 }
 
 // ---------- 快捷键 ----------
@@ -913,13 +914,6 @@ watch(() => editor.mode, (m) => {
 
     <!-- 全局浮动气泡提示（data-tip 委托） -->
     <FloatTip />
-
-    <!-- 打印宿主：仅打印时可见（导出 PDF 走 WebView 打印） -->
-    <div class="print-area">
-      <div class="md-editor-preview">
-        <div v-html="editor.previewHtml" />
-      </div>
-    </div>
   </div>
 </template>
 

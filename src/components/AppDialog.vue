@@ -89,9 +89,25 @@ function submit() {
 .ipt:focus { border-color: var(--mk-accent); }
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .btn {
+  min-width: 72px;
   border: 1px solid var(--mk-border); background: var(--mk-bg); color: var(--mk-fg);
-  border-radius: 6px; padding: 5px 14px; font-size: 13px; cursor: pointer;
+  border-radius: 6px; padding: 6px 16px; font-size: 13px; cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
 }
-.btn.primary { background: var(--mk-accent); border-color: var(--mk-accent); color: #fff; }
-.btn.danger { background: var(--mk-danger); border-color: var(--mk-danger); color: #fff; }
+.btn:hover { background: var(--mk-hover); border-color: var(--mk-border-strong); }
+.btn:active { background: var(--mk-active); }
+.btn:focus-visible { outline: 2px solid var(--mk-accent); outline-offset: 1px; }
+/* 主按钮文字用主题配对色 --mk-accent-fg：暗色主题 accent 是浅灰，硬编码 #fff 会白字压浅灰底（对比 ≈1.6:1 几乎不可读） */
+.btn.primary {
+  background: var(--mk-accent); border-color: var(--mk-accent); color: var(--mk-accent-fg);
+  font-weight: 600;
+}
+.btn.primary:hover { background: color-mix(in srgb, var(--mk-accent) 86%, var(--mk-accent-fg)); }
+.btn.primary:active { background: color-mix(in srgb, var(--mk-accent) 76%, var(--mk-accent-fg)); }
+.btn.danger {
+  background: var(--mk-danger); border-color: var(--mk-danger); color: var(--mk-danger-fg);
+  font-weight: 600;
+}
+.btn.danger:hover { background: color-mix(in srgb, var(--mk-danger) 86%, var(--mk-danger-fg)); }
+.btn.danger:active { background: color-mix(in srgb, var(--mk-danger) 76%, var(--mk-danger-fg)); }
 </style>

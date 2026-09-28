@@ -6,6 +6,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { MdEditor, MdPreview, type ToolbarNames } from 'md-editor-v3';
 import 'md-editor-v3/lib/style.css';
+// 官方导出 PDF 工具（@vavt/v3-extension），经包装层挂入 defToolbars 插槽
+import MdExportPdfTool from './MdExportPdfTool.vue';
 
 import { savePastedImage } from '../api/imageApi';
 import { openUrl } from '../api/fileApi';
@@ -61,11 +63,20 @@ watch(
   },
 );
 
-const toolbars: ToolbarNames[] = [
-  'bold', 'underline', 'italic', 'strikeThrough', '-',
+// 功能栏分组（v7 合法项全集 = keyof ToolbarTips，见 md-editor-v3/lib/types/index.d.ts）：
+// 文本格式 / 段落结构 / 插入元素 / 撤销恢复 / 保存·导出·全屏。
+// mermaid / katex 由 mdRendererConfig 以本地 instance 直传（离线可渲染），版本锚定内核 CDN 同款。
+// 数字 0 = defToolbars 插槽第 1 个子组件（官方 ExportPDF，经 MdExportPdfTool 包装）。
+// 刻意不放的项——功能已由应用层承担，放进来会出现双入口失同步：
+// - catalog：大纲由自建 OutlinePanel 承担；
+// - preview / htmlPreview：三模式由顶栏统一管理（引擎经 togglePreview 同步），
+//   功能栏内直切会脱离 tabsStore 的 mode 状态导致 UI 失同步；
+// - github：顶栏已有仓库入口。
+const toolbars: (ToolbarNames | number)[] = [
+  'bold', 'underline', 'italic', 'strikeThrough', 'sub', 'sup', '-',
   'title', 'quote', 'unorderedList', 'orderedList', 'task', '-',
-  'codeRow', 'code', 'link', 'image', 'table', '-',
-  'revoke', 'next', 'save', '=', 'pageFullscreen',
+  'codeRow', 'code', 'link', 'image', 'table', 'mermaid', 'katex', '-',
+  'revoke', 'next', 'save', 0, '=', 'pageFullscreen',
 ];
 
 // ---- 大纲提取（跳过代码块内的 # 行） ----
@@ -291,7 +302,40 @@ function insert(text: string): void {
   }));
 }
 
-defineExpose({ scrollToLine, insert, highlight, clearHighlight });
+defineExpose({ scrollToLine, insert, highlight, clearHighlight, exportPdf });
+
+// ---- 官方导出 PDF（@vavt/v3-extension ExportPDF，挂 defToolbars 插槽） ----
+// 组件内部 = 独立 MdPreview（id=export-pdf-preview，恒驻 DOM、弹窗未开也渲染）
+// + expose trigger() = window.print()，打印范围由其自带的 ExportPDF.css @media print 规则接管。
+// 必须经 MdExportPdfTool 包装层挂入插槽：v7 对插槽子组件强制 clone props 且错绑
+// theme/previewTheme/language（见包装层文件头注释）。
+// 顶栏"打印 PDF"也复用该实例的 trigger()，与功能栏导出走同一条打印链路。
+const exportContent = ref(props.modelValue);
+const exportPdfRef = ref<InstanceType<typeof MdExportPdfTool> | null>(null);
+
+// 内容快照节流：避免编辑态每次按键都触发第二个 MdPreview 全量渲染；
+// 打印瞬间强制同步最新值，等 MdPreview 内部渲染（renderDelay 默认 500ms）完成再触发打印
+let exportSyncTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => props.modelValue,
+  (v) => {
+    if (exportSyncTimer) clearTimeout(exportSyncTimer);
+    exportSyncTimer = setTimeout(() => {
+      exportContent.value = v;
+    }, 800);
+  },
+);
+
+/** 打印 PDF：同步最新内容 → 等渲染 → 官方 trigger（window.print）。三态通用。 */
+async function exportPdf(): Promise<void> {
+  exportContent.value = props.modelValue;
+  // renderDelay 500ms + 余量；mermaid/图片等异步资源的继续加载由打印对话框弹出前的空档兜底
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  if (!document.getElementById('export-pdf-preview')) {
+    throw new Error('导出预览体未就绪（export-pdf-preview 缺失）');
+  }
+  exportPdfRef.value?.trigger();
+}
 
 // ---- 光标跟踪（状态栏 L:C）：监听原生 selectionchange，经 rAF 节流后从 CM6 state 读取 ----
 interface CmViewLike {
@@ -425,7 +469,17 @@ onBeforeUnmount(() => {
       @on-save="(v: string) => emit('save', v)"
       @on-upload-img="handleUploadImg"
       @on-html-changed="onHtmlChanged"
-    />
+    >
+      <!-- 官方导出 PDF（@vavt/v3-extension）：插槽第 1 个子组件，对应 toolbars 里的数字 0。
+           经 MdExportPdfTool 包装隔离 v7 的插槽 props 强制覆盖；弹窗 Teleport 到 body 直下，
+           打印样式由其自带的 ExportPDF.css 接管（组件内 MdPreview 恒驻 DOM，弹窗未开也渲染） -->
+      <template #defToolbars>
+        <MdExportPdfTool
+          ref="exportPdfRef"
+          :model-value="exportContent"
+        />
+      </template>
+    </MdEditor>
   </div>
 </template>
 
@@ -506,6 +560,24 @@ onBeforeUnmount(() => {
 .engine-root :deep(.markdown-body) {
   font-size: var(--mk-font-size) !important;
 }
+/* ---- 功能栏视觉对齐：底色/边线对齐应用 chrome，图标色与 hover 语言同顶栏 ----
+   md-editor v7 默认：图标 --md-color（亮 #3f4a54 / 暗 #999）、hover 底 --md-bk-color-outstand，
+   与应用 token 体系脱节；这里逐项映射到 --mk-*，主题切换自动跟随 */
+.engine-root :deep(.md-editor-toolbar-wrapper) {
+  padding-block: 2px;
+  background-color: var(--mk-panel);
+  border-block-end-color: var(--mk-border);
+}
+.engine-root :deep(.md-editor-toolbar-item) {
+  color: var(--mk-fg-muted);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.engine-root :deep(.md-editor-toolbar-item:not([disabled]):hover),
+.engine-root :deep(.md-editor-toolbar-item.md-editor-toolbar-active) {
+  color: var(--mk-fg);
+  background-color: var(--mk-hover);
+}
+
 /* 暗色下的查找高亮底色（mark 在 .md-editor[data-theme] 子树内可继承该变量） */
 .engine-root :deep(.md-editor[data-theme='dark']) {
   --mk-find-bg: rgba(255, 183, 77, 0.38);

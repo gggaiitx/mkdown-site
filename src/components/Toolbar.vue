@@ -58,6 +58,16 @@ const {
 
 const showUpdateDialog = ref(false);
 
+/** 下载进度百分比：总量已知时返回 0-100，未知（total=0）返回 null 走转圈兜底 */
+const downloadPct = computed<number | null>(() => {
+  if (downloadState.value !== 'downloading') return null;
+  const p = progress.value;
+  return p && p.total > 0 ? Math.min(100, Math.floor((p.downloaded / p.total) * 100)) : null;
+});
+
+/* 进度环几何：r=8 → 周长 2πr ≈ 50.27 */
+const RING_C = 50.27;
+
 const updateTip = computed(() => {
   if (downloadState.value === 'downloading') {
     const p = progress.value;
@@ -206,7 +216,7 @@ function closeWindow() {
     <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('export-html')" data-tip="导出 HTML">
       <FileCode2 class="icon" />
     </button>
-    <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('print-pdf')" data-tip="导出 PDF（WebView 打印）">
+    <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('print-pdf')" data-tip="打印 PDF（弹出打印对话框）">
       <Printer class="icon" />
     </button>
 
@@ -251,7 +261,27 @@ function closeWindow() {
       :data-tip="updateTip"
       @click="onUpdateClick"
     >
-      <span v-if="downloadState === 'downloading'" class="spin" />
+      <!-- 下载中：总量已知时进度环直接内嵌在更新图标位；未知总量退回转圈 -->
+      <svg
+        v-if="downloadPct !== null"
+        class="update-ring"
+        viewBox="0 0 20 20"
+        role="progressbar"
+        :aria-valuenow="downloadPct"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <circle class="ring-bg" cx="10" cy="10" r="8" />
+        <circle
+          class="ring-fg"
+          cx="10"
+          cy="10"
+          r="8"
+          :stroke-dasharray="RING_C"
+          :stroke-dashoffset="RING_C * (1 - downloadPct / 100)"
+        />
+      </svg>
+      <span v-else-if="downloadState === 'downloading'" class="spin" />
       <Download v-else class="icon" />
       <span
         v-if="updateState === 'available' && downloadState !== 'downloading' && downloadState !== 'downloaded'"
@@ -365,7 +395,7 @@ function closeWindow() {
   background: var(--mk-danger); /* 语义提示色：--mk-accent 是主按钮色，浅色主题下近黑，做提示点会发黑 */
 }
 
-/* 下载中：加载转圈 */
+/* 下载中：加载转圈（总量未知时的兜底） */
 .spin {
   width: 14px; height: 14px;
   border: 2px solid var(--mk-border);
@@ -375,6 +405,22 @@ function closeWindow() {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* 下载进度环：内嵌更新图标位，随 update-progress 事件实时推进 */
+.update-ring {
+  width: 16px; height: 16px;
+  transform: rotate(-90deg); /* 进度从顶部 12 点方向起始 */
+}
+.update-ring circle {
+  fill: none;
+  stroke-width: 2.5;
+}
+.update-ring .ring-bg { stroke: var(--mk-border); }
+.update-ring .ring-fg {
+  stroke: var(--mk-accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 200ms ease;
 }
 
 .mode-seg { display: inline-flex; gap: 2px; flex: none; }
