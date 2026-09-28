@@ -23,6 +23,16 @@ function hide() {
   st.on = false;
 }
 
+/** 箭头水平安全区：气泡圆角 6px——箭头踩进圆角缺口会视觉悬空（残缺/分离感），钳制必须避开 */
+const TIP_RADIUS = 6;
+/** 箭头 x 钳制：[axMin, axMax]；气泡太窄容不下安全区时返回 null（调用方退居中） */
+function clampArrowX(ax: number, bw: number): number | null {
+  const min = 10 + TIP_RADIUS;
+  const max = bw - 10 - TIP_RADIUS;
+  if (max < min + 10) return null;
+  return Math.min(Math.max(min, ax), max);
+}
+
 async function showFor(el: Element) {
   const text = el.getAttribute('data-tip') ?? '';
   if (!text) { hide(); return; }
@@ -53,13 +63,12 @@ async function showFor(el: Element) {
     }
     bx = Math.min(Math.max(8, bx), window.innerWidth - bw - 8);
     by = Math.min(Math.max(8, by), window.innerHeight - bh - 8);
-    // 箭头水平位置：跟随宿主中心（光标模式跟随光标），钳制在气泡内（左右留 10px）
+    // 箭头水平位置：跟随宿主中心（光标模式跟随光标），钳制在气泡内并避开两端圆角缺口
     const anchorX = followCursor ? mx : rightAlign ? r.right - 12 : r.left + r.width / 2;
-    let ax = anchorX - bx;
-    ax = Math.min(Math.max(10, ax), bw - 10);
+    const clamped = clampArrowX(anchorX - bx, bw);
+    st.ax = clamped ?? bw / 2;
     st.x = bx;
     st.y = by;
-    st.ax = ax;
     st.on = true;
   }, 450);
 }
@@ -92,7 +101,7 @@ function onMove(e: MouseEvent) {
     let by = Math.min(Math.max(8, my + 18), window.innerHeight - bh - 8);
     st.x = bx;
     st.y = by;
-    st.ax = Math.min(Math.max(10, mx - bx), bw - 10);
+    st.ax = clampArrowX(mx - bx, bw) ?? bw / 2;
   }
 }
 function onDown() { hide(); }

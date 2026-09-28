@@ -13,6 +13,7 @@ import {
 import type { EditorMode, ThemeKind } from '../api/types';
 import { useEditorStore } from '../stores/editorStore';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
+import { flushSessionSnapshot } from '../utils/sessionSnapshot';
 import AppDialog from './AppDialog.vue';
 
 defineProps<{
@@ -112,6 +113,8 @@ function onUpdateClick() {
 
 async function onApplyConfirm() {
   showUpdateDialog.value = false;
+  // 退出前固化会话（含未保存草稿），重启后由会话恢复流程还原
+  await flushSessionSnapshot();
   await applyUpdate(); // 进程将在此退出并重启
 }
 

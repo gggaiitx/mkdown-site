@@ -5,3 +5,4 @@ pub mod search_cache;
 pub mod search_service;
 pub mod settings_service;
 pub mod workspace_service;
+pub mod session_service;

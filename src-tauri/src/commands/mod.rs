@@ -5,3 +5,4 @@ pub mod image_cmd;
 pub mod search_cmd;
 pub mod settings_cmd;
 pub mod workspace_cmd;
+pub mod session_cmd;

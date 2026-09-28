@@ -121,6 +121,12 @@ export const useTabsStore = defineStore('tabs', {
       this.activeId = tab.id;
       return tab;
     },
+    /** 会话恢复专用：直接注入构造好的标签（启动时 tabs 为空，不做去重；id 由 store 重新生成） */
+    addRestored(tab: Omit<DocumentTab, 'id'>): DocumentTab {
+      const restored: DocumentTab = { ...tab, id: nextId() };
+      this.tabs.push(restored);
+      return restored;
+    },
     newUntitled(templateContent: string, mode: EditorMode): DocumentTab {
       const tab: DocumentTab = {
         id: nextId(),

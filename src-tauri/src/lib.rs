@@ -121,6 +121,9 @@ pub fn run() -> tauri::Result<()> {
             // 设置
             commands::settings_cmd::get_settings,
             commands::settings_cmd::set_settings,
+            // 会话快照（标签页 + 未保存草稿，更新重启/崩溃恢复）
+            commands::session_cmd::get_session,
+            commands::session_cmd::set_session,
         ])
         .run(tauri::generate_context!())
 }

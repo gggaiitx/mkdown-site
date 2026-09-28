@@ -24,6 +24,12 @@ import ImagePreview from '../components/preview/ImagePreview.vue';
 import HtmlFrame from '../components/preview/HtmlFrame.vue';
 import { MdEditorV3Engine, type EngineHandle } from '../adapters';
 import { formatMarkdown } from '../utils/mdFormat';
+import {
+  hydrateSession,
+  applyActiveTabMode,
+  startSessionSnapshot,
+  flushSessionSnapshot,
+} from '../utils/sessionSnapshot';
 import type { OutlineItem } from '../stores/editorStore';
 
 import { useSettingsStore } from '../stores/settingsStore';
@@ -673,6 +679,8 @@ async function confirmCloseWindow(action: 'discard' | 'cancel') {
     return;
   }
   forceClose = true;
+  // 用户已明确放弃脏草稿：快照剔除脏页后再落盘，防止"已放弃的内容"重启后还魂
+  await flushSessionSnapshot({ dropDirty: true });
   await getCurrentWebviewWindow().destroy();
 }
 
@@ -735,12 +743,28 @@ onMounted(async () => {
       editor.showToast('上次工作区不可用，可重新打开', 'info');
     }
   }
-  // 首次启动带文件路径：工作区就绪后再开，标签落位更自然
+  // 会话恢复（更新重启/崩溃后还原标签页与未保存草稿）：干净页读盘，脏页用快照草稿
+  try {
+    const hydrate = await hydrateSession();
+    if (hydrate.restored) {
+      applyActiveTabMode(hydrate.activeTab);
+      // 恢复活动文本标签的光标位置（预览标签无编辑器，跳过）
+      const at = hydrate.activeTab;
+      if (at && at.cursorLine > 1 && !tabs.activeIsPreview) {
+        void nextTick(() => engineRef.value?.scrollToLine(at.cursorLine));
+      }
+    }
+  } catch {
+    /* 会话恢复失败不致命 */
+  }
+  // 首次启动带文件路径：工作区就绪后再开，标签落位更自然（激活参数文件为活动标签）
   try {
     await openArgsFiles(await takePendingOpenArgs());
   } catch {
     /* 非 Tauri 环境忽略 */
   }
+  // 快照 watcher 最后启动：此后任何标签/内容变更都会防抖落盘
+  startSessionSnapshot();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true);
