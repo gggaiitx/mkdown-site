@@ -261,7 +261,7 @@ function closeWindow() {
       :data-tip="updateTip"
       @click="onUpdateClick"
     >
-      <!-- 下载中：总量已知时进度环直接内嵌在更新图标位；未知总量退回转圈 -->
+      <!-- 下载中：总量已知时进度环直接内嵌在更新图标位（环心显示百分比数字）；未知总量退回转圈 -->
       <svg
         v-if="downloadPct !== null"
         class="update-ring"
@@ -271,15 +271,21 @@ function closeWindow() {
         aria-valuemin="0"
         aria-valuemax="100"
       >
-        <circle class="ring-bg" cx="10" cy="10" r="8" />
-        <circle
-          class="ring-fg"
-          cx="10"
-          cy="10"
-          r="8"
-          :stroke-dasharray="RING_C"
-          :stroke-dashoffset="RING_C * (1 - downloadPct / 100)"
-        />
+        <!-- 旋转只作用于圆环（进度从 12 点方向起始）；环心数字不旋转 -->
+        <g transform="rotate(-90 10 10)">
+          <circle class="ring-bg" cx="10" cy="10" r="8" />
+          <circle
+            class="ring-fg"
+            cx="10"
+            cy="10"
+            r="8"
+            :stroke-dasharray="RING_C"
+            :stroke-dashoffset="RING_C * (1 - downloadPct / 100)"
+          />
+        </g>
+        <text class="ring-text" x="10" y="10.5" text-anchor="middle" dominant-baseline="central">
+          {{ Math.round(downloadPct) }}
+        </text>
       </svg>
       <span v-else-if="downloadState === 'downloading'" class="spin" />
       <Download v-else class="icon" />
@@ -407,10 +413,9 @@ function closeWindow() {
   to { transform: rotate(360deg); }
 }
 
-/* 下载进度环：内嵌更新图标位，随 update-progress 事件实时推进 */
+/* 下载进度环：内嵌更新图标位，随 update-progress 事件实时推进；环心显示百分比数字 */
 .update-ring {
-  width: 16px; height: 16px;
-  transform: rotate(-90deg); /* 进度从顶部 12 点方向起始 */
+  width: 20px; height: 20px;
 }
 .update-ring circle {
   fill: none;
@@ -421,6 +426,14 @@ function closeWindow() {
   stroke: var(--mk-accent);
   stroke-linecap: round;
   transition: stroke-dashoffset 200ms ease;
+}
+/* 环心数字：只显示整数（% 由 tooltip 与环语义表达），三位数时缩小防溢出 */
+.update-ring .ring-text {
+  fill: var(--mk-fg);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  font-variant-numeric: tabular-nums;
 }
 
 .mode-seg { display: inline-flex; gap: 2px; flex: none; }
