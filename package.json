@@ -1,7 +1,7 @@
 {
   "name": "mkdown",
   "private": true,
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,6 @@
   "dependencies": {
     "@lucide/vue": "^1.17.0",
     "@tauri-apps/api": "^2",
-    "@vavt/v3-extension": "^6.0.0",
     "docx-preview": "^0.4.1",
     "katex": "^0.18.5",
     "md-editor-v3": "^7.0.0",

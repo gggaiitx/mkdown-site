@@ -6,8 +6,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { MdEditor, MdPreview, type ToolbarNames } from 'md-editor-v3';
 import 'md-editor-v3/lib/style.css';
-// 官方导出 PDF 工具（@vavt/v3-extension），经包装层挂入 defToolbars 插槽
-import MdExportPdfTool from './MdExportPdfTool.vue';
 
 import { savePastedImage } from '../api/imageApi';
 import { openUrl } from '../api/fileApi';
@@ -64,19 +62,20 @@ watch(
 );
 
 // 功能栏分组（v7 合法项全集 = keyof ToolbarTips，见 md-editor-v3/lib/types/index.d.ts）：
-// 文本格式 / 段落结构 / 插入元素 / 撤销恢复 / 保存·导出·全屏。
+// 文本格式 / 段落结构 / 插入元素 / 撤销恢复 / 保存·全屏。
 // mermaid / katex 由 mdRendererConfig 以本地 instance 直传（离线可渲染），版本锚定内核 CDN 同款。
-// 数字 0 = defToolbars 插槽第 1 个子组件（官方 ExportPDF，经 MdExportPdfTool 包装）。
 // 刻意不放的项——功能已由应用层承担，放进来会出现双入口失同步：
 // - catalog：大纲由自建 OutlinePanel 承担；
 // - preview / htmlPreview：三模式由顶栏统一管理（引擎经 togglePreview 同步），
 //   功能栏内直切会脱离 tabsStore 的 mode 状态导致 UI 失同步；
 // - github：顶栏已有仓库入口。
-const toolbars: (ToolbarNames | number)[] = [
+// - 导出 PDF：v7 官方 ExportPDF（@vavt/v3-extension）在本应用实测适配不佳，已撤除；
+//   导出/打印统一收在顶栏 Printer 按钮（自建打印宿主，见 exportPdf 段注释）。
+const toolbars: ToolbarNames[] = [
   'bold', 'underline', 'italic', 'strikeThrough', 'sub', 'sup', '-',
   'title', 'quote', 'unorderedList', 'orderedList', 'task', '-',
   'codeRow', 'code', 'link', 'image', 'table', 'mermaid', 'katex', '-',
-  'revoke', 'next', 'save', 0, '=', 'pageFullscreen',
+  'revoke', 'next', 'save', '=', 'pageFullscreen',
 ];
 
 // ---- 大纲提取（跳过代码块内的 # 行） ----
@@ -304,14 +303,14 @@ function insert(text: string): void {
 
 defineExpose({ scrollToLine, insert, highlight, clearHighlight, exportPdf });
 
-// ---- 官方导出 PDF（@vavt/v3-extension ExportPDF，挂 defToolbars 插槽） ----
-// 组件内部 = 独立 MdPreview（id=export-pdf-preview，恒驻 DOM、弹窗未开也渲染）
-// + expose trigger() = window.print()，打印范围由其自带的 ExportPDF.css @media print 规则接管。
-// 必须经 MdExportPdfTool 包装层挂入插槽：v7 对插槽子组件强制 clone props 且错绑
-// theme/previewTheme/language（见包装层文件头注释）。
-// 顶栏"打印 PDF"也复用该实例的 trigger()，与功能栏导出走同一条打印链路。
+// ---- 导出/打印 PDF（官方 ExportPDF 机制同构自建） ----
+// 机制同 md-editor-v3 官方 ExportPDF（@vavt/v3-extension）：独立 MdPreview
+// （id=export-pdf-preview，Teleport 到 body 直下、恒驻 DOM）+ window.print()，
+// 打印范围由本文件末尾非 scoped 样式的 @media print 规则接管（移植自官方 ExportPDF.css）。
+// 不直接挂官方组件的原因：① ModalToolbar 深依赖 MdEditor 的 provide 上下文，裸放会渲染崩溃；
+// ② 挂 defToolbars 插槽时 v7 强制 clone props 且错绑 theme/previewTheme/language，
+//    需额外包装层隔离，实测适配链路脆弱。导出功能收在顶栏 Printer 单一入口。
 const exportContent = ref(props.modelValue);
-const exportPdfRef = ref<InstanceType<typeof MdExportPdfTool> | null>(null);
 
 // 内容快照节流：避免编辑态每次按键都触发第二个 MdPreview 全量渲染；
 // 打印瞬间强制同步最新值，等 MdPreview 内部渲染（renderDelay 默认 500ms）完成再触发打印
@@ -326,7 +325,7 @@ watch(
   },
 );
 
-/** 打印 PDF：同步最新内容 → 等渲染 → 官方 trigger（window.print）。三态通用。 */
+/** 打印 PDF：同步最新内容 → 等渲染 → window.print。三态通用。 */
 async function exportPdf(): Promise<void> {
   exportContent.value = props.modelValue;
   // renderDelay 500ms + 余量；mermaid/图片等异步资源的继续加载由打印对话框弹出前的空档兜底
@@ -334,7 +333,7 @@ async function exportPdf(): Promise<void> {
   if (!document.getElementById('export-pdf-preview')) {
     throw new Error('导出预览体未就绪（export-pdf-preview 缺失）');
   }
-  exportPdfRef.value?.trigger();
+  window.print();
 }
 
 // ---- 光标跟踪（状态栏 L:C）：监听原生 selectionchange，经 rAF 节流后从 CM6 state 读取 ----
@@ -469,17 +468,20 @@ onBeforeUnmount(() => {
       @on-save="(v: string) => emit('save', v)"
       @on-upload-img="handleUploadImg"
       @on-html-changed="onHtmlChanged"
-    >
-      <!-- 官方导出 PDF（@vavt/v3-extension）：插槽第 1 个子组件，对应 toolbars 里的数字 0。
-           经 MdExportPdfTool 包装隔离 v7 的插槽 props 强制覆盖；弹窗 Teleport 到 body 直下，
-           打印样式由其自带的 ExportPDF.css 接管（组件内 MdPreview 恒驻 DOM，弹窗未开也渲染） -->
-      <template #defToolbars>
-        <MdExportPdfTool
-          ref="exportPdfRef"
+    />
+    <!-- 导出/打印 PDF 宿主（官方 ExportPDF 机制同构）：Teleport 到 body 直下，
+         屏幕上隐藏，打印时由文件末尾 @media print 规则（移植自官方 ExportPDF.css）单独显示。
+         theme 恒 light：打印产物固定白底黑字，不跟随应用暗色主题 -->
+    <Teleport to="body">
+      <div class="mk-export-host" aria-hidden="true">
+        <MdPreview
+          id="export-pdf-preview"
           :model-value="exportContent"
+          theme="light"
+          :preview-theme="previewTheme"
         />
-      </template>
-    </MdEditor>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -592,5 +594,29 @@ mark.mk-pv-find {
   color: inherit;
   border-radius: 2px;
   padding: 0;
+}
+
+/* ---- 导出/打印 PDF（@media print 规则移植自 md-editor-v3 官方 ExportPDF.css） ----
+   机制同官方：打印时隐藏 body 直下所有节点，仅显示导出宿主（Teleport 到 body 直下）。
+   屏幕态宿主恒隐藏；打印态 !important 覆盖为可见。
+   与官方的差异仅在宿主类名链路：官方走 .md-editor-modal-container 弹窗长链，
+   此处宿主结构扁平，用 :not() 排除等价实现。 */
+.mk-export-host {
+  display: none;
+}
+@media print {
+  body {
+    margin: 0;
+  }
+  body > *:not(.mk-export-host) {
+    display: none !important;
+  }
+  .mk-export-host {
+    display: block !important;
+  }
+  /* 代码块打印时自动换行（官方同款规则） */
+  .mk-export-host .md-editor-code pre code .md-editor-code-block {
+    text-wrap: wrap;
+  }
 }
 </style>
