@@ -290,18 +290,86 @@ function clearHighlight(): void {
   highlight('');
 }
 
+/**
+ * 对外命令：在光标处插入 / 包裹选区 / 设标题 / 页面全屏（格式快捷键，见 Workbench.onKeydown）。
+ * v7 实例 expose 的 insert(generate) 中，generate 收到的是「选中文本字符串」；
+ * replaceSelectedText 的选区语义：anchor = 起点 + deviationStart，head = 起点 + 总长 + deviationEnd。
+ */
+type InsertParamLike = {
+  targetValue: string;
+  select?: boolean;
+  deviationStart?: number;
+  deviationEnd?: number;
+};
+type InsertApi = {
+  insert?: (generate: (selectedText: string) => InsertParamLike) => void;
+  togglePageFullscreen?: (status?: boolean) => void;
+};
+
 /** 在光标处插入文本（模板片段等） */
 function insert(text: string): void {
-  const inst = editorRef.value as unknown as { insert?: (g: (ctx: { selectedText: string }) => { targetValue: string; select: string; deviationStart: number; deviationEnd: number }) => void } | null;
-  inst?.insert?.(({ selectedText }) => ({
+  const inst = editorRef.value as unknown as InsertApi | null;
+  inst?.insert?.((selectedText) => ({
     targetValue: `${selectedText}${text}`,
-    select: '',
+    select: false,
     deviationStart: 0,
     deviationEnd: 0,
   }));
 }
 
-defineExpose({ scrollToLine, insert, highlight, clearHighlight, exportPdf });
+/** 用前后缀包裹当前选区（无选区时插入 placeholder）：加粗/斜体/链接/图片占位/代码块共用 */
+function wrapSelection(prefix: string, suffix: string, placeholder = ''): void {
+  const inst = editorRef.value as unknown as InsertApi | null;
+  inst?.insert?.((selectedText) => {
+    const inner = selectedText || placeholder;
+    return {
+      targetValue: `${prefix}${inner}${suffix}`,
+      select: true,
+      deviationStart: prefix.length, // 选区起点 = 前缀之后
+      deviationEnd: -suffix.length, // 选区终点 = 总长扣掉后缀
+    };
+  });
+}
+
+/** setHeading 用的 CM6 视图最小接口（dispatch 纯对象 transaction，不引 codemirror 包） */
+interface CmHeadingView {
+  state: {
+    selection: { main: { from: number; to: number } };
+    doc: {
+      lineAt(pos: number): { number: number };
+      line(n: number): { from: number; to: number; text: string };
+    };
+  };
+  dispatch(spec: { changes: Array<{ from: number; to: number; insert: string }> }): void;
+}
+
+/** 为光标所在行（或选区覆盖各行）设置 N 级标题：剥旧前缀再加新前缀（幂等），行首语义正确 */
+function setHeading(level: number): void {
+  const inst = editorRef.value as unknown as EditorWithView | null;
+  const view = inst?.getEditorView?.() as unknown as CmHeadingView | null;
+  if (!view) return;
+  const sel = view.state.selection.main;
+  const startLine = view.state.doc.lineAt(Math.min(sel.from, sel.to)).number;
+  const endLine = view.state.doc.lineAt(Math.max(sel.from, sel.to)).number;
+  const prefix = `${'#'.repeat(Math.min(6, Math.max(1, level)))} `;
+  const changes: Array<{ from: number; to: number; insert: string }> = [];
+  for (let n = startLine; n <= endLine; n++) {
+    const line = view.state.doc.line(n);
+    const stripped = line.text.replace(/^#{1,6}\s*/, '');
+    if (line.text !== `${prefix}${stripped}`) {
+      changes.push({ from: line.from, to: line.to, insert: `${prefix}${stripped}` });
+    }
+  }
+  if (changes.length > 0) view.dispatch({ changes });
+}
+
+/** 切换编辑器页面内全屏（同工具栏 pageFullscreen 图标，F11 快捷键共用） */
+function togglePageFullscreen(): void {
+  const inst = editorRef.value as unknown as InsertApi | null;
+  inst?.togglePageFullscreen?.();
+}
+
+defineExpose({ scrollToLine, insert, wrapSelection, setHeading, togglePageFullscreen, highlight, clearHighlight, exportPdf });
 
 // ---- 导出/打印 PDF（官方 ExportPDF 机制同构自建） ----
 // 机制同 md-editor-v3 官方 ExportPDF（@vavt/v3-extension）：独立 MdPreview

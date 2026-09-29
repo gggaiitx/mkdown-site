@@ -15,6 +15,12 @@ export interface EngineHandle {
   scrollToLine(line: number, headingIndex?: number): void;
   /** 在光标处插入文本 */
   insert(text: string): void;
+  /** 用前后缀包裹当前选区（无选区时插入占位文本）：加粗/斜体/链接/图片占位/代码块等格式快捷键 */
+  wrapSelection(prefix: string, suffix: string, placeholder?: string): void;
+  /** 为光标所在行（或选区覆盖各行）设置 N 级标题（1~6，行首语义，幂等剥旧前缀） */
+  setHeading(level: number): void;
+  /** 切换编辑器页面内全屏（同工具栏 pageFullscreen 图标，F11 快捷键共用） */
+  togglePageFullscreen(): void;
   /** 文件内查找高亮：编辑/分栏态 CM6 装饰 + 阅读态预览 mark；空关键词 = 清除 */
   highlight(keyword: string, caseSensitive?: boolean): void;
   /** 清除全部查找高亮 */

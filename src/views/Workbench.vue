@@ -613,6 +613,53 @@ async function doPrintPdf() {
 }
 
 // ---------- 快捷键 ----------
+/** CM6 编辑器是否持有焦点（v7 内核 = .cm-editor.cm-focused；CM5 的 .CodeMirror-focused 类已不存在） */
+const isEditorFocused = () => !!document.querySelector('.cm-editor.cm-focused');
+
+/** 格式类快捷键可编辑前提：文本/HTML 标签 + 非阅读态（MdEditor 已挂载）；阅读态给出明确提示 */
+function engineEditable(): boolean {
+  if (!tabs.activeTab || tabs.activeIsPreview) return false;
+  if (editor.mode === 'read') {
+    editor.showToast('阅读模式不可编辑，Alt+E/W/R 可切换视图', 'info');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 格式类快捷键分发（返回 true = 事件已消费）。
+ * 焦点在编辑器内：Ctrl+B/I、Ctrl+1~6、Ctrl+Shift+C 由内核 keymap 原生处理——此时绝不能
+ * preventDefault（CM6 runHandlers 见 defaultPrevented 即跳过，拦了反而无响应），直接放行。
+ * 焦点在外：内核 keymap 只监听 CM 自身 DOM，按键会落空——由应用层接管，经引擎写入同一保存链路。
+ * 特例：Ctrl+K 内核无绑定（内核链接键是 Ctrl+L）；Ctrl+Shift+I 内核走上传弹窗——两者统一由应用层处理，
+ * 保证行为与设置面板说明一致。
+ */
+function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
+  const kernelBound =
+    (!e.shiftKey && (k === 'b' || k === 'i' || (k >= '1' && k <= '6'))) ||
+    (e.shiftKey && k === 'c');
+  if (kernelBound && isEditorFocused()) return false;
+
+  const wrap = (prefix: string, suffix: string, placeholder: string) => {
+    e.preventDefault();
+    if (engineEditable()) engineRef.value?.wrapSelection(prefix, suffix, placeholder);
+  };
+  if (!e.shiftKey) {
+    if (k === 'b') { wrap('**', '**', '加粗文本'); return true; }
+    if (k === 'i') { wrap('*', '*', '斜体文本'); return true; }
+    if (k === 'k') { wrap('[', '](https://)', '链接文本'); return true; }
+    if (k >= '1' && k <= '6') {
+      e.preventDefault();
+      if (engineEditable()) engineRef.value?.setHeading(Number(k));
+      return true;
+    }
+  } else {
+    if (k === 'c') { wrap('\n```\n', '\n```\n', '代码'); return true; }
+    if (k === 'i') { wrap('![', '](https://)', '图片描述'); return true; }
+  }
+  return false;
+}
+
 function onKeydown(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey;
   // 模式快捷键：Alt+E 编辑 / Alt+W 分栏 / Alt+R 阅读
@@ -627,13 +674,21 @@ function onKeydown(e: KeyboardEvent) {
     if (e.key === 'F1') {
       e.preventDefault();
       showSettings.value = !showSettings.value;
+      return;
+    }
+    if (e.key === 'F11') {
+      // 编辑器全屏（页面内全屏，同工具栏 pageFullscreen）：阻止 WebView 原生全屏
+      e.preventDefault();
+      if (engineEditable()) engineRef.value?.togglePageFullscreen();
+      return;
     }
     return;
   }
   const k = e.key.toLowerCase();
+  if (handleFormatShortcut(e, k)) return;
   if (k === 's') {
     // 编辑器内核已处理编辑态 Ctrl+S；这里兜底（阅读态/焦点在外时）
-    if (editor.mode !== 'edit' || !document.querySelector('.CodeMirror-focused')) {
+    if (editor.mode !== 'edit' || !isEditorFocused()) {
       e.preventDefault();
       void saveActive();
     }

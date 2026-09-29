@@ -4,7 +4,7 @@
 >
 > 纯本地、离线优先、中文原生。文档、图片、配置全部落在本机磁盘，不上云、不登录、不联网。
 
-**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.3.0）或[官网下载页](https://mkdown.opensites.net)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
+**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.3.1）或[官网下载页](https://mkdown.opensites.net)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
 
 ## 技术栈
 
@@ -45,8 +45,11 @@
 - **全局搜索**：工作区文件名 + 正文，正则 / 大小写 / 仅 .md 可选，结果高亮直达
 - **导出 HTML**（asset:// 自动还原相对路径）；**导出 PDF** 走 WebView 打印
 - **主题**：亮 / 暗切换 + 字号调节 + 预览主题；全应用统一深色 tooltip 气泡（JS 浮动定位，不受容器裁剪）
+- **设置面板**：标题栏可拖动；分「外观 / 编辑器 / 快捷键 / 关于」四组，版本号随构建自动同步（F1 呼出）
 - 设置持久化 `%APPDATA%\com.feizong.mkdown\settings.json`；启动自动恢复上次工作区
-- 快捷键：Ctrl+N/O/S/F/P、F1（设置与快捷键面板）、Ctrl+B/I/K、Ctrl+1~6 等
+- **快捷键**（编辑器内由内核处理，焦点在侧栏 / 预览等处由应用层接管，全焦点可用）：
+  Ctrl+N/O/S/F/P、Alt+E/W/R 三视图、F11 编辑器全屏、F1 设置面板；
+  格式类 Ctrl+B/I/K、Ctrl+1~6 标题、Ctrl+Shift+C 代码块 / I 图片 / F 美化（编辑/分栏态生效，阅读态有提示）
 
 ## 开发与构建
 
