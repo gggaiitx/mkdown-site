@@ -4,7 +4,7 @@
 >
 > 纯本地、离线优先、中文原生。文档、图片、配置全部落在本机磁盘，不上云、不登录、不联网。
 
-**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.3.2）或[官网下载页](https://mkdown.opensites.net)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
+**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.3.3）或[官网下载页](https://mkdown.opensites.net)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
 
 ## 技术栈
 
@@ -26,6 +26,7 @@
 - **会话快照**：重启后自动恢复上次的标签页与光标位置，未保存内容恢复后仍标记为未保存（不替用户写盘）
 - **模板库**：新建文档可套用「笔记 / 方案骨架」；**自动保存**（可开关，停顿后原子落盘）
 - **图表与公式**：Mermaid 流程图 + KaTeX 公式（内核按需懒加载）
+- **预览主题**：内置 default / github / vuepress / mk-cute / smart-blue / cyanosis 六主题，另含自建 **win** 主题（Windows 11 Fluent 风：系统蓝强调、Segoe UI 字体栈、卡片式代码块、可隐藏 mac 红绿灯）；打印 PDF 与预览同主题
 
 ### 文件与工作区
 - **多工作区**：左上角根目录名一键切换，最近列表（上限 10）自动去重，支持单项移除 / 全部移除（仅清列表不删文件）；切换前未保存文档确认

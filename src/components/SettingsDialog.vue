@@ -53,7 +53,19 @@ function patch(p: Partial<AppSettings>) {
   void settings.update(p);
 }
 
-const previewThemes = ['default', 'github', 'vuepress', 'mk-cute', 'smart-blue', 'cyanosis'];
+/**
+ * 预览主题可选项。内置 6 项来自 @vavt/markdown-theme；
+ * win 为本项目自建 Windows 11 Fluent 风主题（样式见 src/styles/win-theme.css）。
+ */
+const previewThemes: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'default · 默认' },
+  { value: 'github', label: 'github · GitHub' },
+  { value: 'vuepress', label: 'vuepress · Vue 文档' },
+  { value: 'mk-cute', label: 'mk-cute · 可爱' },
+  { value: 'smart-blue', label: 'smart-blue · 蓝调' },
+  { value: 'cyanosis', label: 'cyanosis · 掘金深蓝' },
+  { value: 'win', label: 'win · Windows 风' },
+];
 
 // ---- 面板拖拽（标题栏 pointer 事件；clamp 在视口内，标题栏至少留 48px 可抓回） ----
 const dialogRef = ref<HTMLElement | null>(null);
@@ -110,7 +122,7 @@ onBeforeUnmount(onDragEnd);
         <div class="row">
           <label>预览主题</label>
           <select :value="settings.settings.previewTheme" @change="patch({ previewTheme: ($event.target as HTMLSelectElement).value })">
-            <option v-for="t in previewThemes" :key="t" :value="t">{{ t }}</option>
+            <option v-for="t in previewThemes" :key="t.value" :value="t.value">{{ t.label }}</option>
           </select>
         </div>
         <div class="row">

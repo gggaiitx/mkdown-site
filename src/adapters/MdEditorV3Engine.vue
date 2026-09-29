@@ -6,6 +6,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { MdEditor, MdPreview, type ToolbarNames } from 'md-editor-v3';
 import 'md-editor-v3/lib/style.css';
+// 自建 win 预览主题（Windows 11 Fluent 风）；必须在 style.css 之后加载，
+// style.css 首行 @import 的 @vavt/markdown-theme 全量主题在其前，同特异性下本文件规则胜出
+import '../styles/win-theme.css';
 
 import { savePastedImage } from '../api/imageApi';
 import { openUrl } from '../api/fileApi';

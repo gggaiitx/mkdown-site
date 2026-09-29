@@ -1,0 +1,343 @@
+/**
+ * win —— 本项目自建预览主题（Windows 11 Fluent 风）。
+ *
+ * 设计语言：Fluent / Windows 11
+ * - 字体：Segoe UI Variable / Segoe UI + 微软雅黑；代码 Cascadia Code / Consolas
+ * - 强调色：浅色 #0067c0（Win11 系统蓝），暗色 #4cc2ff（Win11 暗色强调）
+ * - 版式：去圆角花哨、留白充分、发丝线分隔，卡片式代码块（8px 圆角）
+ *
+ * 机制：md-editor-v3 v7 预览主题 = 预览容器 class `${previewTheme}-theme`，
+ * 这里按 @vavt/markdown-theme 6.x 的约定书写：
+ * - 浅色变量：.md-editor div.win-theme
+ * - 暗色变量：.md-editor[data-theme=dark] div.win-theme（兼容 .md-editor-dark）
+ * - 模块覆盖：div.win-theme X（与内置主题同特异性，本文件在 style.css 之后加载即胜出）
+ */
+
+/* ================= 浅色 ================= */
+.md-editor div.win-theme {
+  /* 基础文字 */
+  --md-theme-color: #1d2430;
+  --md-theme-base-color: #1d2430;
+  --md-theme-title-color: #12233c;
+  --md-theme-bg-color: #ffffff;
+  --md-theme-bg-color-inset: #f2f5f9;
+
+  /* 强调与链接（Win11 系统蓝） */
+  --md-theme-link-color: #0067c0;
+  --md-theme-link-hover-color: #005ba1;
+
+  /* 加粗 / 斜体 / 删除线 */
+  --md-theme-strong-color: #12233c;
+  --md-theme-em-color: #33587f;
+  --md-theme-del-color: #9aa4b0;
+
+  /* 分隔线 */
+  --md-theme-border-color: #dfe5ec;
+  --md-theme-border-color-2: #ccd6e4;
+  --md-theme-border-color-reverse: #b8c2cf;
+  --md-theme-border-color-inset: #d0d9e3;
+
+  /* 标题（深海军蓝 + 发丝线） */
+  --md-theme-heading-color: #12233c;
+  --md-theme-heading-1-color: #12233c;
+  --md-theme-heading-1-border: 1px solid #e3e9f0;
+  --md-theme-heading-2-color: #12233c;
+  --md-theme-heading-2-border: 1px solid #e3e9f0;
+  --md-theme-heading-3-color: #1a2c47;
+  --md-theme-heading-4-color: #1a2c47;
+  --md-theme-heading-5-color: #2a3c55;
+  --md-theme-heading-6-color: #5b6b80;
+
+  /* 引用（左侧系统蓝竖条 + 浅蓝底） */
+  --md-theme-quote-color: #4a5666;
+  --md-theme-quote-border: 3px solid #0067c0;
+  --md-theme-quote-bg-color: #f2f7fc;
+  --md-theme-blockquote-color: #4a5666;
+  --md-theme-blockquote-bg-color: #f2f7fc;
+
+  /* 行内代码（Fluent 红调） */
+  --md-theme-code-color: #a4262c;
+  --md-theme-code-bg-color: #f0f3f8;
+  --md-theme-code-inline-color: #a4262c;
+  --md-theme-code-inline-bg-color: #f0f3f8;
+  --md-theme-code-inline-radius: 4px;
+
+  /* 代码块（卡片式，Win11 8px 圆角） */
+  --md-theme-code-block-color: #1d2430;
+  --md-theme-code-block-bg-color: #f6f8fb;
+  --md-theme-code-before-bg-color: #eef1f6;
+  --md-theme-code-block-radius: 8px;
+  --md-theme-code-line-number-color: #8a94a3;
+  --md-theme-code-line-highlight-bg-color: #fff3c2;
+  --md-theme-code-active-color: #0067c0;
+  --md-theme-code-copy-tips-color: #1d2430;
+  --md-theme-code-copy-tips-bg-color: #ffffff;
+
+  /* 表格（蓝灰表头 + 斑马纹） */
+  --md-theme-table-border-color: #dbe3ed;
+  --md-theme-table-thead-bg-color: #eef4fb;
+  --md-theme-table-th-color: #eef4fb;
+  --md-theme-table-tht-color: #12233c;
+  --md-theme-table-td-border-color: #dbe3ed;
+  --md-theme-table-tr-bg-color: #ffffff;
+  --md-theme-table-tr-nc-color: #f7fafd;
+  --md-theme-table-trh-color: #eef4fb;
+  --md-theme-table-stripe-color: #f7fafd;
+
+  /* 选区 / 划线标记 */
+  --md-theme-slct-title-color: #12233c;
+  --md-theme-slct-titlebg-color: rgba(0, 103, 192, 0.12);
+  --md-theme-slct-text-color: #a4262c;
+  --md-theme-slct-bg-color: rgba(0, 103, 192, 0.12);
+  --md-theme-slct-del-color: #999999;
+  --md-theme-slct-elbg-color: #e8edf4;
+  --md-theme-slct-codebg-color: #f7e8ea;
+  --md-theme-slct-prebg-color: rgba(0, 103, 192, 0.08);
+
+  /* 其他 */
+  --md-theme-image-bg-color: #ffffff;
+  --md-theme-color-hover: #eef4fb;
+  --md-theme-color-hover-inset: #e3ebf4;
+  --md-theme-color-reverse: #f2f5f9;
+  --md-theme-radius-s: 4px;
+  --md-theme-radius-m: 8px;
+
+  /* Fluent 字体栈 */
+  font-family:
+    'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system,
+    'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC',
+    sans-serif;
+  line-height: 1.75;
+  color: var(--md-theme-color);
+  word-break: break-word;
+}
+
+/* ================= 暗色（Win11 暗色面板） ================= */
+.md-editor[data-theme='dark'] div.win-theme,
+.md-editor-dark div.win-theme {
+  --md-theme-color: #d8dde5;
+  --md-theme-base-color: #d8dde5;
+  --md-theme-title-color: #e8eef6;
+  --md-theme-bg-color: #1f2329;
+  --md-theme-bg-color-inset: #2a2f37;
+
+  --md-theme-link-color: #4cc2ff;
+  --md-theme-link-hover-color: #7cd0ff;
+
+  --md-theme-strong-color: #eef3f9;
+  --md-theme-em-color: #9ecbff;
+  --md-theme-del-color: #6b7684;
+
+  --md-theme-border-color: #3a3f47;
+  --md-theme-border-color-2: #4a505a;
+  --md-theme-border-color-reverse: #555c66;
+  --md-theme-border-color-inset: #454c56;
+
+  --md-theme-heading-color: #e8eef6;
+  --md-theme-heading-1-color: #e8eef6;
+  --md-theme-heading-1-border: 1px solid #343a43;
+  --md-theme-heading-2-color: #e8eef6;
+  --md-theme-heading-2-border: 1px solid #343a43;
+  --md-theme-heading-3-color: #dbe6f3;
+  --md-theme-heading-4-color: #dbe6f3;
+  --md-theme-heading-5-color: #c3cfdd;
+  --md-theme-heading-6-color: #8a97a8;
+
+  --md-theme-quote-color: #a8b3c0;
+  --md-theme-quote-border: 3px solid #4cc2ff;
+  --md-theme-quote-bg-color: rgba(76, 194, 255, 0.08);
+  --md-theme-blockquote-color: #a8b3c0;
+  --md-theme-blockquote-bg-color: rgba(76, 194, 255, 0.08);
+
+  --md-theme-code-color: #ff8fa3;
+  --md-theme-code-bg-color: #2b3038;
+  --md-theme-code-inline-color: #ff8fa3;
+  --md-theme-code-inline-bg-color: #2b3038;
+  --md-theme-code-inline-radius: 4px;
+
+  --md-theme-code-block-color: #d8dde5;
+  --md-theme-code-block-bg-color: #262a31;
+  --md-theme-code-before-bg-color: #2b3038;
+  --md-theme-code-block-radius: 8px;
+  --md-theme-code-line-number-color: #6f7a88;
+  --md-theme-code-line-highlight-bg-color: rgba(255, 199, 116, 0.14);
+  --md-theme-code-active-color: #4cc2ff;
+  --md-theme-code-copy-tips-color: #d8dde5;
+  --md-theme-code-copy-tips-bg-color: #2b3038;
+
+  --md-theme-table-border-color: #3a414b;
+  --md-theme-table-thead-bg-color: #2b313a;
+  --md-theme-table-th-color: #2b313a;
+  --md-theme-table-tht-color: #dbe4f0;
+  --md-theme-table-td-border-color: #3a414b;
+  --md-theme-table-tr-bg-color: transparent;
+  --md-theme-table-tr-nc-color: #262b32;
+  --md-theme-table-trh-color: #2b323c;
+  --md-theme-table-stripe-color: #262b32;
+
+  --md-theme-slct-title-color: #e8eef6;
+  --md-theme-slct-titlebg-color: rgba(76, 194, 255, 0.18);
+  --md-theme-slct-text-color: #ff8fa3;
+  --md-theme-slct-bg-color: rgba(76, 194, 255, 0.18);
+  --md-theme-slct-del-color: #777777;
+  --md-theme-slct-elbg-color: #2b313a;
+  --md-theme-slct-codebg-color: #3a2b31;
+  --md-theme-slct-prebg-color: rgba(76, 194, 255, 0.1);
+
+  --md-theme-image-bg-color: #1f2329;
+  --md-theme-color-hover: #2b323c;
+  --md-theme-color-hover-inset: #343c47;
+  --md-theme-color-reverse: #2a2f37;
+}
+
+/* ================= 模块级精修（大气版式） ================= */
+
+/* 一级标题：大字号 + 底部发丝线留白 */
+div.win-theme h1 {
+  font-size: 1.85em;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding-bottom: 0.35em;
+  margin-top: 1.6em;
+}
+
+/* 二级标题：底部发丝线 + 呼吸留白 */
+div.win-theme h2 {
+  font-size: 1.42em;
+  font-weight: 700;
+  padding-bottom: 0.3em;
+  margin-top: 1.6em;
+}
+
+/* 三级标题：短竖条强调（Win11 列表分组样式） */
+div.win-theme h3 {
+  font-size: 1.2em;
+  font-weight: 600;
+  margin-top: 1.5em;
+}
+
+div.win-theme h4,
+div.win-theme h5 {
+  font-weight: 600;
+}
+
+div.win-theme h6 {
+  font-weight: 600;
+  color: var(--md-theme-heading-6-color);
+}
+
+/* 段落与列表：宽松行距 */
+div.win-theme p {
+  line-height: 1.8;
+  margin: 0.9em 0;
+}
+
+div.win-theme ul li,
+div.win-theme ol li {
+  line-height: 1.8;
+  margin: 0.35em 0;
+}
+
+/* 引用：卡片化（右圆角 + 纵向留白） */
+div.win-theme blockquote {
+  padding: 0.6em 1em;
+  border-radius: 0 6px 6px 0;
+  margin: 1em 0;
+}
+
+div.win-theme blockquote > p {
+  margin: 0.2em 0;
+}
+
+/* 链接：悬停下划线（带偏移，更精细） */
+div.win-theme a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 行内代码：字号加大一号（0.875em → 0.9375em，随应用字号设置缩放） */
+div.win-theme code {
+  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New',
+    monospace;
+  font-size: 0.9375em;
+  padding: 2px 5px;
+}
+
+/* 块级代码字号（用户指定 1.1475em） */
+div.win-theme .md-editor-code pre code {
+  font-size: 1.1475em;
+}
+
+/* win 风隐藏块级代码头部的 mac 红绿灯（.md-editor-code-flag 内 3 个圆点 span） */
+div.win-theme .md-editor-code .md-editor-code-head .md-editor-code-flag {
+  display: none;
+}
+
+/* win 风：折叠按钮 + 语言标签靠右，复制按钮钉在左上
+   （复制按钮绝对定位脱离 flex 流——否则它和折叠按钮同在动作区，无法分居两侧） */
+div.win-theme .md-editor-code .md-editor-code-head {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  column-gap: 14px;
+}
+
+div.win-theme .md-editor-code .md-editor-code-head .md-editor-copy-button {
+  position: absolute;
+  inset-inline-start: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+}
+
+/* 代码块：卡片圆角贯通（头 + 体） */
+div.win-theme .md-editor-code {
+  border-radius: var(--md-theme-code-block-radius);
+  box-shadow: 0 1px 3px rgba(18, 35, 60, 0.06);
+}
+
+.md-editor[data-theme='dark'] div.win-theme .md-editor-code,
+.md-editor-dark div.win-theme .md-editor-code {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+div.win-theme .md-editor-code pre {
+  border-end-start-radius: var(--md-theme-code-block-radius);
+  border-end-end-radius: var(--md-theme-code-block-radius);
+}
+
+div.win-theme .md-editor-code pre code {
+  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New',
+    monospace;
+}
+
+/* 表格：表头加重 + 单元格留白 + 斑马纹由变量接管 */
+div.win-theme table {
+  margin: 1.1em 0;
+  border-collapse: collapse;
+}
+
+div.win-theme table thead {
+  background-color: var(--md-theme-table-thead-bg-color);
+  color: var(--md-theme-table-tht-color);
+}
+
+div.win-theme table th,
+div.win-theme table td {
+  padding: 0.45em 0.9em;
+  line-height: 1.6;
+}
+
+div.win-theme table th {
+  font-weight: 600;
+}
+
+/* 图片：圆角卡片 */
+div.win-theme img {
+  border-radius: 6px;
+}
+
+/* 选区配色（对齐内置主题的做法） */
+div.win-theme ::selection {
+  background-color: var(--md-theme-slct-bg-color);
+}
