@@ -70,4 +70,7 @@ jobs:
           # 资产名统一 ASCII（中文文件名在部分上传链路会被吞，见 2026-09-27 日志）
           ARCH=${{ matrix.target }}   # aarch64-apple-darwin / x86_64-apple-darwin
           mv "$DIR"/*.dmg "$DIR/Mkdown_${VERSION}_${ARCH}.dmg"
+          # 兜底：Release 不存在则先创建（gh release upload 只能往已有 Release 传，缺建会 "release not found"，见 v0.3.1）
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
+            gh release create "${{ github.ref_name }}" --title "码克 MkDown ${{ github.ref_name }}" --notes "见提交历史与 README"
           gh release upload "${{ github.ref_name }}" --clobber "$DIR/Mkdown_${VERSION}_${ARCH}.dmg"
