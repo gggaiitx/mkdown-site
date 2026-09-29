@@ -7,7 +7,7 @@
  *
  * 当前文档目录由引擎通过 setCurrentDocDir 注入（sync watch，保证渲染前已更新）。
  */
-import { config } from 'md-editor-v3';
+import { config, zh_CN } from 'md-editor-v3';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import mermaid from 'mermaid';
 import katex from 'katex';
@@ -38,6 +38,41 @@ function toAssetUrl(src: string): string {
 
 let configured = false;
 
+/**
+ * 中文语言包覆盖：功能栏 hover 提示（原生 title）追加实际绑定的快捷键。
+ * 快捷键来源必须与实际行为严格同步——
+ * - 内核 CM6 keymap：Ctrl+B/I/U/1~6、Ctrl+Shift+C/S/U、Ctrl+Alt+C、Ctrl+Alt+Shift+T、Ctrl+Z/Y、Ctrl+S；
+ * - 应用层（Workbench.onKeydown）：Ctrl+K 链接、Ctrl+Shift+I 图片、F11 页面全屏（内核是 pageFullscreen）；
+ * - 不标注实际不可用的项（如 orderedList 的 Ctrl+O 被应用层「打开文件」抢占）。
+ * 语言包走 languageUserDefined 整体 deepMerge（内核内部合并基准是 en-US，必须 spread 完整 zh_CN，
+ * 否则未覆盖的顶层键会回退成英文）。
+ */
+const zhWithShortcuts = {
+  'zh-CN': {
+    ...zh_CN,
+    toolbarTips: {
+      ...zh_CN.toolbarTips,
+      bold: '加粗 Ctrl+B',
+      underline: '下划线 Ctrl+U',
+      italic: '斜体 Ctrl+I',
+      strikeThrough: '删除线 Ctrl+Shift+S',
+      title: '标题 Ctrl+1~6',
+      sup: '上标 Ctrl+↑',
+      sub: '下标 Ctrl+↓',
+      unorderedList: '无序列表 Ctrl+Shift+U',
+      codeRow: '行内代码 Ctrl+Alt+C',
+      code: '块级代码 Ctrl+Shift+C',
+      link: '链接 Ctrl+K',
+      image: '图片 Ctrl+Shift+I',
+      table: '表格 Ctrl+Alt+Shift+T',
+      revoke: '后退 Ctrl+Z',
+      next: '前进 Ctrl+Y',
+      save: '保存 Ctrl+S',
+      pageFullscreen: '页面全屏 F11',
+    },
+  },
+};
+
 export function setupMdRenderer(): void {
   if (configured) return;
   configured = true;
@@ -51,6 +86,10 @@ export function setupMdRenderer(): void {
     editorExtensions: {
       mermaid: { instance: mermaid },
       katex: { instance: katex },
+    },
+    // ---- 功能栏提示带快捷键（见 zhWithShortcuts 注释） ----
+    editorConfig: {
+      languageUserDefined: zhWithShortcuts,
     },
     markdownItConfig(md) {
       const defaultImage =
