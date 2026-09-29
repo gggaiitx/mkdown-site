@@ -424,20 +424,24 @@ watch(filteredTree, (nodes) => {
   min-width: 200px;
   max-width: 440px;
   flex: none;
+  /* 拖窄/拖到 0 时裁剪内容：头部工具与树不得溢出到中栏（同大纲面板 overflow:hidden），
+     否则图标会悬浮在标签栏上造成「工具栏错乱」 */
+  overflow: hidden;
 }
 .resizer {
   position: absolute;
-  right: -3px;
+  /* right:0 + 宽 5px：手柄整体落在容器内，避免被 overflow:hidden 裁掉一半热区 */
+  right: 0;
   top: 0;
   bottom: 0;
-  width: 6px;
+  width: 5px;
   cursor: col-resize;
   z-index: 5;
 }
 .resizer::after {
   content: '';
   position: absolute;
-  right: 2.5px;
+  right: 2px;
   top: 0;
   bottom: 0;
   width: 1px;
@@ -467,7 +471,8 @@ watch(filteredTree, (nodes) => {
 }
 .root-name {
   display: inline-flex; align-items: center; gap: 3px;
-  min-width: 0; max-width: calc(100% - 118px);
+  /* 弹性占位 + min-width:0：窄宽度时自身省略号让位，工具按钮组不被挤压重叠 */
+  flex: 1 1 0; min-width: 0;
   padding: 3px 6px; margin-left: -6px;
   border: none; background: transparent;
   font: inherit; color: inherit;
@@ -477,7 +482,7 @@ watch(filteredTree, (nodes) => {
 .root-name:hover { background: var(--mk-hover); color: var(--mk-fg); }
 .root-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-caret { flex: none; opacity: 0.7; }
-.tools { display: inline-flex; gap: 3px; }
+.tools { display: inline-flex; gap: 3px; flex: none; }
 .ws-menu {
   position: absolute;
   top: 36px; left: 8px; z-index: 30;
