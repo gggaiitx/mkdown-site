@@ -616,6 +616,13 @@ onBeforeUnmount(() => {
 .engine-root :deep(.md-editor-preview > *:first-child) {
   margin-top: 0;
 }
+/* 代码块头部栏（复制/折叠）层级钳制：内核给它的 z-index 会盖过应用浮层
+   （搜索面板 z-index 80），统一压回普通流——浮层永远在上 */
+.engine-root :deep(.md-editor-code-head),
+.engine-root :deep(.md-editor-code-head .md-editor-copy-button),
+.engine-root :deep(.md-editor-code-head .md-editor-code-fold) {
+  z-index: auto !important;
+}
 
 /* ---- 全局字号：覆盖 md-editor 内部写死的字号，跟随 --mk-font-size ---- */
 .engine-root :deep(.cm-editor) {
