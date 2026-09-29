@@ -147,6 +147,27 @@ body {
   background: var(--mk-bg);
 }
 
+/* ---- 工作区隐藏后的左缘复原边线（拖动向右展开，交互同大纲面板） ---- */
+.workbench .ws-restore {
+  position: relative;
+  flex: none;
+  width: 8px;
+  cursor: col-resize;
+  background: var(--mk-panel);
+}
+.workbench .ws-restore-line {
+  position: absolute;
+  left: 3.5px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--mk-border);
+  transition: background-color 120ms ease;
+}
+.workbench .ws-restore:hover .ws-restore-line {
+  background: var(--mk-accent);
+}
+
 /* ---- 文本类标签容器（md/text/html 共用）----
    引擎恒占满；html 三模式时容器加 html-mode + 模式类：
    edit = 仅引擎；split = 引擎 50% + iframe 50%；read = 引擎隐藏（不卸载），iframe 独占 */

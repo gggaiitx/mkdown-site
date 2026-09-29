@@ -473,6 +473,32 @@ function onCloseCancel() {
   else void confirmCloseWindow('cancel');
 }
 
+// ---------- 工作区隐藏后的左缘复原边线（拖动向右展开，交互与大纲面板一致；点击顶栏按钮也可） ----------
+const WS_RESTORE_AT = 60;
+let wsRestoreStartX = 0;
+function cleanupWsRestore() {
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  window.removeEventListener('mousemove', onWsRestoreMove);
+  window.removeEventListener('mouseup', onWsRestoreEnd);
+}
+function onWsRestoreStart(e: MouseEvent) {
+  wsRestoreStartX = e.clientX;
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  window.addEventListener('mousemove', onWsRestoreMove);
+  window.addEventListener('mouseup', onWsRestoreEnd);
+}
+function onWsRestoreMove(e: MouseEvent) {
+  if (e.clientX - wsRestoreStartX > WS_RESTORE_AT) {
+    sidebarVisible.value = true;
+    cleanupWsRestore();
+  }
+}
+function onWsRestoreEnd() {
+  cleanupWsRestore();
+}
+
 // ---------- 模式 / 主题 / 字号 ----------
 /** 阅读态的往返/回切目标：记住最近一个非阅读模式（read 不改写该记忆，否则会被 'read' 覆盖导致切不回来）。 */
 const lastWorkMode = ref<EditorMode>(
@@ -874,6 +900,13 @@ watch(() => editor.mode, (m) => {
         @open-workspace="openWorkspace"
         @remove-all-workspaces="removeAllWorkspaces"
       />
+      <!-- 工作区隐藏后的左缘复原边线：拖动向右展开（原生 title 提示，同大纲面板） -->
+      <div
+        v-else
+        class="ws-restore"
+        title="拖动向右展开工作区"
+        @mousedown="onWsRestoreStart"
+      ><i class="ws-restore-line" /></div>
       <div class="center">
         <TabBar @close="requestCloseTab" @close-batch="requestCloseBatch" />
         <div class="editor-area" v-if="tabs.activeTab">

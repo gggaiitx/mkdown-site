@@ -46,14 +46,20 @@ function removeWorkspace(dir: string) {
   });
 }
 
-// ---- 拖拽调宽（右缘手柄，200–440px） ----
+// ---- 拖拽调宽（右缘手柄，200–440px）；拖到最左可隐藏，交互与大纲面板一致 ----
+const MIN_W = 200;
+const MAX_W = 440;
+/** 向左拖到低于该宽度 → 松手隐藏（emit('hide')，与顶栏「隐藏工作区」同一状态链路） */
+const HIDE_AT = 120;
 const width = ref(230);
 const dragging = ref(false);
 let startX = 0;
 let startW = 0;
+let willHide = false;
 
 function onResizeStart(e: MouseEvent) {
   dragging.value = true;
+  willHide = false;
   startX = e.clientX;
   startW = width.value;
   document.body.style.cursor = 'col-resize';
@@ -63,10 +69,20 @@ function onResizeStart(e: MouseEvent) {
 }
 function onResizeMove(e: MouseEvent) {
   if (!dragging.value) return;
-  width.value = Math.min(440, Math.max(200, startW + (e.clientX - startX)));
+  const raw = startW + (e.clientX - startX);
+  willHide = raw < HIDE_AT;
+  // 允许压到 0，给「正在收起」的视觉反馈；松手时按 willHide 定型
+  width.value = Math.min(MAX_W, Math.max(0, raw));
 }
 function onResizeEnd() {
+  if (!dragging.value) return;
   dragging.value = false;
+  if (willHide) {
+    emit('hide');
+  } else {
+    width.value = Math.min(MAX_W, Math.max(MIN_W, width.value));
+  }
+  willHide = false;
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
   window.removeEventListener('mousemove', onResizeMove);
@@ -236,13 +252,13 @@ watch(filteredTree, (nodes) => {
 </script>
 
 <template>
-  <aside class="explorer" :style="{ width: `${width}px` }">
-    <!-- 右缘拖拽手柄 -->
+  <aside class="explorer" :class="{ dragging }" :style="{ width: `${width}px` }">
+    <!-- 右缘拖拽手柄（拖到最左可隐藏）；原生 title 提示（全高细条会让 data-tip 气泡垂直定位跑飞，见 v0.3.1 反馈） -->
     <div
       class="resizer"
       :class="{ active: dragging }"
       @mousedown="onResizeStart"
-      data-tip="拖动调整宽度"
+      title="拖动调整宽度，拖到最左可隐藏"
     />
     <div class="panel-head">
       <button
@@ -419,6 +435,10 @@ watch(filteredTree, (nodes) => {
 .resizer.active::after {
   background: var(--mk-accent);
   width: 2px;
+}
+/* 拖拽中解除 min-width 保护：拖到最左时宽度真实压缩（「正在收起」视觉反馈） */
+.explorer.dragging {
+  min-width: 0;
 }
 .panel-head {
   display: flex;
