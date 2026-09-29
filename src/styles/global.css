@@ -119,6 +119,15 @@ body {
   width: 10px;
   height: 10px;
 }
+/* 目录树/大纲统一走标准滚动条属性：常驻 thin 细条、宽度恒定——
+   WebView2(Win11) 的 Fluent 悬浮滚动条会随 hover/按压展宽（用户不要）；
+   且设置 scrollbar-width/color 后该元素绕过 ::-webkit-scrollbar 定制路径，
+   两栏行为完全一致。旧运行时不支持标准属性时回落上面的 webkit 规则，无回归 */
+.tree,
+.list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mk-border-strong) transparent;
+}
 
 /* ---- Workbench 布局（现代分隔：chrome / content 分层，1px 细线） ---- */
 .workbench {
@@ -151,13 +160,17 @@ body {
 .workbench .ws-restore {
   position: relative;
   flex: none;
-  width: 8px;
+  width: 4px;
   cursor: col-resize;
   background: var(--mk-panel);
 }
 .workbench .ws-restore-line {
   position: absolute;
-  left: 3.5px;
+  /* 贴复原条右缘（left:3.5 居中会在竖线与标签栏底线/功能栏底线之间留 3.5px 面板底，
+     永远接不上）；贴右缘后与 .center 内所有横向 chrome 线端点相接，
+     且与大纲面板隐藏态边线（跨编辑区右缘）位置对称 */
+  left: auto;
+  right: 0;
   top: 0;
   bottom: 0;
   width: 1px;

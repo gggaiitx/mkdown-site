@@ -16,6 +16,7 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
 import { mkFindExtension } from './findHighlight';
+import { headingLineExtension } from './cmHeadingLine';
 
 let currentDocDir = '';
 
@@ -116,9 +117,13 @@ export function setupMdRenderer(): void {
         }
       });
     },
-    // ---- CM6 扩展注入：文件内查找关键词高亮（编辑/分栏态） ----
+    // ---- CM6 扩展注入：文件内查找关键词高亮 + # 标题行装饰（编辑/分栏态） ----
     codeMirrorExtensions(extensions) {
-      return [...extensions, { type: 'mk-find-highlight', extension: mkFindExtension }];
+      return [
+        ...extensions,
+        { type: 'mk-find-highlight', extension: mkFindExtension },
+        { type: 'mk-heading-line', extension: headingLineExtension },
+      ];
     },
   });
 }

@@ -567,6 +567,12 @@ onBeforeUnmount(() => {
 }
 .engine-root :deep(.md-editor) {
   height: 100%;
+  /* md-editor 根容器默认带 1px 边框（--md-border-color），与应用 chrome 的
+     分隔线（标签栏底线/侧栏缘线/状态栏顶线）叠加成双线框。
+     用面板色边框代替删除：保持默认盒模型不变（直接 none 会因几何变化在
+     四边交界露出亚像素缝隙），且四邻全是 --mk-panel 面板（标签栏/文件树/
+     状态栏/大纲），1px 边框融入背景——功能栏背景与树边线无缝接拢 */
+  border: 1px solid var(--mk-panel);
 }
 /* 暗色下 md-editor 内置背景板（--md-bk-color 默认 #000）对齐全局 --mk-bg，
    消除 editor-area 与编辑/分栏/阅读区（含 #mkdown-editor-pv）的色差分裂 */
@@ -604,15 +610,18 @@ onBeforeUnmount(() => {
 .read-column :deep(.md-editor-previewOnly) {
   padding: 0;
 }
-/* 压掉预览主题给首元素（通常是 H1）预留的顶部 margin，消除红框区留白 */
-.read-column :deep(.markdown-body > *:first-child) {
+/* 压掉预览首元素（通常 H1）的顶部 margin：分栏预览与阅读态都生效。
+   注意 v7 预览没有 .markdown-body 中间层——主题类（default-theme/win-theme）
+   直接挂在 .md-editor-preview 容器上，内容块是它的直接子元素 */
+.engine-root :deep(.md-editor-preview > *:first-child) {
   margin-top: 0;
 }
 
 /* ---- 全局字号：覆盖 md-editor 内部写死的字号，跟随 --mk-font-size ---- */
 .engine-root :deep(.cm-editor) {
   font-size: var(--mk-font-size);
-  line-height: 1.65;
+  /* 行距对齐 win 预览主题（.win-theme line-height 1.75），编辑/预览密度一致 */
+  line-height: 1.75;
 }
 /* ---- 编辑态文字亮度（编辑/分栏下的 CodeMirror 窗格）----
    md-editor v7 的 CM 主题硬编码偏暗基色：亮色 #3f4a54、暗色 var(--md-color)=#999。
@@ -625,6 +634,13 @@ onBeforeUnmount(() => {
 }
 .engine-root :deep(.cm-content) {
   font-family: Consolas, 'Cascadia Mono', 'Microsoft YaHei', monospace;
+}
+/* ---- 编辑态标题行：以 # 开头的整行字号固定 19px ----
+   行类由 cmHeadingLine.ts 的 Decoration.line 挂载（token 类名混淆，CSS 无法定位）；
+   行距随全局 1.75（同 win 预览主题），CM6 自行重测量。
+   注意：固定值不随设置里的全局字号缩放（用户指定绝对 19px） */
+.engine-root :deep(.cm-line.mk-cm-heading) {
+  font-size: 19px;
 }
 .engine-root :deep(.md-editor-preview),
 .engine-root :deep(.md-editor-previewOnly) {
@@ -640,6 +656,10 @@ onBeforeUnmount(() => {
   padding-block: 2px;
   background-color: var(--mk-panel);
   border-block-end-color: var(--mk-border);
+  /* 左右各外扩 1px 盖住 .md-editor 的面板色边框列：功能栏底线（border-block-end）
+     原本画在内容盒内，左端距树边线差 1px（DPI 下可见浅缝）；
+     外扩后底线两端分别与目录树边线/右缘贴合。wrapper 自身无水平 padding，内容不位移 */
+  margin-inline: -1px;
 }
 .engine-root :deep(.md-editor-toolbar-item) {
   color: var(--mk-fg-muted);
@@ -649,6 +669,12 @@ onBeforeUnmount(() => {
 .engine-root :deep(.md-editor-toolbar-item.md-editor-toolbar-active) {
   color: var(--mk-fg);
   background-color: var(--mk-hover);
+}
+
+/* 编辑态滚动条是 v7 自绘的（原生 cm-scroller 滚动条已被隐藏）：
+   滑槽默认带 --md-scrollbar-bg-color 底色（亮 #e2e2e2），置透明只留滑块 */
+.engine-root :deep(.md-editor-custom-scrollbar__track) {
+  background: transparent;
 }
 
 /* 暗色下的查找高亮底色（mark 在 .md-editor[data-theme] 子树内可继承该变量） */

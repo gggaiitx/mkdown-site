@@ -441,7 +441,10 @@ watch(filteredTree, (nodes) => {
 .resizer::after {
   content: '';
   position: absolute;
-  right: 2px;
+  /* right:0 贴容器最右缘：紧邻编辑器（md-editor 的 1px 面板色边框融入功能栏背景），
+     视觉上树边线-功能栏无缝接拢；也避开树滚动条滑块（滑块视觉右缘距容器缘 2.5px，
+     线画在 right:2px 会插进滑块缝里显得断开） */
+  right: 0;
   top: 0;
   bottom: 0;
   width: 1px;

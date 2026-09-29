@@ -177,13 +177,13 @@ function closeWindow() {
       <Folder class="icon" />
       <span class="label">打开工作区</span>
     </button>
+
+    <div class="divider" />
+
     <button class="tb-btn tb-btn--text" @click="emit('new')" data-tip="新建 (Ctrl+N)">
       <FilePlus2 class="icon" />
       <span class="label">新建</span>
     </button>
-
-    <div class="divider" />
-
     <button class="tb-btn tb-btn--text" :disabled="!hasActive" @click="emit('save')" data-tip="保存 (Ctrl+S)">
       <Save class="icon" />
       <span class="label">保存</span>
