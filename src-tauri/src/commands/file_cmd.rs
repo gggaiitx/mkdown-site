@@ -251,6 +251,61 @@ fn open_with_default_app(p: &std::path::Path) -> AppResult<()> {
     Ok(())
 }
 
+/// 在系统文件管理器中显示文件/目录（定位并选中该项，等价 VS Code 的 Reveal in Explorer）。
+/// Windows 用 `explorer /select`；macOS 用 `open -R`；Linux 无统一选中接口，打开所在目录。
+#[tauri::command]
+pub async fn reveal_in_explorer(path: String, state: State<'_, AppState>) -> AppResult<()> {
+    let p = PathBuf::from(&path);
+    state.ensure_allowed(&p)?;
+    if !p.exists() {
+        return Err(AppError::NotFound(format!("路径不存在: {path}")));
+    }
+    spawn_blocking(move || reveal_in_fm(&p))
+        .await
+        .map_err(|e| AppError::Internal(format!("定位线程异常: {e}")))?
+}
+
+/// Windows：`explorer /select,"path"` 打开所在目录并选中该项。
+/// /select 仅接受反斜杠路径，统一归一；注意 explorer 正常打开也常返回非零退出码，
+/// 因此只 spawn 不检查 exit status。
+#[cfg(target_os = "windows")]
+fn reveal_in_fm(p: &std::path::Path) -> AppResult<()> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let target = p.to_string_lossy().replace('/', "\\");
+    // 引号必须原样出现在命令行里：.arg() 会因参数含引号再包一层 `\"` 转义，
+    // explorer 不按标准 argv 规则解析，会解析失败落到默认位置（实测打开位置错误）；
+    // 必须用 raw_arg 逐字传递 `/select,"路径"`
+    let arg = format!("/select,\"{target}\"");
+    std::process::Command::new("explorer")
+        .raw_arg(arg)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| AppError::Io(format!("打开资源管理器失败: {e}")))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_in_fm(p: &std::path::Path) -> AppResult<()> {
+    std::process::Command::new("open")
+        .args(["-R"])
+        .arg(p)
+        .spawn()
+        .map_err(|e| AppError::Io(format!("在 Finder 中显示失败: {e}")))?;
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn reveal_in_fm(p: &std::path::Path) -> AppResult<()> {
+    let dir = p.parent().unwrap_or(p);
+    std::process::Command::new("xdg-open")
+        .arg(dir)
+        .spawn()
+        .map_err(|e| AppError::Io(format!("打开所在目录失败: {e}")))?;
+    Ok(())
+}
+
 /// 用系统默认程序打开 URL（预览区外链专用）。
 /// Windows 走 rundll32 FileProtocolHandler（等价 ShellExecute，不经过 cmd 解析，
 /// URL 含 `&` 等字符安全；explorer 打开 URL 的行为不可靠，cmd start 会被 & 截断）。

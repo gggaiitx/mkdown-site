@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChevronsDownUp, ChevronDown, Check, FolderOpen, PanelLeftClose, RefreshCw, Search, Trash2, X } from '@lucide/vue';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useEditorStore } from '../stores/editorStore';
+import { revealInExplorer } from '../api/fileApi';
 import { useCtxMenu } from '../composables/useCtxMenu';
 import type { NodeKind, WorkspaceNode } from '../api/types';
 import FileTreeNode from './FileTreeNode.vue';
@@ -118,6 +120,16 @@ onBeforeUnmount(() => document.removeEventListener('click', closeMenu));
 
 function menuNewFile() { openCreate('file', targetDir.value); }
 function menuNewDir() { openCreate('dir', targetDir.value); }
+/** 打开所在位置：文件/目录在资源管理器中定位选中；空白处右键 = 打开工作区根目录 */
+async function menuReveal() {
+  const p = ctxNode.value?.path || ws.root;
+  if (!p) return;
+  try {
+    await revealInExplorer(p);
+  } catch (err) {
+    useEditorStore().showToast(err instanceof Error ? err.message : String(err), 'error');
+  }
+}
 function menuRename() {
   const n = ctxNode.value;
   if (!n || !n.path || n.path === ws.root) return;
@@ -354,6 +366,7 @@ watch(filteredTree, (nodes) => {
     <div v-if="menu" :ref="setMenuRef" class="ctx-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
       <button class="ctx-item" @click="menuNewFile">新建文件</button>
       <button class="ctx-item" @click="menuNewDir">新建文件夹</button>
+      <button class="ctx-item" @click="menuReveal">打开所在位置</button>
       <div class="ctx-sep" />
       <button class="ctx-item" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuRename">重命名</button>
       <button class="ctx-item danger" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuDelete">删除（回收站）</button>

@@ -31,5 +31,8 @@ export const probePreviewKind = (path: string) =>
 /** 用系统默认程序打开（Office/PDF/图片等；目录则在文件管理器中显示） */
 export const openInSystem = (path: string) => call<void>('open_in_system', { path });
 
+/** 在系统文件管理器中定位文件/目录（Windows：打开所在目录并选中该项） */
+export const revealInExplorer = (path: string) => call<void>('reveal_in_explorer', { path });
+
 /** 用系统默认浏览器打开 http/https/mailto 链接（预览区外链） */
 export const openUrl = (url: string) => call<void>('open_url', { url });
