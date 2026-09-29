@@ -49,8 +49,10 @@ async function showFor(el: Element) {
     const bh = bubble.offsetHeight;
     const rightAlign = !!currentEl.closest('.win-btn');
     const leftAlign = !!currentEl.closest('.tb-first');
-    // 树行/标签：气泡跟随光标右下角（这些元素横向较宽，锚元素会盖住邻近项、看起来像别人的提示）
-    const followCursor = !!currentEl.closest('.row, .tab');
+    // 树行/标签：气泡跟随光标右下角（这些元素横向较宽，锚元素会盖住邻近项、看起来像别人的提示）；
+    // 但宿主本身就是按钮时（如标签内关闭按钮、树行内操作按钮）退回居中锚定——
+    // 小控件跟随光标会让气泡压到相邻区域，看起来像别的控件的提示（v0.3.1 用户反馈）
+    const followCursor = !!currentEl.closest('.row, .tab') && !currentEl.matches('button');
     let bx: number;
     let by: number;
     if (followCursor) {
@@ -88,11 +90,11 @@ function onOut(e: MouseEvent) {
   const to = e.relatedTarget as Element | null;
   if (!to || !to.closest?.('[data-tip]') || !currentEl.contains(to)) hide();
 }
-/** 光标模式（树行）下气泡实时跟随；其余模式只记位置 */
+/** 光标模式（树行/标签，按钮除外）下气泡实时跟随；其余模式只记位置 */
 function onMove(e: MouseEvent) {
   mx = e.clientX;
   my = e.clientY;
-  if (st.on && currentEl?.closest('.row, .tab')) {
+  if (st.on && currentEl?.closest('.row, .tab') && !currentEl.matches('button')) {
     const bubble = host.value;
     if (!bubble) return;
     const bw = bubble.offsetWidth;
