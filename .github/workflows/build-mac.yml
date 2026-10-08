@@ -73,7 +73,10 @@ jobs:
           # 兜底：Release 不存在则先创建，说明取自标签说明（annotated tag message，写清更新内容，别再"见提交历史"）
           if ! gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
             git fetch -q origin "refs/tags/${{ github.ref_name }}:refs/tags/${{ github.ref_name }}" --no-tags --force
-            git tag -l --format='%(contents:body)' "${{ github.ref_name }}" > rel-notes.md
+            # 注意：必须用 %(contents) 取完整标签说明，不能用 %(contents:body)。
+            # %(contents:body) 只返回第一段之后的正文；本仓库发布说明首段为「## 新特性」+其条目
+            # （标题与列表间无空行），会被 Git 整体当作 subject 吞掉，导致新特性在 Release 正文丢失。
+            git tag -l --format='%(contents)' "${{ github.ref_name }}" > rel-notes.md
             gh release create "${{ github.ref_name }}" --title "码克 MkDown ${{ github.ref_name }}" --notes-file rel-notes.md
           fi
           gh release upload "${{ github.ref_name }}" --clobber "$DIR/Mkdown_${VERSION}_${ARCH}.dmg"
