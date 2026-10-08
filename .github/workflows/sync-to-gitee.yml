@@ -1,0 +1,17 @@
+name: Sync to Gitee
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror GitHub -> Gitee
+        uses: wearerequired/git-mirror-action@master
+        with:
+          source-repo: "https://github.com/gggaiitx/mkdown-site.git"
+          # Gitee 私人令牌推送格式：https://<令牌>@gitee.com/<用户名>/<仓库>.git
+          destination-repo: "https://${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_USERNAME }}/mkdown-site.git"
