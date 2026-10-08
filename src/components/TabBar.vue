@@ -1,16 +1,27 @@
 <script setup lang="ts">
 /** 标签栏 —— chip 形标签 + 类型图标 + 脏标记 + 关闭按钮 + 右键菜单（复制/重命名/批量关闭） */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { FileText, X } from '@lucide/vue';
+import {
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  CircleX,
+  Copy,
+  FileText,
+  Layers,
+  PenLine,
+  X,
+} from '@lucide/vue';
 import { useTabsStore } from '../stores/tabsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEditorStore } from '../stores/editorStore';
 import { useCtxMenu } from '../composables/useCtxMenu';
 import AppDialog from './AppDialog.vue';
+import { useI18n } from '../i18n';
 
 const tabs = useTabsStore();
 const ws = useWorkspaceStore();
 const editor = useEditorStore();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   (e: 'close', id: string): void;
@@ -74,14 +85,14 @@ onMounted(() => document.addEventListener('click', closeMenu));
 onBeforeUnmount(() => document.removeEventListener('click', closeMenu));
 
 function menuCopyName() {
-  const t = ctxIdx.value >= 0 ? tabs.tabs[ctxIdx.value] : null;
-  if (!t) return;
-  void copyText(t.title);
+  const tab = ctxIdx.value >= 0 ? tabs.tabs[ctxIdx.value] : null;
+  if (!tab) return;
+  void copyText(tab.title);
 }
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
-    editor.showToast('已复制文件名', 'success');
+    editor.showToast(t('tabbar.copied'), 'success');
   } catch {
     // WebView 剪贴板 API 不可用时的兜底
     const ta = document.createElement('textarea');
@@ -92,7 +103,7 @@ async function copyText(text: string) {
     ta.select();
     const ok = document.execCommand('copy');
     document.body.removeChild(ta);
-    editor.showToast(ok ? '已复制文件名' : '复制失败', ok ? 'success' : 'error');
+    editor.showToast(ok ? t('tabbar.copied') : t('tabbar.copyFail'), ok ? 'success' : 'error');
   }
 }
 
@@ -101,12 +112,20 @@ const renameDialog = ref<{ visible: boolean; value: string; path: string }>({
   visible: false, value: '', path: '',
 });
 const renameError = ref('');
-function menuRename() {
-  const path = ctxTabPath.value;
-  const t = ctxIdx.value >= 0 ? tabs.tabs[ctxIdx.value] : null;
-  if (!path || !t) return; // 未保存的新文档（无路径）不支持重命名
-  renameDialog.value = { visible: true, value: t.title, path };
+/** 按标签 id 打开重命名对话框（右键菜单与 F2 快捷键共用；无路径的新文档忽略） */
+function renameTab(id: string | null) {
+  const tab = id ? tabs.tabs.find((x) => x.id === id) : null;
+  if (!tab || !tab.path) return;
+  renameDialog.value = { visible: true, value: tab.title, path: tab.path };
 }
+function menuRename() {
+  renameTab(ctxTabId.value);
+}
+/** 供 Workbench F2 快捷键调用：重命名当前激活标签 */
+function renameActive() {
+  renameTab(tabs.activeId);
+}
+defineExpose({ renameActive });
 async function doRename() {
   const { path, value } = renameDialog.value;
   if (!path || !value.trim()) return;
@@ -147,42 +166,56 @@ function menuCloseAll() {
 <template>
   <div ref="stripRef" class="tabbar" v-if="tabs.tabs.length > 0" @wheel="onWheel">
     <div
-      v-for="t in tabs.tabs"
-      :key="t.id"
+      v-for="tab in tabs.tabs"
+      :key="tab.id"
       class="tab"
-      :class="{ active: t.id === tabs.activeId }"
-      :data-tip="t.path ?? '未保存的新文档'"
-      @click="tabs.activate(t.id)"
-      @auxclick.middle="emit('close', t.id)"
-      @contextmenu="onTabContext($event, t.id)"
+      :class="{ active: tab.id === tabs.activeId }"
+      :data-tip="tab.path ?? t('tabbar.untitled')"
+      @click="tabs.activate(tab.id)"
+      @auxclick.middle="emit('close', tab.id)"
+      @contextmenu="onTabContext($event, tab.id)"
     >
       <FileText class="t-icon" />
-      <span class="title">{{ t.title }}</span>
-      <span class="dirty" v-if="t.isDirty" data-tip="未保存" />
-      <button class="close" @click.stop="emit('close', t.id)" data-tip="关闭标签">
+      <span class="title">{{ tab.title }}</span>
+      <span class="dirty" v-if="tab.isDirty" :data-tip="t('tabbar.dirtyTip')" />
+      <button class="close" @click.stop="emit('close', tab.id)" :data-tip="t('tabbar.closeTabTip')">
         <X class="x-icon" />
       </button>
     </div>
 
-    <!-- 标签右键菜单 -->
+    <!-- 标签右键菜单：图标 + 名称 + 快捷键（仅标注真实存在的绑定，见 Workbench.onKeydown） -->
     <div v-if="menu" :ref="setMenuRef" class="ctx-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
-      <button class="ctx-item" @click="menuCopyName">复制文件名</button>
-      <button class="ctx-item" :disabled="!ctxTabPath" @click="menuRename">文件重命名</button>
+      <button class="ctx-item" @click="menuCopyName">
+        <Copy class="ctx-ico" /><span>{{ t('tabbar.copyName') }}</span>
+      </button>
+      <button class="ctx-item" :disabled="!ctxTabPath" @click="menuRename">
+        <PenLine class="ctx-ico" /><span>{{ t('tabbar.renameTitle') }}</span><kbd class="ctx-key">F2</kbd>
+      </button>
       <div class="ctx-sep" />
-      <button class="ctx-item" @click="menuClose">关闭标签</button>
-      <button class="ctx-item" :disabled="ctxIdx <= 0" @click="menuCloseLeft">关闭左侧</button>
-      <button class="ctx-item" :disabled="ctxIdx < 0 || ctxIdx >= tabs.tabs.length - 1" @click="menuCloseRight">关闭右侧</button>
-      <button class="ctx-item" :disabled="tabs.tabs.length <= 1" @click="menuCloseOthers">关闭其他</button>
-      <button class="ctx-item danger" @click="menuCloseAll">关闭全部</button>
+      <button class="ctx-item" @click="menuClose">
+        <X class="ctx-ico" /><span>{{ t('tabbar.closeTab') }}</span><kbd class="ctx-key">Ctrl+W</kbd>
+      </button>
+      <button class="ctx-item" :disabled="ctxIdx <= 0" @click="menuCloseLeft">
+        <ArrowLeftToLine class="ctx-ico" /><span>{{ t('tabbar.closeLeft') }}</span>
+      </button>
+      <button class="ctx-item" :disabled="ctxIdx < 0 || ctxIdx >= tabs.tabs.length - 1" @click="menuCloseRight">
+        <ArrowRightToLine class="ctx-ico" /><span>{{ t('tabbar.closeRight') }}</span>
+      </button>
+      <button class="ctx-item" :disabled="tabs.tabs.length <= 1" @click="menuCloseOthers">
+        <Layers class="ctx-ico" /><span>{{ t('tabbar.closeOthers') }}</span>
+      </button>
+      <button class="ctx-item danger" @click="menuCloseAll">
+        <CircleX class="ctx-ico" /><span>{{ t('tabbar.closeAll') }}</span><kbd class="ctx-key">Ctrl+Shift+W</kbd>
+      </button>
     </div>
 
     <!-- 重命名对话框 -->
     <AppDialog
       :visible="renameDialog.visible"
-      title="文件重命名"
+      :title="t('tabbar.renameTitle')"
       input
       :input-value="renameDialog.value"
-      placeholder="新名称"
+      :placeholder="t('tabbar.newNamePlaceholder')"
       @confirm="renameDialog.value = $event; doRename()"
       @cancel="renameDialog.visible = false; renameError = ''"
     >
@@ -274,6 +307,19 @@ function menuCloseAll() {
   padding: 6px 10px;
   border-radius: var(--mk-radius-sm);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 168px;
+}
+.ctx-ico { width: 13px; height: 13px; flex: none; opacity: 0.75; }
+.ctx-key {
+  margin-left: auto;
+  padding-left: 14px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--mk-fg-muted);
+  pointer-events: none;
 }
 .ctx-item:hover:not(:disabled) { background: var(--mk-hover); }
 .ctx-item.danger { color: var(--mk-danger); }

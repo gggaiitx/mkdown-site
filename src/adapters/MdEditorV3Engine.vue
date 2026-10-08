@@ -5,6 +5,10 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { MdEditor, MdPreview, type ToolbarNames } from 'md-editor-v3';
+// CM6 视图层：仅用 EditorView.scrollIntoView effect（纯数据 effect，跨实例安全，
+// 版本与内核同源扁平安装 6.43.x）。改用 TransactionSpec.scrollIntoView 会依赖 selection，
+// 而内核开了 scrollToSelection，改选区即被拉回视口 —— 滚动等于失效。
+import { EditorView } from '@codemirror/view';
 import 'md-editor-v3/lib/style.css';
 // 自建 win 预览主题（Windows 11 Fluent 风）；必须在 style.css 之后加载，
 // style.css 首行 @import 的 @vavt/markdown-theme 全量主题在其前，同特异性下本文件规则胜出
@@ -16,6 +20,7 @@ import type { EditorMode, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
 import { setCurrentDocDir, setupMdRenderer } from './mdRendererConfig';
 import { setCmFind } from './findHighlight';
+import { useI18n } from '../i18n';
 
 const props = defineProps<{
   modelValue: string;
@@ -29,7 +34,16 @@ const props = defineProps<{
   editorId: string;
   /** 编辑器顶部功能栏显隐（设置-编辑器）：false = 隐藏（正文区上移） */
   showToolbar?: boolean;
+  /** 分栏态编辑区↔预览区滚动同步（设置-编辑器「滚动同步」，默认开）。
+   *  传 false 时内核 scrollAuto 关闭——注意内核按滚动**比例**同步，
+   *  编辑区与预览区行高不同会产生百像素级累积偏差（实测约 127px） */
+  scrollSync?: boolean;
+  /** 内核界面语言（'zh-CN' | 'en-US'，设置-外观「界面语言」）。
+   *  内核语言同为挂载初值型 prop，变更经 editorRemountKey 重挂载生效 */
+  language?: string;
 }>();
+
+const { t } = useI18n();
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: string): void;
@@ -46,6 +60,35 @@ const editorRef = ref<InstanceType<typeof MdEditor> | null>(null);
 // md-editor 的 class prop 只接受 string；编辑器外壳保持铺满（版式不再缩外壳）
 const editorClass = computed(() => 'engine-editor');
 
+// ---- 编辑区行高跟随阅读主题 ----
+// 各预览主题正文行高不同（default 1.6 / github 1.5 / win 1.75），硬编码任何一个都会在
+// 换主题时再次与阅读态失配。导出预览宿主（#export-pdf-preview）与阅读态共用同一
+// previewTheme 且恒驻 DOM：从中量出「行高/字号」比值注入 --mk-editor-lh，
+// CM 行高走该变量（见样式段）。比值转移对字号无关——两侧字号同源于 --mk-font-size。
+const editLineHeight = ref('1.6');
+function measureEditLineHeight(): void {
+  const scope = document
+    .getElementById('export-pdf-preview')
+    ?.querySelector<HTMLElement>('.md-editor-preview');
+  if (!scope) return;
+  // 必须量真实段落：主题对标题多数不设行高（computed 为 normal，会被下方守卫拒绝），
+  // 且 default 主题的 1.6 就挂在 div.default-theme p 上。li 为纯列表文档兜底。
+  const probe = scope.querySelector<HTMLElement>('p') ?? scope.querySelector<HTMLElement>('li') ?? scope;
+  const cs = getComputedStyle(probe);
+  const lh = Number.parseFloat(cs.lineHeight);
+  const fs = Number.parseFloat(cs.fontSize);
+  if (Number.isFinite(lh) && Number.isFinite(fs) && fs > 0 && lh > 0) {
+    editLineHeight.value = (lh / fs).toFixed(3);
+  }
+}
+watch(
+  () => props.previewTheme,
+  () => {
+    // 主题切换：等导出宿主根节点主题类更新后再量（渲染同步，一个 tick 足够）
+    void nextTick(() => requestAnimationFrame(measureEditLineHeight));
+  },
+);
+
 /**
  * v7 的 preview prop 只作为挂载初值写入内部 store（挂载后无 props 同步），
  * 运行时切换预览必须走实例 API togglePreview()（内部经 updateSetting 生效）。
@@ -56,11 +99,32 @@ type EditorInstanceApi = {
 
 watch(
   () => props.mode,
-  (m) => {
-    // read 态 MdEditor 未挂载：重挂载时会以 :preview 计算值作为正确初值，无需处理
-    if (m === 'read') return;
+  (m, old) => {
+    // 每次模式切换重置校正计数与上一轮锚点
+    resyncCount = 0;
+    resyncAnchor = null;
+    switchStartedAt = performance.now();
+    if (m === 'read') {
+      // edit/split → read：此刻编辑器实例仍在 DOM（v-if 未切换），锚定视口顶行；
+      // MdPreview 挂载渲染完成后定位（onHtmlChanged 提前命中 + 轮询兜底）
+      pendingAnchor = captureViewportAnchor();
+      if (pendingAnchor) locateReadAnchor();
+      return;
+    }
+    if (old === 'read') {
+      // read → edit/split：此刻阅读 DOM 仍在（v-if 未切换），锚定阅读视口位置；
+      // MdEditor 重挂载后补位（不移动光标）
+      pendingAnchor = captureReadAnchor();
+    } else {
+      pendingAnchor = null; // edit ↔ split 同一实例，CM 自身保留滚动位置，无需干预
+    }
     const inst = editorRef.value as unknown as EditorInstanceApi | null;
     inst?.togglePreview?.(m === 'split');
+    if (pendingAnchor) {
+      const a = pendingAnchor;
+      pendingAnchor = null;
+      void nextTick(() => requestAnimationFrame(() => applyEditAnchor(a)));
+    }
     // 从阅读态返回编辑态时光标口径复位（重挂载后 CM 光标在文档头）
     void nextTick(() => emitCursorPosition());
   },
@@ -150,7 +214,7 @@ async function handleUploadImg(
   callback: (urls: string[]) => void,
 ): Promise<void> {
   if (!props.docPath) {
-    emit('toast', '请先保存文档（Ctrl+S），再粘贴/插入图片');
+    emit('toast', t('engine.saveImgFirst'));
     return;
   }
   const urls: string[] = [];
@@ -161,7 +225,7 @@ async function handleUploadImg(
       const saved = await savePastedImage(props.docPath, b64, ext.toLowerCase());
       urls.push(saved.relPath); // 文档内保留相对路径，保证整体可搬迁
     } catch (err) {
-      emit('toast', `图片保存失败：${err instanceof Error ? err.message : String(err)}`);
+      emit('toast', t('engine.imgSaveFail', { msg: err instanceof Error ? err.message : String(err) }));
     }
   }
   if (urls.length > 0) callback(urls);
@@ -404,16 +468,25 @@ async function exportPdf(): Promise<void> {
   // renderDelay 500ms + 余量；mermaid/图片等异步资源的继续加载由打印对话框弹出前的空档兜底
   await new Promise((resolve) => setTimeout(resolve, 650));
   if (!document.getElementById('export-pdf-preview')) {
-    throw new Error('导出预览体未就绪（export-pdf-preview 缺失）');
+    throw new Error(t('engine.exportPreviewMissing'));
   }
   window.print();
 }
 
 // ---- 光标跟踪（状态栏 L:C）：监听原生 selectionchange，经 rAF 节流后从 CM6 state 读取 ----
 interface CmViewLike {
+  scrollDOM: HTMLElement;
+  focus(): void;
+  dispatch(spec: { selection?: { anchor: number }; scrollIntoView?: boolean; effects?: unknown }): void;
+  lineBlockAtHeight(y: number): { from: number };
+  lineBlockAt(pos: number): { top: number };
   state: {
     selection: { main: { head: number } };
-    doc: { lineAt(pos: number): { number: number; from: number } };
+    doc: {
+      lines: number;
+      lineAt(pos: number): { number: number; from: number };
+      line(n: number): { from: number; to: number; text: string };
+    };
   };
 }
 type EditorWithView = { getEditorView?: () => CmViewLike | null };
@@ -434,6 +507,300 @@ function onSelectionChange() {
     cursorRaf = 0;
     emitCursorPosition();
   });
+}
+
+// ---- 三模式切换的位置同步（编辑位置 ↔ 阅读位置） ----
+// 锚点 = { line: 目标源码行(1-based), yOffset: 目标在源视口内的 y 偏移, doc: 捕获时的文档路径, atEnd: 源侧已滚到底 }
+// 双向统一「视口顶边」口径，保证切换前后视口顶边内容连续：
+// edit/split → read：锚点取 **CM 视口顶部可见行**（含被裁偏移 yOffset ≤ 0）；
+//   阅读态把该行所在块的块顶还原到同一偏移处（源码块与渲染块高度近似成比例，
+//   裁切偏移转移后顶边内容基本逐行对齐）。**不用视口中心行 + 固定 1/3 落点**——
+//   中心行在编辑态位于 50%，阅读态块顶却在 33%，纯切换（不动滚动条）也固定上跳约 1/6 视口。
+//   split 下内核按比例同步，CM 顶行与预览顶边内容一致，取 CM 顶行同样成立。
+//   只改 .read-scroll.scrollTop，**不用 scrollIntoView**：后者会连带滚动所有可滚动祖先
+//   （body 等），真实工作台布局下会把顶栏/文件树一起顶走。
+// read → edit/split：锚点取阅读视口顶部可见块（data-line）+ 被裁偏移；编辑态用
+//   EditorView.scrollIntoView effect 还原块顶偏移（偏移钳为 ≥0），**不动光标**——
+//   TransactionSpec.scrollIntoView 依赖 selection，改选区会被内核 scrollToSelection
+//   立刻拉回视口（等于没滚）。
+// **底边特判**：源侧距最大滚动 ≤4px 视为"滚到底"（atEnd），目标侧直接钉到自己的
+//   最大滚动位——通用偏移转移在边界失效（两侧内容总高度不同，按偏移对齐后到不了底），
+//   且阅读态资源加载增高后重钉仍成立（resync 复用同一锚点）。
+// 定位后校正：图片/mermaid/katex 渲染完成使内容增高，按同一锚点重算（限次，防抖）。
+type ModeAnchor = { line: number; yOffset: number; doc: string | null; atEnd?: boolean };
+
+/** 距最大滚动 ≤4px 视为"已滚到底"（滚轮/滚动条都存在末尾像素级抖动） */
+const AT_END_EPS = 4;
+
+/** 资源加载后的校正次数上限（防抖 300ms 内合并多次触发） */
+const RESYNC_MAX = 3;
+/** 定位重试窗口内用户已有操作则放弃补位，避免"自己刚滚完又被拽回去" */
+const USER_TOUCH_WINDOW = 1500;
+
+let pendingAnchor: ModeAnchor | null = null;
+let resyncAnchor: ModeAnchor | null = null;
+// 三条异步链各自持有定时器：共用一个会互相覆盖（分栏预览同步的轮询曾被 CM 校验定时器顶掉，
+// 导致预览停在顶部且不再重试）
+let locateTimer: ReturnType<typeof setTimeout> | null = null; // 阅读态锚点轮询
+let previewTimer: ReturnType<typeof setTimeout> | null = null; // 分栏预览同步轮询
+let verifyTimer: ReturnType<typeof setTimeout> | null = null; // CM 滚动生效校验
+let resyncTimer: ReturnType<typeof setTimeout> | null = null;
+let resyncCount = 0;
+let userTouchedAt = 0;
+/** 本次模式切换的起点时刻：守卫只拦「切换之后」的用户操作——
+ *  切换前的滚轮（如滚到文档末尾马上点切换按钮）是达成切换意图的必要动作，
+ *  不能作为"用户已接管定位"的证据，否则定位直接放弃、编辑态停在文档头 */
+let switchStartedAt = 0;
+
+/**
+ * 滚动同步开关（settings.scrollSync）的运行时生效机制：
+ * 内核 scrollAuto 与 preview prop 同款限制——内部 store 只在挂载时从 props 取值
+ * （`Z({scrollAuto: e.scrollAuto})`），无 props 同步 watcher，实例 API 也没有
+ * toggleScrollAuto，运行时改 prop 无效。因此设置变更走**重挂载**：
+ * 先捕获当前视口锚点，重挂后 applyEditAnchor 还原位置（applyEditAnchor 的
+ * 120ms 重试覆盖 CM 未就绪窗口）。
+ */
+const editorRemountKey = ref(0);
+let remountAnchor: ModeAnchor | null = null;
+function remountEditorPreservingViewport(): void {
+  if (props.mode === 'read') return; // 阅读态无编辑器实例，下次切入自然带新值
+  remountAnchor = captureViewportAnchor();
+  editorRemountKey.value += 1;
+  void nextTick(() =>
+    requestAnimationFrame(() => {
+      const a = remountAnchor;
+      remountAnchor = null;
+      if (a) applyEditAnchor(a);
+    }),
+  );
+}
+watch(() => props.scrollSync, remountEditorPreservingViewport);
+// 语言变更同样依赖重挂载（内核 language 同为挂载初值型 prop）；
+// 阅读态 MdPreview / 导出宿主经 :key 内含 language 自动重建
+watch(() => props.language, remountEditorPreservingViewport);
+
+function userTouchedRecently(): boolean {
+  // 只认切换开始之后的操作：切换前的 wheel/keydown 是浏览动作，不否定本次定位
+  return (
+    userTouchedAt > switchStartedAt &&
+    performance.now() - userTouchedAt < USER_TOUCH_WINDOW
+  );
+}
+function markUserTouch(): void {
+  userTouchedAt = performance.now();
+}
+
+/** 捕获编辑/分栏视口顶部可见行作为锚点（与 read→edit 的「顶块」口径对称）。
+ *  不用光标行：滚轮浏览时光标不随视线移动（常停在文档头），split 下用户看的是
+ *  预览侧（内核按比例同步，光标行与视线可差数百行）；CM 顶行在两种模式下
+ *  都对应视口顶边内容。yOffset = 顶行块顶距视口顶的偏移（≤0，被裁量），
+ *  阅读态按同一偏移还原，顶边内容连续（源码块与渲染块高度近似成比例）。 */
+function captureViewportAnchor(): ModeAnchor | null {
+  const inst = editorRef.value as unknown as EditorWithView | null;
+  const view = inst?.getEditorView?.();
+  if (!view) return null;
+  const sd = view.scrollDOM;
+  if (sd.scrollTop < 4) return null; // 停在文档头：阅读/编辑都从顶部开始，无需同步
+  const maxScroll = sd.scrollHeight - sd.clientHeight;
+  const atEnd = sd.scrollTop >= maxScroll - AT_END_EPS;
+  const block = view.lineBlockAtHeight(sd.scrollTop + 2); // 文档坐标（非视口坐标）
+  const line = view.state.doc.lineAt(block.from).number;
+  const top = view.lineBlockAt(block.from).top;
+  return { line, yOffset: Math.round(top - sd.scrollTop), doc: props.docPath, atEnd };
+}
+
+/** 捕获阅读视口顶部可见块：data-line 行号 + 块顶距容器顶的偏移；停在文档头返回 null */
+function captureReadAnchor(): ModeAnchor | null {
+  const root = rootRef.value;
+  const scroller = root?.querySelector<HTMLElement>('.read-scroll');
+  if (!root || !scroller) return null;
+  if (scroller.scrollTop < 4) return null; // 停在文档头：阅读/编辑都从顶部开始，无需同步
+  const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+  const atEnd = scroller.scrollTop >= maxScroll - AT_END_EPS;
+  const crect = scroller.getBoundingClientRect();
+  const blocks = root.querySelectorAll<HTMLElement>('[data-line]');
+  // 视口内第一个块（前一块的 bottom 已滚出容器顶）；滚过末尾空白区时取最后一个锚点块
+  let first: HTMLElement | null = null;
+  for (const el of blocks) {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > crect.top + 1) {
+      first = el;
+      break;
+    }
+  }
+  first ??= blocks[blocks.length - 1] ?? null;
+  if (!first) return null;
+  const line = Number(first.getAttribute('data-line'));
+  if (!Number.isFinite(line)) return null;
+  return {
+    line,
+    yOffset: first.getBoundingClientRect().top - crect.top,
+    doc: props.docPath,
+    atEnd,
+  };
+}
+
+/** 在容器内找「起始行 <= 目标行」的最后一个 data-line 块 */
+function findAnchorBlock(scope: HTMLElement, line: number): HTMLElement | null {
+  let target: HTMLElement | null = null;
+  for (const el of scope.querySelectorAll<HTMLElement>('[data-line]')) {
+    const start = Number(el.getAttribute('data-line'));
+    if (Number.isFinite(start) && start <= line) target = el;
+    else break;
+  }
+  return target;
+}
+
+/** 阅读态按锚点对齐：锚点块顶还原到编辑态顶行的偏移处（负值 = 块顶留在视口上方，
+ *  与编辑态的被裁状态一致）；源侧已滚到底则直接钉到阅读态最大滚动位。
+ *  只动 .read-scroll，不碰祖先。返回是否命中 */
+function alignReadAnchor(anchor: ModeAnchor): boolean {
+  const root = rootRef.value;
+  const scroller = root?.querySelector<HTMLElement>('.read-scroll');
+  if (!root || !scroller) return false;
+  if (anchor.atEnd) {
+    scroller.scrollTop = scroller.scrollHeight; // 浏览器自动钳到最大滚动位
+    return true;
+  }
+  const target = findAnchorBlock(root, anchor.line);
+  if (!target) return false;
+  const crect = scroller.getBoundingClientRect();
+  const desired = crect.top + anchor.yOffset;
+  scroller.scrollTop += target.getBoundingClientRect().top - desired;
+  return true;
+}
+
+/** 分栏态预览区真正承担滚动的容器（wrapper 或 preview 视内核结构而定）。
+ *  不做 fallback：预览尚未渲染时两者都不可滚，返回 null 交给轮询重试，
+ *  对不可滚容器设 scrollTop 只会静默失效（曾误判为"不同步"） */
+function findScrollablePreview(): HTMLElement | null {
+  const root = rootRef.value;
+  if (!root) return null;
+  const cands = [
+    root.querySelector<HTMLElement>('.md-editor-preview-wrapper'),
+    root.querySelector<HTMLElement>('.md-editor-preview'),
+  ].filter((x): x is HTMLElement => !!x);
+  return cands.find((el) => el.scrollHeight > el.clientHeight + 4) ?? null;
+}
+
+/** 分栏态预览侧同步到同一行：块顶还原偏移与 CM 侧一致（钳为 ≥0，同 applyEditAnchor），
+ *  只改预览容器 scrollTop（不碰祖先）。
+ *  定位一次即可，**不与内核 scrollAuto 争夺**：内核按滚动比例同步预览是既有功能
+ *  （settings.scrollSync），程序化定位后内核仍会按比例回写，链式校正会与之互搏。
+ *  内核同步关闭导致预览停在顶部时，本函数兜底。 */
+function scrollPreviewToLine(line: number, yOffset = 0, attempt = 0): void {
+  const pv = findScrollablePreview();
+  const block = pv ? findAnchorBlock(pv, line) : null;
+  if (!pv || !block) {
+    if (attempt < 8) {
+      previewTimer = setTimeout(() => scrollPreviewToLine(line, yOffset, attempt + 1), 100);
+    }
+    return;
+  }
+  const crect = pv.getBoundingClientRect();
+  pv.scrollTop += block.getBoundingClientRect().top - (crect.top + Math.max(0, yOffset));
+}
+
+/** 分栏态预览侧钉到最底部（源侧滚到底的镜像，轮询等预览可滚后赋值） */
+function scrollPreviewToEnd(attempt = 0): void {
+  const pv = findScrollablePreview();
+  if (!pv) {
+    if (attempt < 8) previewTimer = setTimeout(() => scrollPreviewToEnd(attempt + 1), 100);
+    return;
+  }
+  pv.scrollTop = pv.scrollHeight;
+}
+
+/** 阅读态定位消费：MdPreview 渲染完成前 [data-line] 尚未生成，120ms 轮询兜底（上限 3s） */
+function locateReadAnchor(attempt = 0): void {
+  const anchor = pendingAnchor;
+  if (!anchor) return;
+  if (anchor.doc !== props.docPath) {
+    pendingAnchor = null; // 期间切了文档，锚点作废
+    return;
+  }
+  if (attempt > 0 && userTouchedRecently()) {
+    pendingAnchor = null;
+    return;
+  }
+  if (alignReadAnchor(anchor)) {
+    pendingAnchor = null;
+    resyncAnchor = anchor; // 交给资源加载后的校正
+    scheduleResync();
+    return;
+  }
+  if (attempt < 25) locateTimer = setTimeout(() => locateReadAnchor(attempt + 1), 120);
+}
+
+/** 资源加载（图片/mermaid/katex）后内容增高 → 按原锚点重算滚动，限次防抖 */
+function scheduleResync(): void {
+  if (!resyncAnchor || resyncCount >= RESYNC_MAX) return;
+  if (resyncTimer) clearTimeout(resyncTimer);
+  resyncTimer = setTimeout(() => {
+    resyncTimer = null;
+    const anchor = resyncAnchor;
+    if (!anchor || anchor.doc !== props.docPath || userTouchedRecently()) return;
+    resyncCount += 1;
+    alignReadAnchor(anchor);
+  }, 300);
+}
+
+/** 编辑态定位：先走 CM scrollIntoView effect（快路径，纯 edit 模式下可靠）；
+ *  但 read→split 的 MdEditor 重挂载场景下，effect 滚动会与预览渲染的 measure、
+ *  内核 scrollAuto 同步链竞争，偶发被整体顶回（非确定性，实测同代码时过时不过）。
+ *  因此 200ms / 700ms 两刀校验「锚点块顶距视口顶 == 期望 yMargin」：
+ *  偏差 >40px 判为被顶掉，直接给 scrollDOM.scrollTop 赋值校正
+ *  （绕开 effect 的 measure 排队；已在稳态实测可靠）。
+ *  源侧（阅读态）滚到底：直接钉 CM 最大滚动位 + 两刀重钉（内容 measure 完成前后
+ *  最大滚动位会变），不走逐行锚点。 */
+function applyEditAnchor(anchor: ModeAnchor, attempt = 0): void {
+  const inst = editorRef.value as unknown as EditorWithView | null;
+  const view = inst?.getEditorView?.();
+  if (!view) {
+    if (attempt < 10) locateTimer = setTimeout(() => applyEditAnchor(anchor, attempt + 1), 120);
+    return;
+  }
+  // 文档已换（切标签）或用户已操作：锚点作废，避免跳到无关位置
+  if (anchor.doc !== props.docPath || userTouchedRecently()) return;
+  if (anchor.atEnd) {
+    // 刻意不调 view.focus()：内核为编辑器启用了 scrollToSelection，聚焦会把视口拉回光标处
+    view.scrollDOM.scrollTop = view.scrollDOM.scrollHeight;
+    const repin = (delay: number): void => {
+      verifyTimer = setTimeout(() => {
+        const v = (editorRef.value as unknown as EditorWithView | null)?.getEditorView?.();
+        if (!v || userTouchedRecently()) return;
+        v.scrollDOM.scrollTop = v.scrollDOM.scrollHeight;
+      }, delay);
+    };
+    repin(200);
+    repin(700);
+    if (props.mode === 'split') void nextTick(() => scrollPreviewToEnd());
+    return;
+  }
+  const n = Math.max(1, Math.min(anchor.line, view.state.doc.lines));
+  const pos = view.state.doc.line(n).from;
+  const margin = Math.max(0, anchor.yOffset);
+  // 刻意不调 view.focus()：内核为编辑器启用了 scrollToSelection，聚焦会把视口拉回光标处
+  // （"不动光标"语义下光标仍在原处，可能与锚点相隔很远），直接抵消刚定位的滚动。
+  view.dispatch({
+    effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: margin }),
+  });
+  if (anchor.line > 1) {
+    const verify = (delay: number): void => {
+      verifyTimer = setTimeout(() => {
+        const v = (editorRef.value as unknown as EditorWithView | null)?.getEditorView?.();
+        if (!v || userTouchedRecently()) return;
+        const block = v.lineBlockAt(v.state.doc.line(n).from);
+        if (Math.abs(block.top - v.scrollDOM.scrollTop - margin) > 40) {
+          // effect 滚动被竞争方顶掉：直接赋值校正（S8 实测稳态下可靠）
+          v.scrollDOM.scrollTop = Math.max(0, block.top - margin);
+        }
+      }, delay);
+    };
+    verify(200);
+    verify(700);
+  }
+  if (props.mode === 'split') void nextTick(() => scrollPreviewToLine(n, anchor.yOffset));
 }
 
 // ---- 图片加载失败可视化（捕获阶段监听，含预览/阅读态动态插入的 img） ----
@@ -472,7 +839,7 @@ function onAnchorClick(e: MouseEvent) {
   if (/^(https?:\/\/|mailto:)/i.test(href)) {
     e.preventDefault();
     if (isTauri) {
-      openUrl(href).catch(() => emit('toast', `浏览器打开失败：${href}`));
+      openUrl(href).catch(() => emit('toast', t('engine.openUrlFail', { url: href })));
     } else {
       window.open(href, '_blank', 'noopener,noreferrer');
     }
@@ -480,7 +847,7 @@ function onAnchorClick(e: MouseEvent) {
   }
   // 相对路径（.md 等）与其他协议：一律禁止，防止整窗被导航
   e.preventDefault();
-  emit('toast', `应用内不跳转该链接：${href}`);
+  emit('toast', t('engine.noJumpLink', { href }));
 }
 
 // ---- 预览 HTML 渲染完成：上抛 + 查找高亮重涂（重渲染会重建 DOM，mark 丢失） ----
@@ -489,51 +856,101 @@ function onHtmlChanged(html: string): void {
   if (lastFind) {
     void nextTick(() => applyPreviewMarks(lastFind!.keyword, lastFind!.caseSensitive));
   }
+  // 切入阅读态的首帧渲染完成：提前命中位置同步（不等轮询）；后续重渲染触发资源校正
+  if (pendingAnchor) locateReadAnchor();
+  else scheduleResync();
+}
+
+// ---- 资源加载完成触发位置校正（图片/mermaid/katex 渲染完内容会增高） ----
+// load 事件不冒泡，但捕获阶段仍可拦截；与 onHtmlChanged 的重渲染触发共用 scheduleResync。
+function onAssetLoad(e: Event) {
+  if ((e.target as HTMLElement | null)?.tagName !== 'IMG') return;
+  scheduleResync();
 }
 
 onMounted(() => {
   setupMdRenderer();
   rootRef.value?.addEventListener('error', onImgError, true);
+  rootRef.value?.addEventListener('load', onAssetLoad, true);
   // 链接拦截：捕获阶段先于 md-editor 内部与浏览器默认行为
   rootRef.value?.addEventListener('click', onAnchorClick, true);
   // 光标跟踪：CM6 光标移动会触发原生 selectionchange，rAF 节流后读取 CM state
   document.addEventListener('selectionchange', onSelectionChange);
+  // 行高跟随主题：导出预览宿主渲染有 500ms 防抖，onMounted 时内容可能未渲染
+  // （量到容器 normal 行高会被守卫拦下），以 @on-html-changed 为准，这里仅兜底空文档
+  void nextTick(() => setTimeout(measureEditLineHeight, 700));
+  // 用户主动操作标记：定位重试窗口内滚轮/按键/点击则放弃补位，防止"刚滚完又被拽回去"
+  for (const ev of ['wheel', 'keydown', 'pointerdown'] as const) {
+    rootRef.value?.addEventListener(ev, markUserTouch, { capture: true, passive: true });
+  }
 });
 onBeforeUnmount(() => {
   rootRef.value?.removeEventListener('error', onImgError, true);
+  rootRef.value?.removeEventListener('load', onAssetLoad, true);
   rootRef.value?.removeEventListener('click', onAnchorClick, true);
   document.removeEventListener('selectionchange', onSelectionChange);
+  for (const ev of ['wheel', 'keydown', 'pointerdown'] as const) {
+    rootRef.value?.removeEventListener(ev, markUserTouch, { capture: true });
+  }
   if (cursorRaf) {
     cancelAnimationFrame(cursorRaf);
     cursorRaf = 0;
+  }
+  if (locateTimer) {
+    clearTimeout(locateTimer);
+    locateTimer = null;
+  }
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+  }
+  if (verifyTimer) {
+    clearTimeout(verifyTimer);
+    verifyTimer = null;
+  }
+  if (resyncTimer) {
+    clearTimeout(resyncTimer);
+    resyncTimer = null;
   }
 });
 </script>
 
 <template>
-  <div ref="rootRef" class="engine-root" :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false }]">
-    <!-- 阅读态：独立滚动容器 + 居中阅读栏，内容可正常滚动；key 绑定 docPath，切文档时重建以套用新目录 -->
+  <div
+    ref="rootRef"
+    class="engine-root"
+    :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false }]"
+    :style="{ '--mk-editor-lh': editLineHeight }"
+  >
+    <!-- 阅读态：独立滚动容器 + 居中阅读栏，内容可正常滚动；key 绑定 docPath+language，
+         切文档/切语言时重建（内核语言同为挂载初值型） -->
     <div v-if="mode === 'read'" class="read-scroll">
       <div class="read-column" :class="`read-column--${readLayout ?? 'medium'}`">
         <MdPreview
           :id="`${editorId}-pv`"
-          :key="docPath ?? 'draft'"
+          :key="`${docPath ?? 'draft'}-${language ?? 'zh-CN'}`"
           :model-value="modelValue"
           :theme="theme"
           :preview-theme="previewTheme"
+          :language="language"
           @on-html-changed="onHtmlChanged"
         />
       </div>
     </div>
-    <!-- 编辑/分栏态：同一实例，preview 属性响应式切换（不再强制重建，避免重挂载崩溃） -->
+    <!-- 编辑/分栏态：同一实例，preview 属性响应式切换（不再强制重建，避免重挂载崩溃）；
+         remountKey 仅在 scrollSync 设置变更时递增（内核 scrollAuto 只读挂载初值，
+         运行时改 prop 无效，见 editorRemountKey 注释） -->
     <MdEditor
       v-else
       :id="editorId"
       ref="editorRef"
+      :key="editorRemountKey"
       :model-value="modelValue"
       :theme="theme"
       :preview-theme="previewTheme"
+      :language="language"
       :preview="mode === 'split'"
+      :scroll-auto="scrollSync !== false"
       :footers="[]"
       :toolbars="toolbars"
       :class="editorClass"
@@ -549,9 +966,12 @@ onBeforeUnmount(() => {
       <div class="mk-export-host" aria-hidden="true">
         <MdPreview
           id="export-pdf-preview"
+          :key="language ?? 'zh-CN'"
           :model-value="exportContent"
           theme="light"
           :preview-theme="previewTheme"
+          :language="language"
+          @on-html-changed="measureEditLineHeight"
         />
       </div>
     </Teleport>
@@ -633,8 +1053,17 @@ onBeforeUnmount(() => {
 /* ---- 全局字号：覆盖 md-editor 内部写死的字号，跟随 --mk-font-size ---- */
 .engine-root :deep(.cm-editor) {
   font-size: var(--mk-font-size);
-  /* 行距对齐 win 预览主题（.win-theme line-height 1.75），编辑/预览密度一致 */
+  /* 行距兜底：实际生效值在下方 .cm-scroller 覆盖（跟随阅读主题的 --mk-editor-lh） */
   line-height: 1.75;
+}
+/* 关键：内核在 `.md-editor .ͼ1 .cm-scroller` 上写死 line-height: 20px（特异性 0,3,0），
+   .cm-scroller 有自己的声明，上面 .cm-editor 的 1.75 继承不过去——编辑态行距实际被
+   钳成 20px，与阅读态明显不一致（纯视觉拥挤，字越大越挤）。
+   这里以 0,4,0 特异性直接覆盖 .cm-scroller（.cm-line 为内核的 line-height: inherit）；
+   行高值 = --mk-editor-lh（脚本从导出预览宿主量取当前阅读主题的行高/字号比，
+   default 1.6 / github 1.5 / win 1.75 自动跟随），兜底 1.75。 */
+.engine-root :deep(.md-editor .cm-scroller) {
+  line-height: var(--mk-editor-lh, 1.75);
 }
 /* ---- 编辑态文字亮度（编辑/分栏下的 CodeMirror 窗格）----
    md-editor v7 的 CM 主题硬编码偏暗基色：亮色 #3f4a54、暗色 var(--md-color)=#999。

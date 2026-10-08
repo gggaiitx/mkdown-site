@@ -7,7 +7,7 @@
  *
  * 当前文档目录由引擎通过 setCurrentDocDir 注入（sync watch，保证渲染前已更新）。
  */
-import { config, zh_CN } from 'md-editor-v3';
+import { config, en_US, zh_CN } from 'md-editor-v3';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import mermaid from 'mermaid';
 import katex from 'katex';
@@ -74,6 +74,33 @@ const zhWithShortcuts = {
   },
 };
 
+/** 英文语言包（内核内置 en-US 基础上同样合并快捷键提示，见 zhWithShortcuts 注释） */
+const enWithShortcuts = {
+  'en-US': {
+    ...en_US,
+    toolbarTips: {
+      ...en_US.toolbarTips,
+      bold: 'Bold Ctrl+B',
+      underline: 'Underline Ctrl+U',
+      italic: 'Italic Ctrl+I',
+      strikeThrough: 'Strikethrough Ctrl+Shift+S',
+      title: 'Heading Ctrl+1~6',
+      sup: 'Superscript Ctrl+↑',
+      sub: 'Subscript Ctrl+↓',
+      unorderedList: 'Bullet list Ctrl+Shift+U',
+      codeRow: 'Inline code Ctrl+Alt+C',
+      code: 'Code block Ctrl+Shift+C',
+      link: 'Link Ctrl+K',
+      image: 'Image Ctrl+Shift+I',
+      table: 'Table Ctrl+Alt+Shift+T',
+      revoke: 'Undo Ctrl+Z',
+      next: 'Redo Ctrl+Y',
+      save: 'Save Ctrl+S',
+      pageFullscreen: 'Page fullscreen F11',
+    },
+  },
+};
+
 export function setupMdRenderer(): void {
   if (configured) return;
   configured = true;
@@ -88,9 +115,9 @@ export function setupMdRenderer(): void {
       mermaid: { instance: mermaid },
       katex: { instance: katex },
     },
-    // ---- 功能栏提示带快捷键（见 zhWithShortcuts 注释） ----
+    // ---- 功能栏提示带快捷键（见 zhWithShortcuts 注释）；中英双语由设置语言选择 ----
     editorConfig: {
-      languageUserDefined: zhWithShortcuts,
+      languageUserDefined: { ...zhWithShortcuts, ...enWithShortcuts },
     },
     markdownItConfig(md) {
       const defaultImage =

@@ -12,6 +12,7 @@ import {
 
 import type { EditorMode, ThemeKind } from '../api/types';
 import { useEditorStore } from '../stores/editorStore';
+import { useI18n } from '../i18n';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { flushSessionSnapshot } from '../utils/sessionSnapshot';
 import AppDialog from './AppDialog.vue';
@@ -45,6 +46,7 @@ const emit = defineEmits<{
 
 // 更新检测：挂载时向 GitHub 查询最新 Release，与本地版本比较；点击后后台下载并提示重启
 const editor = useEditorStore();
+const { t } = useI18n();
 const {
   state: updateState,
   latestVersion,
@@ -73,21 +75,21 @@ const updateTip = computed(() => {
   if (downloadState.value === 'downloading') {
     const p = progress.value;
     const pct = p && p.total > 0 ? Math.floor((p.downloaded / p.total) * 100) : null;
-    return pct === null ? '正在下载更新…' : `正在下载更新 ${pct}%`;
+    return pct === null ? t('toolbar.downloading') : t('toolbar.downloadingPct', { n: pct });
   }
-  if (downloadState.value === 'downloaded') return '更新已下载，点击重启以应用';
-  if (downloadState.value === 'error') return '更新下载失败，点击前往发布页';
+  if (downloadState.value === 'downloaded') return t('toolbar.downloaded');
+  if (downloadState.value === 'error') return t('toolbar.downloadFailed');
   switch (updateState.value) {
     case 'available':
-      return `发现新版本 v${latestVersion.value}，点击下载`;
+      return t('toolbar.available', { v: latestVersion.value });
     case 'uptodate':
-      return `已是最新 v${currentVersion.value}`;
+      return t('toolbar.upToDate', { v: currentVersion.value });
     case 'checking':
-      return '正在检查更新…';
+      return t('toolbar.checking');
     case 'error':
-      return '更新检查失败，点击前往发布页';
+      return t('toolbar.checkFailed');
     default:
-      return '检查更新';
+      return t('toolbar.checkUpdate');
   }
 });
 
@@ -104,7 +106,7 @@ function onUpdateClick() {
     return;
   }
   if (updateState.value === 'uptodate') {
-    editor.showToast(`已是最新版本 v${currentVersion.value}`, 'info');
+    editor.showToast(t('toolbar.alreadyLatest', { v: currentVersion.value }), 'info');
     return;
   }
   // 检查失败等异常态：打开 Release 发布页
@@ -123,11 +125,11 @@ watch(downloadState, (s) => {
   if (s === 'downloaded') showUpdateDialog.value = true;
 });
 
-const modes: { key: EditorMode; label: string; hint: string; icon: unknown }[] = [
-  { key: 'edit', label: '仅编辑', hint: 'Alt+E', icon: Pencil },
-  { key: 'split', label: '分栏', hint: 'Alt+W', icon: Columns2 },
-  { key: 'read', label: '阅读', hint: 'Alt+R', icon: BookOpen },
-];
+const modes = computed<{ key: EditorMode; label: string; hint: string; icon: unknown }[]>(() => [
+  { key: 'edit', label: t('toolbar.modeEdit'), hint: 'Alt+E', icon: Pencil },
+  { key: 'split', label: t('toolbar.modeSplit'), hint: 'Alt+W', icon: Columns2 },
+  { key: 'read', label: t('toolbar.modeRead'), hint: 'Alt+R', icon: BookOpen },
+]);
 
 // ---- 窗口控制（decorations=false，本栏即标题栏） ----
 // macOS：走 tauri.macos.conf.json 的原生红绿灯（titleBarStyle Overlay，左上角），
@@ -165,37 +167,37 @@ function closeWindow() {
       v-if="sidebarHidden"
       class="tb-btn tb-btn--icon tb-first"
       @click="emit('toggle-sidebar')"
-      data-tip="展开侧边栏"
+      :data-tip="t('toolbar.expandSidebar')"
     >
       <PanelLeftOpen class="icon" />
     </button>
-    <button class="tb-btn tb-btn--text tb-first" @click="emit('open-file')" data-tip="打开文件 (Ctrl+O)">
+    <button class="tb-btn tb-btn--text tb-first" @click="emit('open-file')" :data-tip="t('toolbar.openFileTip')">
       <FolderOpen class="icon" />
-      <span class="label">打开文件</span>
+      <span class="label">{{ t('toolbar.openFile') }}</span>
     </button>
-    <button class="tb-btn tb-btn--text tb-open-ws" @click="emit('open-workspace')" data-tip="打开文件夹作为工作区">
+    <button class="tb-btn tb-btn--text tb-open-ws" @click="emit('open-workspace')" :data-tip="t('toolbar.openWorkspaceTip')">
       <Folder class="icon" />
-      <span class="label">打开工作区</span>
+      <span class="label">{{ t('toolbar.openWorkspace') }}</span>
     </button>
 
     <div class="divider" />
 
-    <button class="tb-btn tb-btn--text" @click="emit('new')" data-tip="新建 (Ctrl+N)">
+    <button class="tb-btn tb-btn--text" @click="emit('new')" :data-tip="t('toolbar.newFileTip')">
       <FilePlus2 class="icon" />
-      <span class="label">新建</span>
+      <span class="label">{{ t('toolbar.newFile') }}</span>
     </button>
-    <button class="tb-btn tb-btn--text" :disabled="!hasActive" @click="emit('save')" data-tip="保存 (Ctrl+S)">
+    <button class="tb-btn tb-btn--text" :disabled="!hasActive" @click="emit('save')" :data-tip="t('toolbar.saveTip')">
       <Save class="icon" />
-      <span class="label">保存</span>
+      <span class="label">{{ t('toolbar.save') }}</span>
     </button>
-    <button class="tb-btn tb-btn--text tb-save-as" :disabled="!hasActive" @click="emit('save-as')" data-tip="另存为">
+    <button class="tb-btn tb-btn--text tb-save-as" :disabled="!hasActive" @click="emit('save-as')" :data-tip="t('toolbar.saveAsTip')">
       <SaveAll class="icon" />
-      <span class="label">另存为</span>
+      <span class="label">{{ t('toolbar.saveAs') }}</span>
     </button>
 
     <div class="divider" />
 
-    <div class="mode-seg" role="group" aria-label="视图模式">
+    <div class="mode-seg" role="group" :aria-label="t('toolbar.viewMode')">
       <button
         v-for="m in modes"
         :key="m.key"
@@ -211,39 +213,39 @@ function closeWindow() {
 
     <div class="flex-spacer" data-tauri-drag-region />
 
-    <button class="tb-btn tb-btn--icon" :class="{ 'tb-btn--active': searchActive }" @click="emit('search')" data-tip="全局搜索 (Ctrl+P)">
+    <button class="tb-btn tb-btn--icon" :class="{ 'tb-btn--active': searchActive }" @click="emit('search')" :data-tip="t('toolbar.searchTip')">
       <Search class="icon" />
       <span v-if="searchActive" class="active-dot" />
     </button>
 
-    <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('export-html')" data-tip="导出 HTML">
+    <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('export-html')" :data-tip="t('toolbar.exportHtml')">
       <FileCode2 class="icon" />
     </button>
-    <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('print-pdf')" data-tip="打印 PDF（弹出打印对话框）">
+    <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('print-pdf')" :data-tip="t('toolbar.printPdf')">
       <Printer class="icon" />
     </button>
 
     <div class="divider" />
 
     <div class="font-seg">
-      <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" data-tip="减小字号（编辑与阅读全局生效）">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" :data-tip="t('toolbar.fontSmaller')">
         <Minus class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon tb-font-type" data-tip="字号" disabled>
+      <button class="tb-btn tb-btn--icon tb-font-type" :data-tip="t('toolbar.fontSize')" disabled>
         <Type class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" data-tip="增大字号（编辑与阅读全局生效）">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" :data-tip="t('toolbar.fontLarger')">
         <Plus class="icon icon-sm" />
       </button>
     </div>
 
     <div class="divider" />
 
-    <button class="tb-btn tb-btn--icon" @click="emit('toggle-theme')" :data-tip="theme === 'dark' ? '切换到亮色' : '切换到暗色'">
+    <button class="tb-btn tb-btn--icon" @click="emit('toggle-theme')" :data-tip="theme === 'dark' ? t('toolbar.toLight') : t('toolbar.toDark')">
       <Sun v-if="theme === 'dark'" class="icon" />
       <Moon v-else class="icon" />
     </button>
-    <button class="tb-btn tb-btn--icon" @click="emit('settings')" data-tip="设置与快捷键 (F1)">
+    <button class="tb-btn tb-btn--icon" @click="emit('settings')" :data-tip="t('toolbar.settings')">
       <Settings class="icon" />
     </button>
     <a
@@ -251,7 +253,7 @@ function closeWindow() {
       href="https://github.com/gggaiitx/mkdown-site"
       target="_blank"
       rel="noopener noreferrer"
-      data-tip="GitHub 仓库"
+      :data-tip="t('toolbar.githubRepo')"
       @click.prevent="emit('github')"
     >
       <svg class="icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -302,10 +304,10 @@ function closeWindow() {
 
     <AppDialog
       :visible="showUpdateDialog"
-      title="更新就绪"
-      :message="`新版本 v${latestVersion} 已下载完成，是否立即重启以应用更新？`"
-      confirm-text="立即更新"
-      cancel-text="稍后"
+      :title="t('toolbar.updateReady')"
+      :message="t('toolbar.updateReadyMsg', { v: latestVersion })"
+      :confirm-text="t('toolbar.updateNow')"
+      :cancel-text="t('toolbar.later')"
       @confirm="onApplyConfirm"
       @cancel="showUpdateDialog = false"
     />
@@ -313,14 +315,14 @@ function closeWindow() {
     <!-- 窗口控制：macOS 由系统红绿灯接管，不再自绘 -->
     <template v-if="!isMac">
       <div class="divider" />
-      <button class="tb-btn tb-btn--icon win-btn" data-tip="最小化" @click="minimize">
+      <button class="tb-btn tb-btn--icon win-btn" :data-tip="t('toolbar.minimize')" @click="minimize">
         <WinMin class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon win-btn" :data-tip="isMaximized ? '还原' : '最大化'" @click="toggleMaximize">
+      <button class="tb-btn tb-btn--icon win-btn" :data-tip="isMaximized ? t('toolbar.restore') : t('toolbar.maximize')" @click="toggleMaximize">
         <Copy v-if="isMaximized" class="icon icon-sm" />
         <Square v-else class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon win-btn win-btn--close" data-tip="关闭" @click="closeWindow">
+      <button class="tb-btn tb-btn--icon win-btn win-btn--close" :data-tip="t('toolbar.close')" @click="closeWindow">
         <X class="icon icon-sm" />
       </button>
     </template>

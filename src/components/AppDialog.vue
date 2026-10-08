@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useI18n } from '../i18n';
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -14,7 +17,8 @@ const props = withDefaults(
     inputValue?: string;
     placeholder?: string;
   }>(),
-  { message: '', confirmText: '确定', cancelText: '取消', danger: false, input: false, inputValue: '', placeholder: '' },
+  // confirmText/cancelText 不给静态默认值，由模板回退到 t('dialog.*')，切换语言后按钮文字可响应式更新
+  { message: '', danger: false, input: false, inputValue: '', placeholder: '' },
 );
 
 const emit = defineEmits<{
@@ -56,9 +60,9 @@ function submit() {
         <slot />
       </div>
       <div class="actions">
-        <button class="btn" @click="emit('cancel')">{{ cancelText }}</button>
+        <button class="btn" @click="emit('cancel')">{{ cancelText || t('dialog.cancel') }}</button>
         <button class="btn" :class="danger ? 'danger' : 'primary'" @click="submit">
-          {{ confirmText }}
+          {{ confirmText || t('dialog.confirm') }}
         </button>
       </div>
     </div>

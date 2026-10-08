@@ -9,8 +9,10 @@ import { useCtxMenu } from '../composables/useCtxMenu';
 import type { NodeKind, WorkspaceNode } from '../api/types';
 import FileTreeNode from './FileTreeNode.vue';
 import AppDialog from './AppDialog.vue';
+import { useI18n } from '../i18n';
 
 const ws = useWorkspaceStore();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   (e: 'open-file', path: string): void;
@@ -156,7 +158,7 @@ const createDialog = ref<{ visible: boolean; kind: NodeKind; value: string }>({
 const createTarget = ref('');
 function openCreate(kind: NodeKind, dir?: string) {
   createTarget.value = dir || ws.root || '';
-  createDialog.value = { visible: true, kind, value: kind === 'file' ? '新建文档.md' : '新建文件夹' };
+  createDialog.value = { visible: true, kind, value: kind === 'file' ? t('filetree.defaultFileName') : t('filetree.defaultDirName') };
 }
 async function doCreate() {
   const { kind, value } = createDialog.value;
@@ -275,7 +277,7 @@ watch(filteredTree, (nodes) => {
       class="resizer"
       :class="{ active: dragging }"
       @mousedown="onResizeStart"
-      title="拖动调整宽度，拖到最左可隐藏"
+      :title="t('filetree.resizerTitle')"
     />
     <div class="panel-head">
       <button
@@ -283,20 +285,20 @@ watch(filteredTree, (nodes) => {
       :data-tip="ws.root ?? ''"
         @click.stop="wsMenuOpen = !wsMenuOpen"
       >
-        <span class="root-name-text">{{ ws.rootName || '资源管理器' }}</span>
+        <span class="root-name-text">{{ ws.rootName || t('filetree.explorer') }}</span>
         <ChevronDown class="root-caret" :size="12" />
       </button>
       <span class="tools">
-        <button class="tool" :class="{ on: filterVisible }" data-tip="按名称过滤（目录 / 文件）" @click="toggleFilter"><Search class="t-icon" /></button>
-        <button class="tool" data-tip="折叠全部" @click="ws.collapseAll()"><ChevronsDownUp class="t-icon" /></button>
-        <button class="tool" data-tip="刷新" @click="ws.refresh()"><RefreshCw class="t-icon" /></button>
-        <button class="tool" data-tip="隐藏工作区" @click="emit('hide')"><PanelLeftClose class="t-icon" /></button>
+        <button class="tool" :class="{ on: filterVisible }" :data-tip="t('filetree.filterTip')" @click="toggleFilter"><Search class="t-icon" /></button>
+        <button class="tool" :data-tip="t('filetree.collapseAll')" @click="ws.collapseAll()"><ChevronsDownUp class="t-icon" /></button>
+        <button class="tool" :data-tip="t('filetree.refresh')" @click="ws.refresh()"><RefreshCw class="t-icon" /></button>
+        <button class="tool" :data-tip="t('filetree.hideWorkspace')" @click="emit('hide')"><PanelLeftClose class="t-icon" /></button>
       </span>
     </div>
 
     <!-- 工作区切换菜单（点击根目录名弹出） -->
     <div class="ws-menu" v-if="wsMenuOpen" @click.stop>
-      <div class="ws-menu-title">切换工作区</div>
+      <div class="ws-menu-title">{{ t('filetree.switchTitle') }}</div>
       <button
         v-for="d in recentWorkspaces"
         :key="d"
@@ -308,7 +310,7 @@ watch(filteredTree, (nodes) => {
         <button
           v-if="d !== ws.root"
           class="ws-remove"
-          data-tip="从列表移除（不删除磁盘文件）"
+          :data-tip="t('filetree.removeTip')"
           @click.stop="removeWorkspace(d)"
         >
           <X :size="14" />
@@ -318,11 +320,11 @@ watch(filteredTree, (nodes) => {
       <div class="ws-menu-sep" />
       <button class="ws-item" @click="pickOther">
         <FolderOpen class="ws-ico" :size="14" />
-        <span class="ws-item-name">打开其他工作区…</span>
+        <span class="ws-item-name">{{ t('filetree.openOther') }}</span>
       </button>
       <button class="ws-item ws-remove-all" @click="removeAll">
         <Trash2 class="ws-ico" :size="14" />
-        <span class="ws-item-name">全部移除（含当前）</span>
+        <span class="ws-item-name">{{ t('filetree.removeAll') }}</span>
       </button>
     </div>
 
@@ -332,11 +334,11 @@ watch(filteredTree, (nodes) => {
       <input
         ref="filterIpt"
         v-model="filterText"
-        placeholder="过滤目录 / 文件名…"
+        :placeholder="t('filetree.filterPlaceholder')"
         spellcheck="false"
         @keydown.esc.prevent="closeFilter"
       />
-      <button class="f-clear" v-if="filterText" title="清空" @click="filterText = ''; filterIpt?.focus()"><X class="f-clear-ico" /></button>
+      <button class="f-clear" v-if="filterText" :title="t('filetree.clear')" @click="filterText = ''; filterIpt?.focus()"><X class="f-clear-ico" /></button>
     </div>
 
     <div class="tree" v-if="ws.tree && ws.tree.children && ws.tree.children.length > 0">
@@ -350,7 +352,7 @@ watch(filteredTree, (nodes) => {
           @open-file="(p: string) => emit('open-file', p)"
           @ctx="(ev, n) => onContextMenu(ev, n)"
         />
-        <div v-if="!filteredTree || filteredTree.length === 0" class="empty">无匹配的目录或文件</div>
+        <div v-if="!filteredTree || filteredTree.length === 0" class="empty">{{ t('filetree.noMatch') }}</div>
       </template>
       <!-- 原始树 -->
       <template v-else>
@@ -364,40 +366,40 @@ watch(filteredTree, (nodes) => {
         />
       </template>
     </div>
-    <div v-else-if="ws.tree" class="empty">空文件夹<br>右键可新建</div>
-    <div v-else class="empty">请打开一个文件夹<br>作为工作区</div>
+    <div v-else-if="ws.tree" class="empty">{{ t('filetree.emptyDir1') }}<br>{{ t('filetree.emptyDir2') }}</div>
+    <div v-else class="empty">{{ t('filetree.noFolder1') }}<br>{{ t('filetree.noFolder2') }}</div>
 
     <!-- 右键菜单 -->
     <div v-if="menu" :ref="setMenuRef" class="ctx-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
-      <button class="ctx-item" @click="menuNewFile">新建文件</button>
-      <button class="ctx-item" @click="menuNewDir">新建文件夹</button>
-      <button class="ctx-item" @click="menuReveal">打开所在位置</button>
+      <button class="ctx-item" @click="menuNewFile">{{ t('filetree.newFile') }}</button>
+      <button class="ctx-item" @click="menuNewDir">{{ t('filetree.newDir') }}</button>
+      <button class="ctx-item" @click="menuReveal">{{ t('filetree.ctxReveal') }}</button>
       <div class="ctx-sep" />
-      <button class="ctx-item" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuRename">重命名</button>
-      <button class="ctx-item danger" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuDelete">删除（回收站）</button>
+      <button class="ctx-item" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuRename">{{ t('filetree.ctxRename') }}</button>
+      <button class="ctx-item danger" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuDelete">{{ t('filetree.ctxDelete') }}</button>
     </div>
 
     <!-- 新建对话框 -->
     <AppDialog
       :visible="createDialog.visible"
-      :title="createDialog.kind === 'file' ? '新建文件' : '新建文件夹'"
+      :title="createDialog.kind === 'file' ? t('filetree.newFile') : t('filetree.newDir')"
       input
       :input-value="createDialog.value"
-      placeholder="名称"
+      :placeholder="t('filetree.namePlaceholder')"
       @confirm="createDialog.value = $event; doCreate()"
       @cancel="createDialog.visible = false; createError = ''"
     >
-      <p class="target-hint" :title="createTarget">位置：{{ createTarget }}</p>
+      <p class="target-hint" :title="createTarget">{{ t('filetree.location', { path: createTarget }) }}</p>
       <p class="err" v-if="createError">{{ createError }}</p>
     </AppDialog>
 
     <!-- 重命名对话框 -->
     <AppDialog
       :visible="renameDialog.visible"
-      title="重命名"
+      :title="t('filetree.renameTitle')"
       input
       :input-value="renameDialog.value"
-      placeholder="新名称"
+      :placeholder="t('filetree.newNamePlaceholder')"
       @confirm="renameDialog.value = $event; doRename()"
       @cancel="renameDialog.visible = false; renameError = ''"
     >
@@ -407,10 +409,10 @@ watch(filteredTree, (nodes) => {
     <!-- 删除确认 -->
     <AppDialog
       :visible="deleteDialog.visible"
-      title="删除"
+      :title="t('filetree.deleteTitle')"
       :danger="true"
-      confirm-text="删除"
-      :message="`「${deleteDialog.node?.name ?? ''}」将移动到系统回收站，确定删除？`"
+      :confirm-text="t('filetree.deleteConfirm')"
+      :message="t('filetree.deleteMsg', { name: deleteDialog.node?.name ?? '' })"
       @confirm="doDelete"
       @cancel="deleteDialog.visible = false; deleteError = ''"
     >

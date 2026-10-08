@@ -9,8 +9,11 @@ import { Minus, Plus, Scan, ZoomIn } from '@lucide/vue';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
 import OpenSystemBtn from './OpenSystemBtn.vue';
+import { useI18n } from '../../i18n';
 
 const props = defineProps<{ path: string }>();
+
+const { t } = useI18n();
 
 const ZOOM_MIN = 10;
 const ZOOM_MAX = 800;
@@ -57,17 +60,17 @@ watch(
 <template>
   <div class="img-pane">
     <div class="img-toolbar">
-      <button class="tb" title="缩小" @click="zoomOut"><Minus :size="14" /></button>
-      <span class="tb-val">{{ fitMode ? '适应窗口' : `${zoom}%` }}</span>
-      <button class="tb" title="放大" @click="zoomIn"><Plus :size="14" /></button>
-      <button class="tb" title="实际大小 100%" @click="resetZoom"><Scan :size="14" /></button>
-      <button class="tb" title="适应窗口" :class="{ on: fitMode }" @click="toggleFit">
+      <button class="tb" :title="t('preview.zoomOut')" @click="zoomOut"><Minus :size="14" /></button>
+      <span class="tb-val">{{ fitMode ? t('preview.fitWindow') : `${zoom}%` }}</span>
+      <button class="tb" :title="t('preview.zoomIn')" @click="zoomIn"><Plus :size="14" /></button>
+      <button class="tb" :title="t('preview.actualSize')" @click="resetZoom"><Scan :size="14" /></button>
+      <button class="tb" :title="t('preview.fitWindow')" :class="{ on: fitMode }" @click="toggleFit">
         <ZoomIn :size="14" />
       </button>
       <OpenSystemBtn :path="path" inline />
     </div>
     <div class="img-stage" :class="{ dark: !fitMode }">
-      <span v-if="!loaded && !failed" class="pv-hint">加载中…</span>
+      <span v-if="!loaded && !failed" class="pv-hint">{{ t('preview.loading') }}</span>
       <img
         v-show="loaded"
         :src="src"
@@ -77,7 +80,7 @@ watch(
         @load="loaded = true"
         @error="failed = true"
       />
-      <span v-if="failed" class="pv-error">图片无法加载，可用系统默认程序打开</span>
+      <span v-if="failed" class="pv-error">{{ t('preview.imgLoadFail') }}</span>
     </div>
   </div>
 </template>

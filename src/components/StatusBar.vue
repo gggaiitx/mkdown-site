@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useEditorStore } from '../stores/editorStore';
+import { useI18n } from '../i18n';
 import { useTabsStore } from '../stores/tabsStore';
 import type { EditorMode } from '../api/types';
 
@@ -8,12 +9,13 @@ const props = defineProps<{ mode: EditorMode }>();
 
 const editor = useEditorStore();
 const tabs = useTabsStore();
+const { t } = useI18n();
 
 const stateText = computed(() => {
-  const t = tabs.activeTab;
-  if (!t) return '就绪';
-  if (editor.saving) return '保存中…';
-  return t.isDirty ? '未保存' : '已保存';
+  const tab = tabs.activeTab;
+  if (!tab) return t('statusbar.ready');
+  if (editor.saving) return t('statusbar.saving');
+  return tab.isDirty ? t('statusbar.unsaved') : t('statusbar.saved');
 });
 const stateKind = computed(() => {
   const t = tabs.activeTab;
@@ -21,21 +23,21 @@ const stateKind = computed(() => {
   if (editor.saving) return 'warn';
   return t.isDirty ? 'warn' : 'ok';
 });
-const modeText = computed(() => ({ edit: '仅编辑', split: '分栏', read: '阅读' } as Record<EditorMode, string>)[props.mode] ?? props.mode);
+const modeText = computed(() => ({ edit: t('statusbar.modeEdit'), split: t('statusbar.modeSplit'), read: t('statusbar.modeRead') } as Record<EditorMode, string>)[props.mode] ?? props.mode);
 </script>
 
 <template>
   <footer class="statusbar">
-    <span class="item strong">{{ tabs.activeTab?.title ?? '无文档' }}</span>
+    <span class="item strong">{{ tabs.activeTab?.title ?? t('statusbar.noDoc') }}</span>
     <span class="item" :class="stateKind">{{ stateText }}</span>
     <span class="spacer" />
-    <span class="item">字数 {{ editor.wordCount.toLocaleString() }}</span>
+    <span class="item">{{ t('statusbar.wordCount', { n: editor.wordCount.toLocaleString() }) }}</span>
     <span class="sep" />
-    <span class="item">行 {{ editor.lineCount }}</span>
+    <span class="item">{{ t('statusbar.lineCount', { n: editor.lineCount }) }}</span>
     <!-- 阅读态无光标概念，隐藏光标项 -->
     <template v-if="mode !== 'read'">
       <span class="sep" />
-      <span class="item">光标 L{{ editor.cursorLine }}:C{{ editor.cursorCol }}</span>
+      <span class="item">{{ t('statusbar.cursor', { l: editor.cursorLine, c: editor.cursorCol }) }}</span>
     </template>
     <span class="sep" />
     <span class="item">{{ modeText }}</span>

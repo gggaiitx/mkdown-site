@@ -55,7 +55,9 @@ import { allowAssetDir } from '../api/imageApi';
 import type { EditorMode, ThemeKind } from '../api/types';
 import { TEMPLATES, type MdTemplate } from '../utils/markdownTemplate';
 import { debounce } from '../utils/common';
+import { useI18n } from '../i18n';
 
+const { t } = useI18n();
 const settings = useSettingsStore();
 const ws = useWorkspaceStore();
 const tabs = useTabsStore();
@@ -63,6 +65,8 @@ const editor = useEditorStore();
 const search = useSearchStore();
 
 const engineRef = ref<EngineHandle | null>(null);
+/** 标签栏组件引用：F2 重命名当前文档经 TabBar.renameActive() 走同一对话框链路 */
+const tabBarRef = ref<InstanceType<typeof TabBar> | null>(null);
 const activeDocPath = computed(() => tabs.activeTab?.path ?? null);
 const showSettings = ref(false);
 
@@ -150,21 +154,21 @@ function onContentChange(v: string) {
 function beautifyActive() {
   const tab = tabs.activeTab;
   if (!tab) {
-    editor.showToast('没有打开的文档', 'error');
+    editor.showToast(t('workbench.toast.noDoc'), 'error');
     return;
   }
   if (tabs.activeIsPreview) {
-    editor.showToast('预览标签为只读，不支持美化', 'info');
+    editor.showToast(t('workbench.toast.previewReadonlyBeautify'), 'info');
     return;
   }
   const formatted = formatMarkdown(tab.content);
   if (formatted === tab.content) {
-    editor.showToast('文档已是规范格式', 'info');
+    editor.showToast(t('workbench.toast.alreadyFormatted'), 'info');
     return;
   }
   onContentChange(formatted);
   syncOutline(formatted);
-  editor.showToast('Markdown 已美化', 'success');
+  editor.showToast(t('workbench.toast.beautified'), 'success');
 }
 
 const syncOutline = debounce((v: string) => editor.syncFromContent(v), 120);
@@ -200,7 +204,7 @@ async function doSwitchWorkspace(dir: string) {
   try {
     tabs.closeAll(); // 切换前已经确认过：老工作区的标签全部关闭
     await ws.openWorkspace(dir);
-    editor.showToast(`已切换工作区：${baseName(dir)}`, 'success');
+    editor.showToast(t('workbench.toast.wsSwitched', { name: baseName(dir) }), 'success');
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
   }
@@ -223,7 +227,7 @@ function onWsRemoveAllConfirm() {
   wsRemoveAll.value = false;
   tabs.closeAll(); // 确认对话框已提示放弃未保存内容
   ws.closeWorkspace();
-  editor.showToast('已移除全部工作区', 'success');
+  editor.showToast(t('workbench.toast.wsRemovedAll'), 'success');
 }
 
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
@@ -272,7 +276,7 @@ async function routeByType(path: string): Promise<'text' | 'handled'> {
       return 'handled';
     }
     await openInSystem(path);
-    editor.showToast(`已用系统默认程序打开：${baseName(path)}`, 'info');
+    editor.showToast(t('workbench.toast.openedBySystem', { name: baseName(path) }), 'info');
     return 'handled';
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
@@ -330,7 +334,7 @@ function newFromTemplate(tpl: MdTemplate) {
   const mode = tpl.id === 'blank' ? 'edit' : settings.settings.editorMode;
   tabs.newUntitled(tpl.content, mode);
   editor.setMode(mode);
-  editor.showToast(`已按「${tpl.name}」新建`, 'success');
+  editor.showToast(t('workbench.toast.createdFromTpl', { name: tpl.name }), 'success');
 }
 
 // ---------- 保存流水线 ----------
@@ -339,11 +343,11 @@ async function saveActive(): Promise<void> {
   if (!tab || editor.saving) return;
   // 预览标签（docx/xlsx/图片）没有文本内容，写入会毁掉原文件——硬性拦截
   if (tabs.activeIsPreview) {
-    editor.showToast('预览标签为只读，无保存操作', 'info');
+    editor.showToast(t('workbench.toast.previewReadonlySave'), 'info');
     return;
   }
   if (!tab.isUtf8) {
-    editor.showToast(`当前文档编码为 ${tab.encoding}，就地保存可能破坏中文，请使用「另存为」保存为 UTF-8`, 'error');
+    editor.showToast(t('workbench.toast.encodingWarning', { encoding: tab.encoding }), 'error');
     return;
   }
   if (!tab.path) {
@@ -354,9 +358,9 @@ async function saveActive(): Promise<void> {
   try {
     await writeFileAtomic(tab.path, tab.content, tab.hadBom);
     tabs.markSaved(tab.id, tab.content);
-    editor.showToast(`已保存 · ${baseName(tab.path)}`, 'success');
+    editor.showToast(t('workbench.toast.saved', { name: baseName(tab.path) }), 'success');
   } catch (err) {
-    editor.showToast(`保存失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+    editor.showToast(t('workbench.toast.saveFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   } finally {
     editor.saving = false;
   }
@@ -382,11 +386,11 @@ async function saveActiveAs(): Promise<string | null> {
       // 另存到新目录同样补授权，保证粘贴图片在阅读态可见
       const dir = res.path.replace(/[\\/][^\\/]*$/, '');
       if (dir) void allowAssetDir(dir).catch(() => undefined);
-      editor.showToast(`已另存为 ${newTitle}`, 'success');
+      editor.showToast(t('workbench.toast.savedAs', { name: newTitle }), 'success');
       return res.path;
     }
   } catch (err) {
-    editor.showToast(`另存失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+    editor.showToast(t('workbench.toast.saveAsFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   }
   return null;
 }
@@ -401,7 +405,7 @@ const autoSaveTick = debounce(
       try {
         await writeFileAtomic(tab.path as string, content, tab.hadBom);
         tabs.markSaved(id, content);
-        editor.showToast(`已自动保存 · ${baseName(tab.path as string)}`, 'info');
+        editor.showToast(t('workbench.toast.autoSaved', { name: baseName(tab.path as string) }), 'info');
       } catch {
         /* 静默失败，下次停顿重试 */
       }
@@ -585,7 +589,7 @@ watch(
 
 // ---------- 导出 ----------
 function wrapExportHtml(): string {
-  const title = tabs.activeTab?.title ?? '码克';
+  const title = tabs.activeTab?.title ?? t('workbench.appName');
   const html = editor.previewHtml || '';
   return `<!doctype html>
 <html lang="zh-CN">
@@ -627,21 +631,21 @@ async function doExportHtml() {
   const tab = tabs.activeTab;
   if (!tab) return;
   if (tabs.activeIsPreview) {
-    editor.showToast('预览标签不支持导出 HTML', 'info');
+    editor.showToast(t('workbench.toast.previewNoExportHtml'), 'info');
     return;
   }
   try {
-    const html = deAssetify(wrapExportHtml(), tab.path ?? '未命名.md');
-    const out = await exportHtml(tab.path ?? '未命名.md', html);
-    if (out) editor.showToast(`已导出：${out}`, 'success');
+    const html = deAssetify(wrapExportHtml(), tab.path ?? t('workbench.untitledMd'));
+    const out = await exportHtml(tab.path ?? t('workbench.untitledMd'), html);
+    if (out) editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
   } catch (err) {
-    editor.showToast(`导出失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+    editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   }
 }
 
 async function doPrintPdf() {
   if (tabs.activeIsPreview) {
-    editor.showToast('预览标签不支持打印，请切换到 Markdown 文档', 'info');
+    editor.showToast(t('workbench.toast.previewNoPrint'), 'info');
     return;
   }
   // 打印 PDF：引擎内官方 ExportPDF 的 trigger（window.print + 官方 @media print 裁剪，
@@ -649,7 +653,7 @@ async function doPrintPdf() {
   try {
     await engineRef.value?.exportPdf();
   } catch (err) {
-    editor.showToast(`打印失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+    editor.showToast(t('workbench.toast.printFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   }
 }
 
@@ -661,7 +665,7 @@ const isEditorFocused = () => !!document.querySelector('.cm-editor.cm-focused');
 function engineEditable(): boolean {
   if (!tabs.activeTab || tabs.activeIsPreview) return false;
   if (editor.mode === 'read') {
-    editor.showToast('阅读模式不可编辑，Alt+E/W/R 可切换视图', 'info');
+    editor.showToast(t('workbench.toast.readonlyMode'), 'info');
     return false;
   }
   return true;
@@ -686,17 +690,17 @@ function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
     if (engineEditable()) engineRef.value?.wrapSelection(prefix, suffix, placeholder);
   };
   if (!e.shiftKey) {
-    if (k === 'b') { wrap('**', '**', '加粗文本'); return true; }
-    if (k === 'i') { wrap('*', '*', '斜体文本'); return true; }
-    if (k === 'k') { wrap('[', '](https://)', '链接文本'); return true; }
+    if (k === 'b') { wrap('**', '**', t('workbench.placeholder.bold')); return true; }
+    if (k === 'i') { wrap('*', '*', t('workbench.placeholder.italic')); return true; }
+    if (k === 'k') { wrap('[', '](https://)', t('workbench.placeholder.link')); return true; }
     if (k >= '1' && k <= '6') {
       e.preventDefault();
       if (engineEditable()) engineRef.value?.setHeading(Number(k));
       return true;
     }
   } else {
-    if (k === 'c') { wrap('\n```\n', '\n```\n', '代码'); return true; }
-    if (k === 'i') { wrap('![', '](https://)', '图片描述'); return true; }
+    if (k === 'c') { wrap('\n```\n', '\n```\n', t('workbench.placeholder.code')); return true; }
+    if (k === 'i') { wrap('![', '](https://)', t('workbench.placeholder.image')); return true; }
   }
   return false;
 }
@@ -717,6 +721,12 @@ function onKeydown(e: KeyboardEvent) {
       showSettings.value = !showSettings.value;
       return;
     }
+    if (e.key === 'F2') {
+      // 重命名当前文档（与标签右键菜单同一对话框；无路径的新文档由 TabBar 忽略）
+      e.preventDefault();
+      tabBarRef.value?.renameActive();
+      return;
+    }
     if (e.key === 'F11') {
       // 编辑器全屏（页面内全屏，同工具栏 pageFullscreen）：阻止 WebView 原生全屏
       e.preventDefault();
@@ -735,6 +745,16 @@ function onKeydown(e: KeyboardEvent) {
     }
     return;
   }
+  if (k === 'w') {
+    // Ctrl+W 关闭当前标签 / Ctrl+Shift+W 关闭全部（与标签右键菜单同链路，脏页统一确认）
+    e.preventDefault();
+    if (e.shiftKey) {
+      if (tabs.tabs.length > 0) void requestCloseBatch(tabs.tabs.map((t) => t.id));
+    } else if (tabs.activeTab) {
+      void requestCloseTab(tabs.activeTab.id);
+    }
+    return;
+  }
   if (k === 'n') { e.preventDefault(); newFromTemplate(TEMPLATES[0]); return; }
   if (k === 'o') { e.preventDefault(); void openFileByDialog(); return; }
   if (k === 'f' && !e.altKey) {
@@ -745,7 +765,7 @@ function onKeydown(e: KeyboardEvent) {
     }
     // Ctrl+F：文件内查找（面板已开时=切到文件内模式）
     if (!tabs.activeTab) {
-      editor.showToast('请先打开文档，再按 Ctrl+F 查找', 'info');
+      editor.showToast(t('workbench.toast.openBeforeFind'), 'info');
       return;
     }
     hubMode.value = 'file';
@@ -788,7 +808,7 @@ function onDragDrop(ev: { payload: { type: string; paths?: string[] } }) {
   if (ev.payload.type !== 'drop' || !ev.payload.paths) return;
   const files = ev.payload.paths.filter((p) => OPENABLE_EXT.test(p));
   const skipped = ev.payload.paths.length - files.length;
-  if (skipped > 0) editor.showToast(`已忽略 ${skipped} 个非 Markdown/TXT 文件`, 'info');
+  if (skipped > 0) editor.showToast(t('workbench.toast.skippedNonMd', { n: skipped }), 'info');
   if (files.length === 0) return;
   editor.setMode('read'); // 拖入即阅读
   void (async () => {
@@ -836,7 +856,7 @@ onMounted(async () => {
     try {
       await ws.openWorkspace(settings.settings.lastWorkspace);
     } catch {
-      editor.showToast('上次工作区不可用，可重新打开', 'info');
+      editor.showToast(t('workbench.toast.lastWsUnavailable'), 'info');
     }
   }
   // 会话恢复（更新重启/崩溃后还原标签页与未保存草稿）：干净页读盘，脏页用快照草稿
@@ -919,11 +939,11 @@ watch(() => editor.mode, (m) => {
       <div
         v-else
         class="ws-restore"
-        title="拖动向右展开工作区"
+        :title="t('workbench.dragToRestore')"
         @mousedown="onWsRestoreStart"
       ><i class="ws-restore-line" /></div>
       <div class="center">
-        <TabBar @close="requestCloseTab" @close-batch="requestCloseBatch" />
+        <TabBar ref="tabBarRef" @close="requestCloseTab" @close-batch="requestCloseBatch" />
         <div class="editor-area" v-if="tabs.activeTab">
           <!-- 预览类标签（docx/xlsx/图片）：只读预览，不进编辑器 -->
           <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :path="tabs.activeTab.path ?? ''" />
@@ -940,7 +960,9 @@ watch(() => editor.mode, (m) => {
               :preview-theme="settings.settings.previewTheme"
               :read-layout="settings.settings.readLayout"
               :show-toolbar="settings.settings.showToolbar"
+              :scroll-sync="settings.settings.scrollSync"
               :doc-path="activeDocPath"
+              :language="settings.settings.language"
               editor-id="mkdown-editor"
               @update:model-value="onContentChange"
               @save="() => saveActive()"
@@ -994,14 +1016,14 @@ watch(() => editor.mode, (m) => {
     <!-- 关闭确认（单标签 / 批量关闭 / 关窗口 三态共用） -->
     <AppDialog
       :visible="closeConfirm.visible"
-      :title="closeConfirm.tabId || closeConfirm.batchIds ? '未保存的更改' : '关闭窗口'"
+      :title="closeConfirm.tabId || closeConfirm.batchIds ? t('workbench.close.unsavedTitle') : t('workbench.close.windowTitle')"
       :message="closeConfirm.tabId
-        ? '当前文档有未保存的更改：确定=保存并关闭，取消=放弃更改并关闭'
+        ? t('workbench.close.tabMsg')
         : closeConfirm.batchIds
-          ? `有 ${closeBatchDirtyCount} 个未保存文档：确定=全部保存并关闭，取消=全部放弃并关闭`
-          : '有未保存的文档，确定保存全部并退出？（取消=留在窗口）'"
-      :confirm-text="closeConfirm.tabId ? '保存并关闭' : closeConfirm.batchIds ? '全部保存并关闭' : '保存并退出'"
-      :cancel-text="closeConfirm.tabId ? '放弃更改' : closeConfirm.batchIds ? '全部放弃并关闭' : '取消'"
+          ? t('workbench.close.batchMsg', { n: closeBatchDirtyCount })
+          : t('workbench.close.windowMsg')"
+      :confirm-text="closeConfirm.tabId ? t('workbench.close.saveClose') : closeConfirm.batchIds ? t('workbench.close.saveAllClose') : t('workbench.close.saveExit')"
+      :cancel-text="closeConfirm.tabId ? t('workbench.close.discard') : closeConfirm.batchIds ? t('workbench.close.discardAllClose') : t('workbench.cancel')"
       @confirm="onCloseConfirm"
       @cancel="onCloseCancel"
     />
@@ -1009,10 +1031,10 @@ watch(() => editor.mode, (m) => {
     <!-- 切换工作区确认（有脏标签时） -->
     <AppDialog
       :visible="wsSwitch.visible"
-      title="切换工作区"
-      message="有未保存的文档：切换将关闭所有标签且不保存这些更改。确定继续？"
-      confirm-text="放弃更改并切换"
-      cancel-text="留在当前工作区"
+      :title="t('workbench.close.wsSwitchTitle')"
+      :message="t('workbench.close.wsSwitchMsg')"
+      :confirm-text="t('workbench.close.wsSwitchConfirm')"
+      :cancel-text="t('workbench.close.wsSwitchCancel')"
       @confirm="onWsSwitchConfirm"
       @cancel="wsSwitch.visible = false"
     />
@@ -1020,12 +1042,12 @@ watch(() => editor.mode, (m) => {
     <!-- 全部移除工作区确认（含当前，回到欢迎页） -->
     <AppDialog
       :visible="wsRemoveAll"
-      title="全部移除工作区"
+      :title="t('workbench.close.removeAllTitle')"
       :message="tabs.dirtyCount > 0
-        ? `有 ${tabs.dirtyCount} 个未保存文档将丢失，历史列表与当前工作区将被清空（不删除磁盘文件）。确定继续？`
-        : '将关闭当前工作区并清空历史列表（不删除磁盘文件）。确定继续？'"
-      confirm-text="全部移除"
-      cancel-text="取消"
+        ? t('workbench.close.removeAllDirtyMsg', { n: tabs.dirtyCount })
+        : t('workbench.close.removeAllMsg')"
+      :confirm-text="t('workbench.close.removeAllConfirm')"
+      :cancel-text="t('workbench.cancel')"
       @confirm="onWsRemoveAllConfirm"
       @cancel="wsRemoveAll = false"
     />
@@ -1033,18 +1055,18 @@ watch(() => editor.mode, (m) => {
     <!-- 轻提示 -->
     <Teleport to="body">
       <TransitionGroup name="toast" tag="div" class="toast-host">        <div
-          v-for="t in toasts"
-          :key="t.seq"
+          v-for="toast in toasts"
+          :key="toast.seq"
           class="toast"
-          :class="t.kind"
-          :title="'点击关闭'"
-          @click="dismissToast(t.seq)"
+          :class="toast.kind"
+          :title="t('workbench.clickToClose')"
+          @click="dismissToast(toast.seq)"
         >
-          <CheckCircle2 v-if="t.kind === 'success'" class="toast-ic" />
-          <AlertCircle v-else-if="t.kind === 'error'" class="toast-ic" />
+          <CheckCircle2 v-if="toast.kind === 'success'" class="toast-ic" />
+          <AlertCircle v-else-if="toast.kind === 'error'" class="toast-ic" />
           <Info v-else class="toast-ic" />
-          <span class="toast-text">{{ t.text }}</span>
-          <span v-if="t.count > 1" class="toast-count">×{{ t.count }}</span>
+          <span class="toast-text">{{ toast.text }}</span>
+          <span v-if="toast.count > 1" class="toast-count">×{{ toast.count }}</span>
         </div>
       </TransitionGroup>
     </Teleport>

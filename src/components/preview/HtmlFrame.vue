@@ -19,6 +19,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import OpenSystemBtn from './OpenSystemBtn.vue';
 import PreviewZoomBar from './PreviewZoomBar.vue';
 import { useFrameScale } from './useFrameScale';
+import { useI18n } from '../../i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   /** HTML 源码 */
@@ -118,7 +121,7 @@ onBeforeUnmount(() => {
         class="html-frame"
         :srcdoc="srcdoc"
         sandbox="allow-same-origin"
-        title="HTML 预览"
+        :title="t('preview.htmlTitle')"
         :style="frameStyle"
         @load="onLoad"
       ></iframe>

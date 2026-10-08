@@ -3,11 +3,13 @@ import { onBeforeUnmount, ref } from 'vue';
 import { ExternalLink, Info, Keyboard, Palette, RefreshCw, SlidersHorizontal } from '@lucide/vue';
 import pkg from '../../package.json';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useI18n } from '../i18n';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { openUrl } from '../api/fileApi';
 import type { AppSettings } from '../api/types';
 
 const settings = useSettingsStore();
+const { t } = useI18n();
 
 const emit = defineEmits<{ (e: 'close'): void }>();
 
@@ -39,15 +41,15 @@ async function recheckUpdate() {
 const updateStatusText = () => {
   switch (updateState.value) {
     case 'checking':
-      return '正在检查更新…';
+      return t('settings.updateChecking');
     case 'uptodate':
-      return `已是最新版本 v${currentVersion.value}`;
+      return t('settings.updateUpToDate', { v: currentVersion.value });
     case 'available':
-      return `发现新版本 v${latestVersion.value}（当前 v${currentVersion.value}），可到顶栏更新按钮下载，或前往发布页`;
+      return t('settings.updateAvailable', { latest: latestVersion.value, current: currentVersion.value });
     case 'error':
-      return '检查失败（网络原因），可前往发布页手动查看';
+      return t('settings.updateError');
     default:
-      return '尚未检测';
+      return t('settings.updateNotChecked');
   }
 };
 
@@ -59,35 +61,38 @@ const updateStatusText = () => {
  */
 const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
   {
-    title: '文件与视图',
+    title: 'settings.scGroupFile',
     items: [
-      ['Ctrl + S', '保存'],
-      ['Ctrl + N', '新建文档'],
-      ['Ctrl + O', '打开文件'],
-      ['Alt + E', '仅编辑视图'],
-      ['Alt + W', '分栏视图'],
-      ['Alt + R', '阅读视图'],
-      ['F11', '编辑器全屏'],
-      ['F1', '打开 / 关闭本面板'],
+      ['Ctrl + S', 'settings.scSave'],
+      ['Ctrl + N', 'settings.scNewDoc'],
+      ['Ctrl + O', 'settings.scOpenFile'],
+      ['Ctrl + W', 'settings.scCloseTab'],
+      ['Ctrl + Shift + W', 'settings.scCloseAllTabs'],
+      ['F2', 'settings.scRename'],
+      ['Alt + E', 'settings.scEditorOnly'],
+      ['Alt + W', 'settings.scSplit'],
+      ['Alt + R', 'settings.scReader'],
+      ['F11', 'settings.scEditorFullscreen'],
+      ['F1', 'settings.scTogglePanel'],
     ],
   },
   {
-    title: '查找',
+    title: 'settings.scGroupFind',
     items: [
-      ['Ctrl + F', '文件内查找'],
-      ['Ctrl + P', '全局搜索'],
+      ['Ctrl + F', 'settings.scFindInFile'],
+      ['Ctrl + P', 'settings.scSearchAll'],
     ],
   },
   {
-    title: '格式（编辑 / 分栏视图生效）',
+    title: 'settings.scGroupFormat',
     items: [
-      ['Ctrl + B', '加粗'],
-      ['Ctrl + I', '斜体'],
-      ['Ctrl + K', '插入链接'],
-      ['Ctrl + 1~6', '一 ~ 六级标题'],
-      ['Ctrl + Shift + C', '代码块'],
-      ['Ctrl + Shift + I', '插入图片占位'],
-      ['Ctrl + Shift + F', '美化 Markdown'],
+      ['Ctrl + B', 'settings.scBold'],
+      ['Ctrl + I', 'settings.scItalic'],
+      ['Ctrl + K', 'settings.scLink'],
+      ['Ctrl + 1~6', 'settings.scHeadings'],
+      ['Ctrl + Shift + C', 'settings.scCodeBlock'],
+      ['Ctrl + Shift + I', 'settings.scImagePlaceholder'],
+      ['Ctrl + Shift + F', 'settings.scBeautify'],
     ],
   },
 ];
@@ -101,22 +106,22 @@ function patch(p: Partial<AppSettings>) {
  * win 为本项目自建 Windows 11 Fluent 风主题（样式见 src/styles/win-theme.css）。
  */
 const previewThemes: Array<{ value: string; label: string }> = [
-  { value: 'default', label: 'default · 默认' },
-  { value: 'github', label: 'github · GitHub' },
-  { value: 'vuepress', label: 'vuepress · Vue 文档' },
-  { value: 'mk-cute', label: 'mk-cute · 可爱' },
-  { value: 'smart-blue', label: 'smart-blue · 蓝调' },
-  { value: 'cyanosis', label: 'cyanosis · 掘金深蓝' },
-  { value: 'win', label: 'win · Windows 风' },
+  { value: 'default', label: 'settings.ptDefault' },
+  { value: 'github', label: 'settings.ptGithub' },
+  { value: 'vuepress', label: 'settings.ptVuepress' },
+  { value: 'mk-cute', label: 'settings.ptMkCute' },
+  { value: 'smart-blue', label: 'settings.ptSmartBlue' },
+  { value: 'cyanosis', label: 'settings.ptCyanosis' },
+  { value: 'win', label: 'settings.ptWin' },
 ];
 
 // ---- 左右分栏分类导航（对齐 WorkBuddy 设置面板形态） ----
 type SectionId = 'appearance' | 'editor' | 'shortcuts' | 'about';
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
-  { id: 'appearance', label: '外观', icon: Palette },
-  { id: 'editor', label: '编辑器', icon: SlidersHorizontal },
-  { id: 'shortcuts', label: '快捷键', icon: Keyboard },
-  { id: 'about', label: '关于', icon: Info },
+  { id: 'appearance', label: 'settings.sectionAppearance', icon: Palette },
+  { id: 'editor', label: 'settings.sectionEditor', icon: SlidersHorizontal },
+  { id: 'shortcuts', label: 'settings.sectionShortcuts', icon: Keyboard },
+  { id: 'about', label: 'settings.sectionAbout', icon: Info },
 ];
 const active = ref<SectionId>('appearance');
 
@@ -159,9 +164,9 @@ onBeforeUnmount(onDragEnd);
 <template>
   <div class="mask" @click.self="emit('close')">
     <div ref="dialogRef" class="dialog" :style="pos ? { position: 'fixed', left: `${pos.x}px`, top: `${pos.y}px` } : undefined">
-      <div class="head" title="按住标题栏可拖动" @pointerdown="onDragStart">
-        <span class="head-title">设置</span>
-        <button class="close" title="关闭" @click="emit('close')">×</button>
+      <div class="head" :title="t('settings.dragHint')" @pointerdown="onDragStart">
+        <span class="head-title">{{ t('settings.title') }}</span>
+        <button class="close" :title="t('settings.close')" @click="emit('close')">×</button>
       </div>
       <div class="layout">
         <!-- 左侧分类导航 -->
@@ -174,51 +179,58 @@ onBeforeUnmount(onDragEnd);
             @click="active = s.id"
           >
             <component :is="s.icon" class="nav-ic" :size="15" />
-            <span>{{ s.label }}</span>
+            <span>{{ t(s.label) }}</span>
           </button>
         </nav>
         <!-- 右侧内容区 -->
         <div class="body">
           <!-- 外观 -->
           <template v-if="active === 'appearance'">
-            <div class="sec-title">外观</div>
+            <div class="sec-title">{{ t('settings.sectionAppearance') }}</div>
             <div class="row">
-              <label>主题</label>
+              <label>{{ t('settings.theme') }}</label>
               <select :value="settings.settings.theme" @change="patch({ theme: ($event.target as HTMLSelectElement).value as AppSettings['theme'] })">
-                <option value="light">亮色</option>
-                <option value="dark">暗色</option>
+                <option value="light">{{ t('settings.themeLight') }}</option>
+                <option value="dark">{{ t('settings.themeDark') }}</option>
               </select>
             </div>
             <div class="row">
-              <label>预览主题</label>
+              <label>{{ t('settings.previewTheme') }}</label>
               <select :value="settings.settings.previewTheme" @change="patch({ previewTheme: ($event.target as HTMLSelectElement).value })">
-                <option v-for="t in previewThemes" :key="t.value" :value="t.value">{{ t.label }}</option>
+                <option v-for="pt in previewThemes" :key="pt.value" :value="pt.value">{{ t(pt.label) }}</option>
               </select>
             </div>
             <div class="row">
-              <label>内容版式（编辑 / 阅读）</label>
+              <label>{{ t('settings.layout') }}</label>
               <select :value="settings.settings.readLayout" @change="patch({ readLayout: ($event.target as HTMLSelectElement).value as AppSettings['readLayout'] })">
-                <option value="narrow">窄（760px）</option>
-                <option value="medium">中（1020px，默认）</option>
-                <option value="wide">宽（1320px）</option>
+                <option value="narrow">{{ t('settings.layoutNarrow') }}</option>
+                <option value="medium">{{ t('settings.layoutMedium') }}</option>
+                <option value="wide">{{ t('settings.layoutWide') }}</option>
               </select>
             </div>
             <div class="row">
-              <label>字号（{{ settings.settings.fontSize }}px）</label>
+              <label>{{ t('settings.fontSize', { n: settings.settings.fontSize }) }}</label>
               <input
                 type="range" min="12" max="24" step="1"
                 :value="settings.settings.fontSize"
                 @change="patch({ fontSize: Number(($event.target as HTMLInputElement).value) })"
               />
             </div>
+            <div class="row">
+              <label>{{ t('settings.language') }}</label>
+              <select :value="settings.settings.language" @change="patch({ language: ($event.target as HTMLSelectElement).value })">
+                <option value="zh-CN">{{ t('settings.langZh') }}</option>
+                <option value="en-US">{{ t('settings.langEn') }}</option>
+              </select>
+            </div>
           </template>
 
           <!-- 编辑器 -->
           <template v-else-if="active === 'editor'">
-            <div class="sec-title">编辑器</div>
+            <div class="sec-title">{{ t('settings.sectionEditor') }}</div>
             <div class="row">
-              <label>自动保存</label>
-              <label class="switch" title="内容停顿后自动落盘">
+              <label>{{ t('settings.autoSave') }}</label>
+              <label class="switch" :title="t('settings.autoSaveHint')">
                 <input
                   type="checkbox"
                   :checked="settings.settings.autoSave"
@@ -228,7 +240,7 @@ onBeforeUnmount(onDragEnd);
               </label>
             </div>
             <div class="row" v-if="settings.settings.autoSave">
-              <label>自动保存延迟（{{ settings.settings.autoSaveDelayMs }}ms）</label>
+              <label>{{ t('settings.autoSaveDelay', { n: settings.settings.autoSaveDelayMs }) }}</label>
               <input
                 type="range" min="300" max="3000" step="100"
                 :value="settings.settings.autoSaveDelayMs"
@@ -236,8 +248,8 @@ onBeforeUnmount(onDragEnd);
               />
             </div>
             <div class="row">
-              <label>滚动同步</label>
-              <label class="switch" title="编辑 / 分栏视图两侧滚动跟随">
+              <label>{{ t('settings.scrollSync') }}</label>
+              <label class="switch" :title="t('settings.scrollSyncHint')">
                 <input
                   type="checkbox"
                   :checked="settings.settings.scrollSync"
@@ -247,8 +259,8 @@ onBeforeUnmount(onDragEnd);
               </label>
             </div>
             <div class="row">
-              <label>显示功能栏</label>
-              <label class="switch" title="编辑器顶部的格式工具条；关闭后正文区上移">
+              <label>{{ t('settings.showToolbar') }}</label>
+              <label class="switch" :title="t('settings.showToolbarHint')">
                 <input
                   type="checkbox"
                   :checked="settings.settings.showToolbar"
@@ -261,23 +273,23 @@ onBeforeUnmount(onDragEnd);
 
           <!-- 快捷键 -->
           <template v-else-if="active === 'shortcuts'">
-            <div class="sec-title">快捷键</div>
+            <div class="sec-title">{{ t('settings.sectionShortcuts') }}</div>
             <!-- 单卡分组：组头条（muted 底）+ 行式条目（动作名左 / 键帽右），与关于页信息组同语言 -->
             <div class="sc-card">
               <template v-for="g in SHORTCUT_GROUPS" :key="g.title">
-                <div class="sc-head">{{ g.title }}</div>
+                <div class="sc-head">{{ t(g.title) }}</div>
                 <div class="sc-row" v-for="[k, v] in g.items" :key="k">
-                  <span>{{ v }}</span>
+                  <span>{{ t(v) }}</span>
                   <kbd>{{ k }}</kbd>
                 </div>
               </template>
             </div>
-            <div class="sc-note">格式类快捷键在编辑器获得焦点时由内核处理，焦点在外（如侧栏、预览）时同样响应。</div>
+            <div class="sc-note">{{ t('settings.shortcutsNote') }}</div>
           </template>
 
           <!-- 关于 -->
           <template v-else>
-            <div class="sec-title">关于</div>
+            <div class="sec-title">{{ t('settings.sectionAbout') }}</div>
             <!-- 品牌卡：logo 与 Welcome 同源 SVG（M+光标），名称/版本/定位语横排 -->
             <div class="about-card">
               <svg class="about-logo" viewBox="0 0 102 102" aria-hidden="true">
@@ -290,23 +302,23 @@ onBeforeUnmount(onDragEnd);
                 <rect x="63" y="60" width="11" height="14" rx="2.5" fill="#378ADD" />
               </svg>
               <div class="about-meta">
-                <div class="about-name">码克 <span class="ver">v{{ pkg.version }}</span></div>
-                <div class="about-line">本地 Markdown 编辑与阅读器 · 离线优先 · 数据不出本机</div>
+                <div class="about-name">{{ t('settings.brandName') }} <span class="ver">v{{ pkg.version }}</span></div>
+                <div class="about-line">{{ t('settings.brandTagline') }}</div>
               </div>
             </div>
 
             <!-- 信息组：行式布局 + 发丝分隔线，与其他设置页的行式语言对齐 -->
             <div class="about-group">
               <div class="grow">
-                <span class="grow-label">GitHub 项目地址</span>
-                <button class="link-btn" title="在系统浏览器中打开" @click="openGithub">
+                <span class="grow-label">{{ t('settings.githubRepo') }}</span>
+                <button class="link-btn" :title="t('settings.openInBrowser')" @click="openGithub">
                   <span>github.com/gggaiitx/mkdown-site</span>
                   <ExternalLink :size="12" class="ext" />
                 </button>
               </div>
               <div class="grow">
                 <div class="grow-left">
-                  <span class="grow-label">更新检测</span>
+                  <span class="grow-label">{{ t('settings.updateCheck') }}</span>
                   <!-- 结果内联在标签后：未检测/检测中不显示（按钮文案已表达检测中） -->
                   <span
                     v-if="updateState === 'uptodate' || updateState === 'available' || updateState === 'error'"
@@ -317,7 +329,7 @@ onBeforeUnmount(onDragEnd);
                 <div class="grow-actions">
                   <button class="link-btn" :disabled="checking || updateState === 'checking'" @click="recheckUpdate">
                     <RefreshCw :size="13" :class="{ spin: checking || updateState === 'checking' }" />
-                    <span>{{ checking || updateState === 'checking' ? '检查中…' : '检查更新' }}</span>
+                    <span>{{ checking || updateState === 'checking' ? t('settings.checking') : t('settings.checkUpdate') }}</span>
                   </button>
                   <button
                     v-if="updateState === 'available' || updateState === 'error'"
@@ -325,13 +337,13 @@ onBeforeUnmount(onDragEnd);
                     @click="openUrl(releaseUrl).catch(() => undefined)"
                   >
                     <ExternalLink :size="12" />
-                    <span>前往发布页</span>
+                    <span>{{ t('settings.goRelease') }}</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            <div class="about-foot">Tauri 2 · Vue 3 · md-editor-v3 内核 · Mermaid / KaTeX 本地渲染</div>
+            <div class="about-foot">{{ t('settings.techStack') }}</div>
           </template>
         </div>
       </div>

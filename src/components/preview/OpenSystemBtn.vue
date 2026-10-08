@@ -9,9 +9,11 @@ import { ExternalLink } from '@lucide/vue';
 
 import { openInSystem } from '../../api/fileApi';
 import { useEditorStore } from '../../stores/editorStore';
+import { useI18n } from '../../i18n';
 
 const props = withDefaults(defineProps<{ path: string; inline?: boolean }>(), { inline: false });
 
+const { t } = useI18n();
 const editor = useEditorStore();
 const busy = ref(false);
 
@@ -20,7 +22,7 @@ async function open() {
   busy.value = true;
   try {
     await openInSystem(props.path);
-    editor.showToast(`已用系统默认程序打开：${props.path.split(/[\\/]/).pop() ?? props.path}`, 'info');
+    editor.showToast(t('preview.openedWithSystem', { name: props.path.split(/[\\/]/).pop() ?? props.path }), 'info');
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
   } finally {
@@ -33,11 +35,11 @@ async function open() {
   <button
     class="pv-open-sys"
     :class="{ inline }"
-    title="用系统默认程序打开"
+    :title="t('preview.openSystemTitle')"
     @click="open"
   >
     <ExternalLink :size="14" />
-    <span v-if="inline" class="pv-open-sys-text">系统打开</span>
+    <span v-if="inline" class="pv-open-sys-text">{{ t('preview.openSystem') }}</span>
   </button>
 </template>
 

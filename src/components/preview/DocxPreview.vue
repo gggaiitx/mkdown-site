@@ -8,8 +8,11 @@ import { renderAsync } from 'docx-preview';
 
 import { readPreviewBytes } from './PreviewAssets';
 import OpenSystemBtn from './OpenSystemBtn.vue';
+import { useI18n } from '../../i18n';
 
 const props = defineProps<{ path: string }>();
+
+const { t } = useI18n();
 
 const bodyRef = ref<HTMLElement | null>(null);
 const state = ref<'loading' | 'ok' | 'error'>('loading');
@@ -48,10 +51,10 @@ watch(() => props.path, load);
 <template>
   <div class="docx-pane">
     <OpenSystemBtn :path="path" />
-    <div v-if="state === 'loading'" class="pv-hint">正在解析 Word 文档…</div>
+    <div v-if="state === 'loading'" class="pv-hint">{{ t('preview.parsingDocx') }}</div>
     <div v-else-if="state === 'error'" class="pv-error">
-      <p>预览失败：{{ errMsg }}</p>
-      <p class="pv-error-sub">可点击右上角按钮用系统默认程序打开</p>
+      <p>{{ t('preview.loadFail', { msg: errMsg }) }}</p>
+      <p class="pv-error-sub">{{ t('preview.docxFailHint') }}</p>
     </div>
     <div v-show="state === 'ok'" ref="bodyRef" class="docx-body docx-scroll"></div>
   </div>

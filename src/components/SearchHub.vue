@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { openInSystem, probeTextFile } from '../api/fileApi';
 import type { SearchHit } from '../api/types';
 import { fileKind } from '../utils/fileKind';
+import { useI18n } from '../i18n';
 
 /**
  * 统一搜索面板（SearchHub）：
@@ -28,6 +29,7 @@ const tabs = useTabsStore();
 const editor = useEditorStore();
 const settings = useSettingsStore();
 const ws = useWorkspaceStore();
+const { t } = useI18n();
 
 // ---------- 共享输入 ----------
 const keyword = ref('');
@@ -210,7 +212,7 @@ async function openHit(hit: SearchHit) {
   try {
     if (!(await probeTextFile(hit.path))) {
       await openInSystem(hit.path);
-      editor.showToast(`已用系统默认程序打开：${hit.relPath}`, 'success');
+      editor.showToast(t('search.openedWithSystem', { path: hit.relPath }), 'success');
       return;
     }
   } catch (err) {
@@ -332,14 +334,12 @@ onMounted(() => {
 const footCount = computed(() =>
   props.mode === 'file'
     ? fileMatches.value.length
-      ? `第 ${fileCur.value + 1} / ${fileMatches.value.length} 处`
-      : keyword.value
-        ? '0 个结果'
-        : '0 个结果'
-    : `${search.total} 个结果`,
+      ? t('search.filePos', { cur: fileCur.value + 1, total: fileMatches.value.length })
+      : t('search.zeroResults')
+    : t('search.nResults', { n: search.total }),
 );
 
-const switchLabel = computed(() => (props.mode === 'file' ? '全局文件内容搜索' : '当前文件搜索'));
+const switchLabel = computed(() => (props.mode === 'file' ? t('search.switchToGlobal') : t('search.switchToFile')));
 /** 底栏切换提示：显示"另一个模式"的实际快捷键（文件内=Ctrl+P 去全局 / 全局=Ctrl+F 回文件内） */
 const switchKey = computed(() => (props.mode === 'file' ? 'Ctrl + P' : 'Ctrl + F'));
 </script>
@@ -356,7 +356,7 @@ const switchKey = computed(() => (props.mode === 'file' ? 'Ctrl + P' : 'Ctrl + F
     <div class="hub-head" @pointerdown="dragStart" @pointermove="dragMove" @pointerup="dragEnd" @pointercancel="dragEnd">
       <button
         class="scope"
-        :title="`切换查找范围（文件内 Ctrl+F / 全局 Ctrl+P）：当前${mode === 'file' ? '文件内' : '全局'}`"
+        :title="t('search.scopeTitle', { cur: mode === 'file' ? t('search.modeFile') : t('search.modeGlobal') })"
         @click="toggleMode"
       >
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -368,18 +368,18 @@ const switchKey = computed(() => (props.mode === 'file' ? 'Ctrl + P' : 'Ctrl + F
         ref="ipt"
         v-model="keyword"
         class="ipt"
-        :placeholder="mode === 'file' ? '在当前文件中查找…' : '全局搜索文件内容…'"
+        :placeholder="mode === 'file' ? t('search.placeholderFile') : t('search.placeholderGlobal')"
         spellcheck="false"
         @keydown.enter.prevent="onEnter"
         @keydown.down.prevent="onDown"
         @keydown.up.prevent="onUp"
       />
-      <button class="opt" :class="{ on: caseSensitive }" title="区分大小写" @click="caseSensitive = !caseSensitive">Aa</button>
+      <button class="opt" :class="{ on: caseSensitive }" :title="t('search.caseSensitive')" @click="caseSensitive = !caseSensitive">Aa</button>
       <button
         v-if="mode === 'global'"
         class="opt"
         :class="{ on: search.isRegex }"
-        title="正则表达式"
+        :title="t('search.regex')"
         @click="search.isRegex = !search.isRegex"
       >
         .*
@@ -388,28 +388,28 @@ const switchKey = computed(() => (props.mode === 'file' ? 'Ctrl + P' : 'Ctrl + F
         v-if="mode === 'global'"
         class="opt"
         :class="{ on: search.includeGlob === '*.md' }"
-        title="仅 Markdown"
+        :title="t('search.onlyMarkdown')"
         @click="search.includeGlob = search.includeGlob === '*.md' ? null : '*.md'"
       >
         M↓
       </button>
-      <button class="close" title="关闭 (Esc)" @click="emit('close')">×</button>
+      <button class="close" :title="t('search.closeTitle')" @click="emit('close')">×</button>
     </div>
 
     <!-- 结果区 -->
     <div class="hub-body">
       <!-- 文件内查找 -->
       <template v-if="mode === 'file'">
-        <p v-if="!tabs.activeTab" class="hint center">请先打开文档</p>
-        <p v-else-if="!keyword" class="hint center">开始输入进行搜索</p>
-        <p v-else-if="!fileMatches.length" class="hint center">无匹配</p>
+        <p v-if="!tabs.activeTab" class="hint center">{{ t('search.openDocFirst') }}</p>
+        <p v-else-if="!keyword" class="hint center">{{ t('search.startTyping') }}</p>
+        <p v-else-if="!fileMatches.length" class="hint center">{{ t('search.noMatch') }}</p>
         <button
           v-for="(m, i) in fileMatches"
           v-else
           :key="`${m.line}:${m.column}`"
           class="hit"
           :class="{ sel: i === fileCur }"
-          :title="`第 ${m.line} 行，点击定位`"
+          :title="t('search.lineLocate', { line: m.line })"
           @click="fileCur = i; gotoFile(i)"
         >
           <span class="line-no">L{{ m.line }}</span>
@@ -424,11 +424,11 @@ const switchKey = computed(() => (props.mode === 'file' ? 'Ctrl + P' : 'Ctrl + F
 
       <!-- 全局搜索 -->
       <template v-else>
-        <p v-if="!ws.root" class="hint center">请先打开工作区</p>
+        <p v-if="!ws.root" class="hint center">{{ t('search.openWorkspaceFirst') }}</p>
         <p v-else-if="search.error" class="hint center err">{{ search.error }}</p>
-        <p v-else-if="search.searching" class="hint center">搜索中…</p>
-        <p v-else-if="!keyword && !search.hits.length" class="hint center">开始输入进行搜索</p>
-        <p v-else-if="!search.hits.length" class="hint center">无命中</p>
+        <p v-else-if="search.searching" class="hint center">{{ t('search.searching') }}</p>
+        <p v-else-if="!keyword && !search.hits.length" class="hint center">{{ t('search.startTyping') }}</p>
+        <p v-else-if="!search.hits.length" class="hint center">{{ t('search.noHits') }}</p>
         <div v-for="[relPath, hits] in groups" v-else :key="relPath" class="group">
           <div class="file-name" :title="hits[0].path">{{ relPath }}</div>
           <button
@@ -436,7 +436,7 @@ const switchKey = computed(() => (props.mode === 'file' ? 'Ctrl + P' : 'Ctrl + F
             :key="`${h.path}:${h.line}:${h.column}`"
             class="hit"
             :class="{ sel: flatHits[selIdx] === h }"
-            :title="isTextLike(h.path) ? `第 ${h.line} 行，点击打开` : `第 ${h.line} 段，点击用系统程序打开`"
+            :title="isTextLike(h.path) ? t('search.lineOpen', { line: h.line }) : t('search.lineOpenSystem', { line: h.line })"
             @click="openHit(h)"
           >
             <span class="line-no">L{{ h.line }}</span>
@@ -450,11 +450,11 @@ const switchKey = computed(() => (props.mode === 'file' ? 'Ctrl + P' : 'Ctrl + F
     <div class="hub-foot">
       <span class="cnt">{{ footCount }}</span>
       <span class="keys">
-        <kbd>↑</kbd><kbd>↓</kbd> 导航
-        <kbd>↵</kbd> 选择
-        <kbd>ESC</kbd> 关闭
+        <kbd>↑</kbd><kbd>↓</kbd> {{ t('search.nav') }}
+        <kbd>↵</kbd> {{ t('search.select') }}
+        <kbd>ESC</kbd> {{ t('search.close') }}
       </span>
-      <button class="mode-switch" :title="`按 ${switchKey} 切换到${switchLabel}`" @click="toggleMode">
+      <button class="mode-switch" :title="t('search.switchTo', { key: switchKey, label: switchLabel })" @click="toggleMode">
         <kbd>{{ switchKey }}</kbd> {{ switchLabel }}
       </button>
     </div>

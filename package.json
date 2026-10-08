@@ -1,7 +1,7 @@
 {
   "name": "mkdown",
   "private": true,
-  "version": "0.3.6",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/view": "^6.43.13",
     "@lucide/vue": "^1.17.0",
     "@tauri-apps/api": "^2",
     "docx-preview": "^0.4.1",

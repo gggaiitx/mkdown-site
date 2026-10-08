@@ -4,6 +4,9 @@
  * 视觉对齐 ImagePreview 的工具条；尾部 slot 供 OpenSystemBtn(inline) 等扩展。
  */
 import { Minus, Plus, Scan } from '@lucide/vue';
+import { useI18n } from '../../i18n';
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{ zoom: number; min?: number; max?: number; step?: number }>(),
@@ -24,10 +27,10 @@ function reset() {
 
 <template>
   <div class="zoom-bar">
-    <button class="tb" title="缩小" @click="zoomOut"><Minus :size="14" /></button>
-    <button class="tb tb-val" title="点击重置 100%" @click="reset">{{ zoom }}%</button>
-    <button class="tb" title="放大" @click="zoomIn"><Plus :size="14" /></button>
-    <button class="tb" title="重置 100%" @click="reset"><Scan :size="14" /></button>
+    <button class="tb" :title="t('preview.zoomOut')" @click="zoomOut"><Minus :size="14" /></button>
+    <button class="tb tb-val" :title="t('preview.clickReset')" @click="reset">{{ zoom }}%</button>
+    <button class="tb" :title="t('preview.zoomIn')" @click="zoomIn"><Plus :size="14" /></button>
+    <button class="tb" :title="t('preview.resetZoom')" @click="reset"><Scan :size="14" /></button>
     <slot />
   </div>
 </template>

@@ -8,12 +8,14 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { openInSystem, probeTextFile } from '../api/fileApi';
 import type { SearchHit } from '../api/types';
 import { fileKind } from '../utils/fileKind';
+import { useI18n } from '../i18n';
 
 const search = useSearchStore();
 const tabs = useTabsStore();
 const editor = useEditorStore();
 const settings = useSettingsStore();
 const ws = useWorkspaceStore();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -50,7 +52,7 @@ async function openHit(hit: SearchHit) {
   try {
     if (!(await probeTextFile(hit.path))) {
       await openInSystem(hit.path);
-      editor.showToast(`已用系统默认程序打开：${hit.relPath}`, 'success');
+      editor.showToast(t('searchpanel.openedWithSystem', { path: hit.relPath }), 'success');
       return;
     }
   } catch (err) {
@@ -75,32 +77,32 @@ async function openHit(hit: SearchHit) {
 <template>
   <div class="search-panel" v-if="search.visible">
     <div class="panel-head">
-      <span class="panel-title">全局搜索</span>
+      <span class="panel-title">{{ t('searchpanel.title') }}</span>
       <button class="close" @click="emit('close'); search.close()">×</button>
     </div>
     <div class="input-row">
       <input
         class="ipt"
         v-model="search.query"
-        placeholder="搜索文件内容（Markdown / Word / Excel / PPT）…"
+        :placeholder="t('searchpanel.placeholder')"
         @keydown.enter="search.run()"
       />
       <button class="go" :disabled="search.searching" @click="search.run()">
-        {{ search.searching ? '…' : '搜' }}
+        {{ search.searching ? '…' : t('searchpanel.go') }}
       </button>
     </div>
     <div class="opts">
-      <label><input type="checkbox" v-model="search.caseSensitive" /> 区分大小写</label>
-      <label><input type="checkbox" v-model="search.isRegex" /> 正则</label>
-      <label><input type="checkbox" :true-value="'*.md'" :false-value="null" v-model="search.includeGlob" /> 仅 Markdown</label>
+      <label><input type="checkbox" v-model="search.caseSensitive" /> {{ t('searchpanel.caseSensitive') }}</label>
+      <label><input type="checkbox" v-model="search.isRegex" /> {{ t('searchpanel.regex') }}</label>
+      <label><input type="checkbox" :true-value="'*.md'" :false-value="null" v-model="search.includeGlob" /> {{ t('searchpanel.onlyMarkdown') }}</label>
     </div>
 
-    <p class="hint" v-if="!ws.root">请先打开工作区</p>
+    <p class="hint" v-if="!ws.root">{{ t('searchpanel.openWorkspaceFirst') }}</p>
     <p class="hint err" v-else-if="search.error">{{ search.error }}</p>
     <p class="hint" v-else-if="search.total > 0">
-      共 {{ search.total }} 条命中<template v-if="search.hits.length < search.total">，展示前 {{ search.hits.length }} 条</template>
+      {{ t('searchpanel.totalHits', { total: search.total }) }}<template v-if="search.hits.length < search.total">{{ t('searchpanel.shownPrefix', { n: search.hits.length }) }}</template>
     </p>
-    <p class="hint" v-else-if="!search.searching && search.lastQuery">无命中</p>
+    <p class="hint" v-else-if="!search.searching && search.lastQuery">{{ t('searchpanel.noHits') }}</p>
 
     <div class="results">
       <div v-for="[relPath, hits] in groups" :key="relPath" class="group">
@@ -109,7 +111,7 @@ async function openHit(hit: SearchHit) {
           v-for="h in hits"
           :key="`${h.path}:${h.line}:${h.column}`"
           class="hit"
-          :title="isTextLike(h.path) ? `第 ${h.line} 行，点击打开` : `第 ${h.line} 段，点击用系统程序打开`"
+          :title="isTextLike(h.path) ? t('searchpanel.lineOpen', { line: h.line }) : t('searchpanel.lineOpenSystem', { line: h.line })"
           @click="openHit(h)"
         >
           <span class="line-no">L{{ h.line }}</span>

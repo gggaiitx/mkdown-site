@@ -3,8 +3,10 @@
 import { onBeforeUnmount, ref } from 'vue';
 import { ListTree } from '@lucide/vue';
 import { useEditorStore, type OutlineItem } from '../stores/editorStore';
+import { useI18n } from '../i18n';
 
 const editor = useEditorStore();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   (e: 'goto', item: OutlineItem): void;
@@ -97,12 +99,12 @@ onBeforeUnmount(() => {
       class="resizer"
       :class="{ active: dragging }"
       @mousedown="onResizeStart"
-      title="拖动调整宽度，拖到最右可隐藏"
+      :title="t('outline.resizerTip')"
     />
     <div v-show="!collapsed" class="outline-inner">
       <div class="panel-head">
         <ListTree class="head-icon" />
-        <span>大纲</span>
+        <span>{{ t('outline.title') }}</span>
       </div>
       <div class="list" v-if="editor.outline.length > 0">
         <button
@@ -111,17 +113,17 @@ onBeforeUnmount(() => {
           class="ol-item"
           :class="`lv${Math.min(item.level, 4)}`"
           :style="{ paddingLeft: `${(item.level - 1) * 14 + 10}px` }"
-          :title="`第 ${item.line} 行`"
+          :title="t('outline.lineTip', { line: item.line })"
           @click="emit('goto', item)"
         >
           <span class="dot" />
           <span class="text">{{ item.text }}</span>
         </button>
       </div>
-      <div v-else class="empty">暂无标题</div>
+      <div v-else class="empty">{{ t('outline.empty') }}</div>
     </div>
     <!-- 隐藏态：右缘边线，向左拖动展开 -->
-    <div v-if="collapsed" class="edge" :class="{ active: dragging }" @mousedown="onRestoreStart" title="拖动向左展开大纲" />
+    <div v-if="collapsed" class="edge" :class="{ active: dragging }" @mousedown="onRestoreStart" :title="t('outline.edgeTip')" />
   </aside>
 </template>
 

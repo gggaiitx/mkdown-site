@@ -9,8 +9,11 @@ import * as XLSX from 'xlsx';
 
 import { readPreviewBytes } from './PreviewAssets';
 import OpenSystemBtn from './OpenSystemBtn.vue';
+import { useI18n } from '../../i18n';
 
 const props = defineProps<{ path: string }>();
+
+const { t } = useI18n();
 
 const state = ref<'loading' | 'ok' | 'error'>('loading');
 const errMsg = ref('');
@@ -63,10 +66,10 @@ watch(() => props.path, load);
         {{ n }}
       </button>
     </div>
-    <div v-if="state === 'loading'" class="pv-hint">正在解析表格…</div>
+    <div v-if="state === 'loading'" class="pv-hint">{{ t('preview.parsingSheet') }}</div>
     <div v-else-if="state === 'error'" class="pv-error">
-      <p>预览失败：{{ errMsg }}</p>
-      <p class="pv-error-sub">可在文件树中右键用系统默认程序打开</p>
+      <p>{{ t('preview.loadFail', { msg: errMsg }) }}</p>
+      <p class="pv-error-sub">{{ t('preview.sheetFailHint') }}</p>
     </div>
     <!-- eslint-disable-next-line vue/no-v-html —— 内容由 sheet_to_html 生成，单元格文本已转义 -->
     <div v-else class="sheet-scroll" v-html="tableHtml"></div>

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from 'vue';
 import { useTabsStore } from '../stores/tabsStore';
+import { useI18n } from '../i18n';
 
 const tabs = useTabsStore();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -92,7 +94,7 @@ onMounted(() => {
       ref="ipt"
       class="ipt"
       v-model="keyword"
-      placeholder="在当前文件中查找…"
+      :placeholder="t('findbar.placeholder')"
       spellcheck="false"
       @keydown.enter.prevent="($event as KeyboardEvent).shiftKey ? prev() : next()"
       @keydown.down.prevent="next()"
@@ -100,12 +102,12 @@ onMounted(() => {
       @keydown.esc.prevent="emit('close')"
     />
     <span class="count" :class="{ none: matches.length === 0 && keyword }">
-      {{ keyword ? (matches.length ? `${current + 1} / ${matches.length}` : '无匹配') : '' }}
+      {{ keyword ? (matches.length ? `${current + 1} / ${matches.length}` : t('findbar.noMatch')) : '' }}
     </span>
-    <button class="opt" :class="{ on: caseSensitive }" title="区分大小写" @click="caseSensitive = !caseSensitive">Aa</button>
-    <button class="nav" title="上一处 (Shift+Enter)" :disabled="!matches.length" @click="prev()">↑</button>
-    <button class="nav" title="下一处 (Enter)" :disabled="!matches.length" @click="next()">↓</button>
-    <button class="close" title="关闭 (Esc)" @click="emit('close')">×</button>
+    <button class="opt" :class="{ on: caseSensitive }" :title="t('findbar.caseSensitive')" @click="caseSensitive = !caseSensitive">Aa</button>
+    <button class="nav" :title="t('findbar.prev')" :disabled="!matches.length" @click="prev()">↑</button>
+    <button class="nav" :title="t('findbar.next')" :disabled="!matches.length" @click="next()">↓</button>
+    <button class="close" :title="t('findbar.close')" @click="emit('close')">×</button>
   </div>
 </template>
 

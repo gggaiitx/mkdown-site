@@ -2,12 +2,14 @@
 import { computed } from 'vue';
 import { FolderOpen, FileText, FilePlus2, History } from '@lucide/vue';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useI18n } from '../i18n';
 import type { MdTemplate } from '../utils/markdownTemplate';
 
 const props = defineProps<{
   templates: MdTemplate[];
 }>();
 
+const { t } = useI18n();
 const settings = useSettingsStore();
 
 const emit = defineEmits<{
@@ -38,22 +40,22 @@ function fmtTime(ms: number) {
         />
         <rect x="63" y="60" width="11" height="14" rx="2.5" fill="#378ADD" />
       </svg>
-      <h1>码克</h1>
-      <p class="sub">本地 Markdown 编辑与阅读器 · 离线优先 · 数据不出本机</p>
+      <h1>{{ t('welcome.title') }}</h1>
+      <p class="sub">{{ t('welcome.subtitle') }}</p>
     </div>
 
     <div class="cols">
       <section class="col">
-        <h2>开始</h2>
-        <button class="big" @click="emit('open-workspace')"><FolderOpen class="b-icon" />打开工作区</button>
-        <button class="big" @click="emit('open-file')"><FileText class="b-icon" />打开文件</button>
-        <h2>从模板新建</h2>
-        <button v-for="t in props.templates" :key="t.id" class="big" @click="emit('new-template', t)">
-          <FilePlus2 class="b-icon" />{{ t.name }}
+        <h2>{{ t('welcome.start') }}</h2>
+        <button class="big" @click="emit('open-workspace')"><FolderOpen class="b-icon" />{{ t('welcome.openWorkspace') }}</button>
+        <button class="big" @click="emit('open-file')"><FileText class="b-icon" />{{ t('welcome.openFile') }}</button>
+        <h2>{{ t('welcome.fromTemplate') }}</h2>
+        <button v-for="tpl in props.templates" :key="tpl.id" class="big" @click="emit('new-template', tpl)">
+          <FilePlus2 class="b-icon" />{{ tpl.name }}
         </button>
       </section>
       <section class="col recent-col">
-        <h2><History class="h-icon" /> 最近打开</h2>
+        <h2><History class="h-icon" /> {{ t('welcome.recent') }}</h2>
         <template v-if="recent.length > 0">
           <button
             v-for="r in recent"
@@ -66,7 +68,7 @@ function fmtTime(ms: number) {
             <span class="r-time">{{ fmtTime(r.openedAtMs) }}</span>
           </button>
         </template>
-        <p v-else class="none">暂无记录</p>
+        <p v-else class="none">{{ t('welcome.noRecent') }}</p>
       </section>
     </div>
   </div>

@@ -21,6 +21,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import OpenSystemBtn from './OpenSystemBtn.vue';
 import PreviewZoomBar from './PreviewZoomBar.vue';
+import { useI18n } from '../../i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   /** SVG 源码 */
@@ -176,7 +179,7 @@ onBeforeUnmount(() => {
         class="svg-frame"
         :srcdoc="srcdoc"
         sandbox="allow-same-origin"
-        title="SVG 预览"
+        :title="t('preview.svgTitle')"
         :style="frameStyle"
         @load="onLoad"
       ></iframe>
