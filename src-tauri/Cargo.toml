@@ -1,6 +1,6 @@
 [package]
 name = "mkdown"
-version = "0.3.5"
+version = "0.3.6"
 description = "码克 - 本地 Markdown 编辑与阅读器"
 edition = "2021"
 rust-version = "1.77"
