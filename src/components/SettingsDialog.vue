@@ -1,12 +1,55 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue';
+import { ExternalLink, Info, Keyboard, Palette, RefreshCw, SlidersHorizontal } from '@lucide/vue';
 import pkg from '../../package.json';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useUpdateCheck } from '../composables/useUpdateCheck';
+import { openUrl } from '../api/fileApi';
 import type { AppSettings } from '../api/types';
 
 const settings = useSettingsStore();
 
 const emit = defineEmits<{ (e: 'close'): void }>();
+
+/** 顶栏 GitHub 入口同款仓库地址 */
+const GITHUB_URL = 'https://github.com/gggaiitx/mkdown-site';
+function openGithub() {
+  void openUrl(GITHUB_URL).catch(() => undefined);
+}
+
+// ---- 更新检测（与顶栏更新按钮共用同一 composable/会话缓存；下载与重启流程由顶栏承担，
+//      此处只做「检测 + 展示 + 跳发布页」，避免出现第二个下载入口造成状态失同步） ----
+const {
+  state: updateState,
+  currentVersion,
+  latestVersion,
+  releaseUrl,
+  check,
+} = useUpdateCheck();
+const checking = ref(false);
+async function recheckUpdate() {
+  if (checking.value) return;
+  checking.value = true;
+  try {
+    await check(true); // force：绕过会话缓存重新请求
+  } finally {
+    checking.value = false;
+  }
+}
+const updateStatusText = () => {
+  switch (updateState.value) {
+    case 'checking':
+      return '正在检查更新…';
+    case 'uptodate':
+      return `已是最新版本 v${currentVersion.value}`;
+    case 'available':
+      return `发现新版本 v${latestVersion.value}（当前 v${currentVersion.value}），可到顶栏更新按钮下载，或前往发布页`;
+    case 'error':
+      return '检查失败（网络原因），可前往发布页手动查看';
+    default:
+      return '尚未检测';
+  }
+};
 
 /**
  * 快捷键说明：与 Workbench.onKeydown / 内核 keymap 的实际绑定严格同步，勿凭记忆增删。
@@ -67,6 +110,16 @@ const previewThemes: Array<{ value: string; label: string }> = [
   { value: 'win', label: 'win · Windows 风' },
 ];
 
+// ---- 左右分栏分类导航（对齐 WorkBuddy 设置面板形态） ----
+type SectionId = 'appearance' | 'editor' | 'shortcuts' | 'about';
+const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
+  { id: 'appearance', label: '外观', icon: Palette },
+  { id: 'editor', label: '编辑器', icon: SlidersHorizontal },
+  { id: 'shortcuts', label: '快捷键', icon: Keyboard },
+  { id: 'about', label: '关于', icon: Info },
+];
+const active = ref<SectionId>('appearance');
+
 // ---- 面板拖拽（标题栏 pointer 事件；clamp 在视口内，标题栏至少留 48px 可抓回） ----
 const dialogRef = ref<HTMLElement | null>(null);
 /** null = 未拖过，走 CSS 居中；拖过即固定定位 */
@@ -87,7 +140,7 @@ function onDragStart(e: PointerEvent) {
 
 function onDragMove(e: PointerEvent) {
   if (!pos.value) return;
-  const w = dialogRef.value?.offsetWidth ?? 520;
+  const w = dialogRef.value?.offsetWidth ?? 560;
   pos.value = {
     x: Math.min(window.innerWidth - 120, Math.max(-(w - 120), e.clientX - dragOffset.x)),
     y: Math.min(window.innerHeight - 48, Math.max(0, e.clientY - dragOffset.y)),
@@ -110,77 +163,176 @@ onBeforeUnmount(onDragEnd);
         <span class="head-title">设置</span>
         <button class="close" title="关闭" @click="emit('close')">×</button>
       </div>
-      <div class="body">
-        <div class="section-title">外观</div>
-        <div class="row">
-          <label>主题</label>
-          <select :value="settings.settings.theme" @change="patch({ theme: ($event.target as HTMLSelectElement).value as AppSettings['theme'] })">
-            <option value="light">亮色</option>
-            <option value="dark">暗色</option>
-          </select>
-        </div>
-        <div class="row">
-          <label>预览主题</label>
-          <select :value="settings.settings.previewTheme" @change="patch({ previewTheme: ($event.target as HTMLSelectElement).value })">
-            <option v-for="t in previewThemes" :key="t.value" :value="t.value">{{ t.label }}</option>
-          </select>
-        </div>
-        <div class="row">
-          <label>内容版式（编辑 / 阅读）</label>
-          <select :value="settings.settings.readLayout" @change="patch({ readLayout: ($event.target as HTMLSelectElement).value as AppSettings['readLayout'] })">
-            <option value="narrow">窄（760px）</option>
-            <option value="medium">中（1020px，默认）</option>
-            <option value="wide">宽（1320px）</option>
-          </select>
-        </div>
-        <div class="row">
-          <label>字号（{{ settings.settings.fontSize }}px）</label>
-          <input
-            type="range" min="12" max="24" step="1"
-            :value="settings.settings.fontSize"
-            @change="patch({ fontSize: Number(($event.target as HTMLInputElement).value) })"
-          />
-        </div>
-
-        <div class="section-title">编辑器</div>
-        <div class="row">
-          <label>自动保存</label>
-          <input
-            type="checkbox"
-            :checked="settings.settings.autoSave"
-            @change="patch({ autoSave: ($event.target as HTMLInputElement).checked })"
-          />
-        </div>
-        <div class="row" v-if="settings.settings.autoSave">
-          <label>自动保存延迟（{{ settings.settings.autoSaveDelayMs }}ms）</label>
-          <input
-            type="range" min="300" max="3000" step="100"
-            :value="settings.settings.autoSaveDelayMs"
-            @change="patch({ autoSaveDelayMs: Number(($event.target as HTMLInputElement).value) })"
-          />
-        </div>
-        <div class="row">
-          <label>滚动同步</label>
-          <input
-            type="checkbox"
-            :checked="settings.settings.scrollSync"
-            @change="patch({ scrollSync: ($event.target as HTMLInputElement).checked })"
-          />
-        </div>
-
-        <div class="section-title">快捷键</div>
-        <div v-for="g in SHORTCUT_GROUPS" :key="g.title" class="sc-group">
-          <div class="sc-group-title">{{ g.title }}</div>
-          <div class="shortcuts">
-            <div class="sc" v-for="[k, v] in g.items" :key="k">
-              <kbd>{{ k }}</kbd><span>{{ v }}</span>
+      <div class="layout">
+        <!-- 左侧分类导航 -->
+        <nav class="nav">
+          <button
+            v-for="s in SECTIONS"
+            :key="s.id"
+            class="nav-item"
+            :class="{ on: active === s.id }"
+            @click="active = s.id"
+          >
+            <component :is="s.icon" class="nav-ic" :size="15" />
+            <span>{{ s.label }}</span>
+          </button>
+        </nav>
+        <!-- 右侧内容区 -->
+        <div class="body">
+          <!-- 外观 -->
+          <template v-if="active === 'appearance'">
+            <div class="sec-title">外观</div>
+            <div class="row">
+              <label>主题</label>
+              <select :value="settings.settings.theme" @change="patch({ theme: ($event.target as HTMLSelectElement).value as AppSettings['theme'] })">
+                <option value="light">亮色</option>
+                <option value="dark">暗色</option>
+              </select>
             </div>
-          </div>
-        </div>
-        <div class="sc-note">格式类快捷键在编辑器获得焦点时由内核处理，焦点在外（如侧栏、预览）时同样响应。</div>
+            <div class="row">
+              <label>预览主题</label>
+              <select :value="settings.settings.previewTheme" @change="patch({ previewTheme: ($event.target as HTMLSelectElement).value })">
+                <option v-for="t in previewThemes" :key="t.value" :value="t.value">{{ t.label }}</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>内容版式（编辑 / 阅读）</label>
+              <select :value="settings.settings.readLayout" @change="patch({ readLayout: ($event.target as HTMLSelectElement).value as AppSettings['readLayout'] })">
+                <option value="narrow">窄（760px）</option>
+                <option value="medium">中（1020px，默认）</option>
+                <option value="wide">宽（1320px）</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>字号（{{ settings.settings.fontSize }}px）</label>
+              <input
+                type="range" min="12" max="24" step="1"
+                :value="settings.settings.fontSize"
+                @change="patch({ fontSize: Number(($event.target as HTMLInputElement).value) })"
+              />
+            </div>
+          </template>
 
-        <div class="about">
-          码克 v{{ pkg.version }} · 本地离线 · 数据不出本机
+          <!-- 编辑器 -->
+          <template v-else-if="active === 'editor'">
+            <div class="sec-title">编辑器</div>
+            <div class="row">
+              <label>自动保存</label>
+              <label class="switch" title="内容停顿后自动落盘">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.autoSave"
+                  @change="patch({ autoSave: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div class="row" v-if="settings.settings.autoSave">
+              <label>自动保存延迟（{{ settings.settings.autoSaveDelayMs }}ms）</label>
+              <input
+                type="range" min="300" max="3000" step="100"
+                :value="settings.settings.autoSaveDelayMs"
+                @change="patch({ autoSaveDelayMs: Number(($event.target as HTMLInputElement).value) })"
+              />
+            </div>
+            <div class="row">
+              <label>滚动同步</label>
+              <label class="switch" title="编辑 / 分栏视图两侧滚动跟随">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.scrollSync"
+                  @change="patch({ scrollSync: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div class="row">
+              <label>显示功能栏</label>
+              <label class="switch" title="编辑器顶部的格式工具条；关闭后正文区上移">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.showToolbar"
+                  @change="patch({ showToolbar: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+          </template>
+
+          <!-- 快捷键 -->
+          <template v-else-if="active === 'shortcuts'">
+            <div class="sec-title">快捷键</div>
+            <!-- 单卡分组：组头条（muted 底）+ 行式条目（动作名左 / 键帽右），与关于页信息组同语言 -->
+            <div class="sc-card">
+              <template v-for="g in SHORTCUT_GROUPS" :key="g.title">
+                <div class="sc-head">{{ g.title }}</div>
+                <div class="sc-row" v-for="[k, v] in g.items" :key="k">
+                  <span>{{ v }}</span>
+                  <kbd>{{ k }}</kbd>
+                </div>
+              </template>
+            </div>
+            <div class="sc-note">格式类快捷键在编辑器获得焦点时由内核处理，焦点在外（如侧栏、预览）时同样响应。</div>
+          </template>
+
+          <!-- 关于 -->
+          <template v-else>
+            <div class="sec-title">关于</div>
+            <!-- 品牌卡：logo 与 Welcome 同源 SVG（M+光标），名称/版本/定位语横排 -->
+            <div class="about-card">
+              <svg class="about-logo" viewBox="0 0 102 102" aria-hidden="true">
+                <rect width="102" height="102" rx="24" fill="#E6F1FB" />
+                <path
+                  d="M27 72 L27 32 L42 50 L57 32 L57 72"
+                  fill="none" stroke="#0C447C" stroke-width="7"
+                  stroke-linecap="round" stroke-linejoin="round"
+                />
+                <rect x="63" y="60" width="11" height="14" rx="2.5" fill="#378ADD" />
+              </svg>
+              <div class="about-meta">
+                <div class="about-name">码克 <span class="ver">v{{ pkg.version }}</span></div>
+                <div class="about-line">本地 Markdown 编辑与阅读器 · 离线优先 · 数据不出本机</div>
+              </div>
+            </div>
+
+            <!-- 信息组：行式布局 + 发丝分隔线，与其他设置页的行式语言对齐 -->
+            <div class="about-group">
+              <div class="grow">
+                <span class="grow-label">GitHub 项目地址</span>
+                <button class="link-btn" title="在系统浏览器中打开" @click="openGithub">
+                  <span>github.com/gggaiitx/mkdown-site</span>
+                  <ExternalLink :size="12" class="ext" />
+                </button>
+              </div>
+              <div class="grow">
+                <div class="grow-left">
+                  <span class="grow-label">更新检测</span>
+                  <!-- 结果内联在标签后：未检测/检测中不显示（按钮文案已表达检测中） -->
+                  <span
+                    v-if="updateState === 'uptodate' || updateState === 'available' || updateState === 'error'"
+                    class="update-status"
+                    :class="updateState"
+                  >{{ updateStatusText() }}</span>
+                </div>
+                <div class="grow-actions">
+                  <button class="link-btn" :disabled="checking || updateState === 'checking'" @click="recheckUpdate">
+                    <RefreshCw :size="13" :class="{ spin: checking || updateState === 'checking' }" />
+                    <span>{{ checking || updateState === 'checking' ? '检查中…' : '检查更新' }}</span>
+                  </button>
+                  <button
+                    v-if="updateState === 'available' || updateState === 'error'"
+                    class="link-btn"
+                    @click="openUrl(releaseUrl).catch(() => undefined)"
+                  >
+                    <ExternalLink :size="12" />
+                    <span>前往发布页</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="about-foot">Tauri 2 · Vue 3 · md-editor-v3 内核 · Mermaid / KaTeX 本地渲染</div>
+          </template>
         </div>
       </div>
     </div>
@@ -194,7 +346,7 @@ onBeforeUnmount(onDragEnd);
   display: flex; align-items: center; justify-content: center;
 }
 .dialog {
-  width: 520px; max-width: 92vw; max-height: 82vh;
+  width: 620px; max-width: 92vw; height: 480px; max-height: 82vh;
   display: flex; flex-direction: column;
   background: var(--mk-panel); color: var(--mk-fg);
   border: 1px solid var(--mk-border); border-radius: 10px;
@@ -202,6 +354,7 @@ onBeforeUnmount(onDragEnd);
   overflow: hidden;
 }
 .head {
+  flex: none;
   display: flex; justify-content: space-between; align-items: center;
   padding: 12px 16px; font-size: 14px; font-weight: 600;
   border-bottom: 1px solid var(--mk-border);
@@ -209,7 +362,43 @@ onBeforeUnmount(onDragEnd);
 }
 .head:active { cursor: grabbing; }
 .close { border: none; background: transparent; color: var(--mk-fg-muted); font-size: 18px; cursor: pointer; }
-.body { overflow-y: auto; padding: 12px 16px 14px; }
+
+/* ---- 左右分栏：左分类导航 + 右内容区（WorkBuddy 设置面板形态） ---- */
+.layout {
+  flex: 1; display: flex; min-height: 0;
+}
+.nav {
+  flex: none; width: 132px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--mk-border);
+  background: var(--mk-panel-muted);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 8px;
+  border: none; background: transparent; color: var(--mk-fg-muted);
+  font-size: 13px; text-align: left;
+  height: 32px; padding: 0 10px;
+  border-radius: var(--mk-radius);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.nav-item:hover { background: var(--mk-hover); color: var(--mk-fg); }
+.nav-item.on {
+  background: var(--mk-hover); color: var(--mk-fg);
+  font-weight: 600;
+}
+.nav-ic { flex: none; }
+
+.body {
+  flex: 1; min-width: 0;
+  overflow-y: auto;
+  padding: 14px 20px 16px;
+}
+.sec-title {
+  margin: 0 0 6px; font-size: 13px; font-weight: 600;
+  color: var(--mk-fg);
+}
 .row {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 13px; padding: 7px 0; gap: 12px;
@@ -220,19 +409,135 @@ onBeforeUnmount(onDragEnd);
   border: 1px solid var(--mk-border); border-radius: 6px;
   background: var(--mk-bg); color: var(--mk-fg); padding: 4px 8px;
 }
-.section-title {
-  margin: 12px 0 4px; font-size: 12px; font-weight: 600;
-  color: var(--mk-accent); letter-spacing: 1px;
+
+/* ---- 开关（替代 checkbox）：滑块式，选中走 accent 色 ---- */
+.switch {
+  position: relative; display: inline-block;
+  width: 36px; height: 20px; flex: none;
+  cursor: pointer;
 }
-.sc-group { margin-bottom: 6px; }
-.sc-group-title { font-size: 11px; color: var(--mk-fg-muted); margin: 6px 0 3px; }
-.shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
-.sc { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mk-fg); padding: 2px 0; }
+.switch input {
+  opacity: 0; width: 0; height: 0;
+  position: absolute;
+}
+.switch .track {
+  position: absolute; inset: 0;
+  background: var(--mk-border-strong);
+  border-radius: 999px;
+  transition: background-color 150ms ease;
+}
+.switch .track::after {
+  content: '';
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--mk-accent-fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 150ms ease;
+}
+.switch input:checked + .track { background: var(--mk-accent); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--mk-fg-muted); outline-offset: 1px; }
+
+/* ---- 链接 / 动作按钮（关于页）：ghost 风格，hover 提亮 ---- */
+.link-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--mk-border);
+  background: var(--mk-bg); color: var(--mk-fg);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.link-btn:hover:not(:disabled) {
+  background: var(--mk-hover);
+  border-color: var(--mk-border-strong);
+}
+.link-btn:disabled { opacity: 0.55; cursor: default; }
+.link-btn .ext { color: var(--mk-fg-muted); }
+.spin { animation: mk-spin 0.9s linear infinite; }
+@keyframes mk-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 快捷键：单卡分组（组头条 + 行式条目 + 发丝分隔），与关于页信息组同语言 */
+.sc-card {
+  margin-top: 10px;
+  border: 1px solid var(--mk-border);
+  border-radius: 8px;
+  background: var(--mk-bg);
+  overflow: hidden;
+}
+.sc-head {
+  padding: 7px 14px 6px;
+  font-size: 11px; font-weight: 600; color: var(--mk-fg-muted);
+  letter-spacing: 1px;
+  background: var(--mk-panel-muted);
+  border-bottom: 1px solid var(--mk-border);
+}
+.sc-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 7px 14px;
+  font-size: 13px; color: var(--mk-fg);
+}
+/* 相邻行之间画发丝线；行跟在组头条后不画（头条自带 border-bottom） */
+.sc-row + .sc-row { border-top: 1px solid var(--mk-border); }
 kbd {
-  background: var(--mk-bg); border: 1px solid var(--mk-border); border-bottom-width: 2px;
-  border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--mk-fg-muted);
-  min-width: 96px; text-align: center;
+  background: var(--mk-panel); border: 1px solid var(--mk-border); border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 8px; font-size: 11px; color: var(--mk-fg-muted);
+  min-width: 84px; text-align: center; flex: none;
 }
 .sc-note { margin-top: 8px; font-size: 11px; color: var(--mk-fg-muted); line-height: 1.6; }
-.about { margin-top: 14px; font-size: 11px; color: var(--mk-fg-muted); text-align: center; }
+
+/* 关于：品牌卡（logo 与 Welcome 同源 SVG）+ 信息组行式布局 */
+.about-card {
+  margin-top: 10px;
+  display: flex; align-items: center; gap: 14px;
+  border: 1px solid var(--mk-border);
+  border-radius: 8px;
+  background: var(--mk-bg);
+  padding: 16px;
+}
+.about-logo { flex: none; width: 52px; height: 52px; border-radius: 12px; }
+.about-meta { min-width: 0; }
+.about-name { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.ver {
+  font-size: 11px; font-weight: 500; color: var(--mk-fg-muted);
+  border: 1px solid var(--mk-border); border-radius: 999px;
+  padding: 0 8px; line-height: 1.7;
+}
+.about-line { margin-top: 5px; font-size: 12px; color: var(--mk-fg-muted); line-height: 1.6; }
+
+/* 信息组：设置行 + 发丝分隔线；状态行作为组脚注（有发现/失败时着色） */
+.about-group {
+  margin-top: 10px;
+  border: 1px solid var(--mk-border);
+  border-radius: 8px;
+  background: var(--mk-bg);
+  overflow: hidden;
+}
+.grow {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 14px;
+  font-size: 13px;
+}
+.grow + .grow { border-top: 1px solid var(--mk-border); }
+/* 左组：标签 + 内联状态文字（更新检测结果），长文字在组内换行不挤右侧按钮 */
+.grow-left { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
+.grow-label { color: var(--mk-fg); flex: none; }
+.grow-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+/* 更新结果：内联在「检查更新」按钮后的小字（未检测/检测中不渲染） */
+.update-status {
+  font-size: 12px;
+  color: var(--mk-fg-muted);
+  line-height: 1.5;
+  min-width: 0;
+}
+.update-status.available { color: var(--mk-ok); }
+.update-status.error { color: var(--mk-warn); }
+.about-foot {
+  margin-top: 12px;
+  font-size: 11px; color: var(--mk-fg-muted); letter-spacing: 0.3px;
+}
 </style>

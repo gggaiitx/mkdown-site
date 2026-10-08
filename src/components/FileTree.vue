@@ -66,6 +66,8 @@ function onResizeStart(e: MouseEvent) {
   startW = width.value;
   document.body.style.cursor = 'col-resize';
   document.body.style.userSelect = 'none';
+  // iframe 会吞掉拖拽中的 mousemove/mouseup（见 global.css mk-col-dragging 注释）
+  document.body.classList.add('mk-col-dragging');
   window.addEventListener('mousemove', onResizeMove);
   window.addEventListener('mouseup', onResizeEnd);
 }
@@ -73,8 +75,9 @@ function onResizeMove(e: MouseEvent) {
   if (!dragging.value) return;
   const raw = startW + (e.clientX - startX);
   willHide = raw < HIDE_AT;
-  // 允许压到 0，给「正在收起」的视觉反馈；松手时按 willHide 定型
-  width.value = Math.min(MAX_W, Math.max(0, raw));
+  // 取整：小数宽度会让右缘 1px 边线（.resizer::after）落在亚像素边界上，
+  // 渲染成 2px 模糊线（「某些宽度下竖边线宽度异常」的根因）
+  width.value = Math.round(Math.min(MAX_W, Math.max(0, raw)));
 }
 function onResizeEnd() {
   if (!dragging.value) return;
@@ -87,12 +90,14 @@ function onResizeEnd() {
   willHide = false;
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
+  document.body.classList.remove('mk-col-dragging');
   window.removeEventListener('mousemove', onResizeMove);
   window.removeEventListener('mouseup', onResizeEnd);
 }
 onBeforeUnmount(() => {
   window.removeEventListener('mousemove', onResizeMove);
   window.removeEventListener('mouseup', onResizeEnd);
+  document.body.classList.remove('mk-col-dragging');
 });
 
 // ---- 右键菜单（useCtxMenu：视口夹紧定位，底部/右缘不再被窗口裁剪） ----

@@ -66,9 +66,11 @@ export function useUpdateCheck() {
 
   /**
    * 检测更新：每次应用启动实时请求一次 GitHub latest release。
-   * 同一会话内已有结果时直接复用（组件重挂载不重复请求）。
+   * 同一会话内已有结果时直接复用（组件重挂载不重复请求）；
+   * force=true（设置面板手动「检查更新」）时清缓存强制重新请求。
    */
-  async function check() {
+  async function check(force = false) {
+    if (force) sessionResult = null;
     if (sessionResult) {
       currentVersion.value = await getVersion();
       applyResult(sessionResult, currentVersion.value);

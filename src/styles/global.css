@@ -119,14 +119,18 @@ body {
   width: 10px;
   height: 10px;
 }
-/* 目录树/大纲统一走标准滚动条属性：常驻 thin 细条、宽度恒定——
-   WebView2(Win11) 的 Fluent 悬浮滚动条会随 hover/按压展宽（用户不要）；
-   且设置 scrollbar-width/color 后该元素绕过 ::-webkit-scrollbar 定制路径，
-   两栏行为完全一致。旧运行时不支持标准属性时回落上面的 webkit 规则，无回归 */
-.tree,
-.list {
-  scrollbar-width: thin;
-  scrollbar-color: var(--mk-border-strong) transparent;
+/* 曾尝试给两栏设 scrollbar-width/color 走标准属性求「常驻细条」，实测反效果：
+   新版 WebView2 会把命中标准属性的元素切到 Fluent 悬浮滚动条渲染路径，
+   随鼠标移入移出淡入淡出/展宽（macOS 风自动隐藏），样式不可控。
+   删除后两栏回落全局 ::-webkit-scrollbar 自绘规则：常驻 10px、hover 仅加深滑块，
+   与预览/阅读区滚动条行为完全一致（2026-10-08 修大纲区悬浮滚动条异常） */
+
+/* ---- 列宽拖拽期间禁用 iframe 命中 ----
+   iframe 是独立文档：拖拽中的 mousemove/mouseup 落进 iframe 后不再到达父页面
+   window，拖拽会卡死在半途、松手也无法结束（svg/html 预览页拖目录树宽度必现）。
+   类由各列宽拖拽入口（文件树 / 大纲 / 工作区复原手柄）在拖拽期间挂到 body */
+body.mk-col-dragging iframe {
+  pointer-events: none;
 }
 
 /* ---- Workbench 布局（现代分隔：chrome / content 分层，1px 细线） ---- */
@@ -203,6 +207,11 @@ body {
 .workbench .text-area .html-frame-host {
   flex: 1 1 50%;
   min-width: 0;
+}
+/* 分隔线只在分栏态挂（源码区|预览区之间）；阅读态引擎已 display:none，
+   frame 独占全宽——若仍挂 border-left 会紧贴目录树边线多出一条 1px，
+   视觉上目录区宽 1px（与 md 阅读态 previewOnly 去边框同理） */
+.workbench .text-area.html-mode.split .html-frame-host {
   border-left: 1px solid var(--mk-border);
 }
 

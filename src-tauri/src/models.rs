@@ -115,6 +115,8 @@ pub struct AppSettings {
     pub read_layout: String,
     pub scroll_sync: bool,
     pub word_wrap: bool,
+    /// 编辑器顶部功能栏显隐（false = 隐藏，正文区上移）
+    pub show_toolbar: bool,
 }
 
 impl Default for AppSettings {
@@ -133,6 +135,7 @@ impl Default for AppSettings {
             read_layout: default_read_layout(),
             scroll_sync: true,
             word_wrap: true,
+            show_toolbar: true,
         }
     }
 }

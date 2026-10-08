@@ -8,7 +8,7 @@ export interface SessionTabSnapshot {
   /** null = 未命名的新建文档（草稿内容必须随快照保存） */
   path: string | null;
   title: string;
-  /** 'md' | 'text' | 'html' | 'docx' | 'xlsx' | 'image' */
+  /** 'md' | 'text' | 'html' | 'svg' | 'docx' | 'xlsx' | 'image' */
   kind: string;
   mode: string;
   cursorLine: number;

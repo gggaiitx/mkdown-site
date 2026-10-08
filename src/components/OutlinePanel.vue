@@ -34,6 +34,8 @@ function beginDrag(e: MouseEvent, fromCollapsed: boolean) {
   startW = width.value;
   document.body.style.cursor = 'col-resize';
   document.body.style.userSelect = 'none';
+  // iframe 会吞掉拖拽中的 mousemove/mouseup（见 global.css mk-col-dragging 注释）
+  document.body.classList.add('mk-col-dragging');
   window.addEventListener('mousemove', onResizeMove);
   window.addEventListener('mouseup', onResizeEnd);
 }
@@ -50,7 +52,8 @@ function onResizeMove(e: MouseEvent) {
     // 复原：拖过阈值即展开，宽度跟随拖拽实时增长，基准重置后无缝衔接普通调宽
     if (dx > RESTORE_AT) {
       collapsed.value = false;
-      width.value = Math.min(MAX_W, Math.max(MIN_W, dx));
+      // 取整：小数宽度会让左缘 1px 边线落在亚像素边界上渲染成 2px 模糊线
+      width.value = Math.round(Math.min(MAX_W, Math.max(MIN_W, dx)));
       restoring = false;
       startX = e.clientX;
       startW = width.value;
@@ -60,7 +63,7 @@ function onResizeMove(e: MouseEvent) {
   const raw = startW + dx;
   willCollapse = raw < HIDE_AT;
   // 允许压到 0，给「正在收起」的视觉反馈；松手时按 willCollapse 定型
-  width.value = Math.min(MAX_W, Math.max(0, raw));
+  width.value = Math.round(Math.min(MAX_W, Math.max(0, raw)));
 }
 function onResizeEnd() {
   if (!dragging.value) return;
@@ -75,15 +78,15 @@ function onResizeEnd() {
   willCollapse = false;
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
+  document.body.classList.remove('mk-col-dragging');
   window.removeEventListener('mousemove', onResizeMove);
   window.removeEventListener('mouseup', onResizeEnd);
 }
 onBeforeUnmount(() => {
   window.removeEventListener('mousemove', onResizeMove);
   window.removeEventListener('mouseup', onResizeEnd);
+  document.body.classList.remove('mk-col-dragging');
 });
-
-const levelColor = (lv: number) => `var(--mk-ol-${Math.min(lv, 4)})`;
 </script>
 
 <template>
@@ -106,11 +109,12 @@ const levelColor = (lv: number) => `var(--mk-ol-${Math.min(lv, 4)})`;
           v-for="item in editor.outline"
           :key="`${item.index}-${item.line}`"
           class="ol-item"
+          :class="`lv${Math.min(item.level, 4)}`"
           :style="{ paddingLeft: `${(item.level - 1) * 14 + 10}px` }"
           :title="`第 ${item.line} 行`"
           @click="emit('goto', item)"
         >
-          <span class="dot" :style="{ background: levelColor(item.level) }" />
+          <span class="dot" />
           <span class="text">{{ item.text }}</span>
         </button>
       </div>
@@ -219,7 +223,18 @@ const levelColor = (lv: number) => `var(--mk-ol-${Math.min(lv, 4)})`;
   white-space: nowrap;
 }
 .ol-item:hover { background: var(--mk-hover); }
-.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+/* 层级标记（二版）：统一 5px 小圆点保持安静，层级区分交给缩进 + 文字排版——
+   H1 加粗深色 → H2 中等 → H3 常规 → H4+ 常规弱化；圆点灰阶深浅仅作辅助。
+   （一版混搭形状被否：太乱） */
+.dot { width: 5px; height: 5px; border-radius: 50%; flex: none; background: var(--mk-ol-3); }
+.ol-item.lv1 .dot { background: var(--mk-ol-1); }
+.ol-item.lv2 .dot { background: var(--mk-ol-2); }
+.ol-item.lv3 .dot { background: var(--mk-ol-3); }
+.ol-item.lv4 .dot { background: var(--mk-ol-4); }
+.ol-item.lv1 .text { font-weight: 600; }
+.ol-item.lv2 .text { font-weight: 500; }
+.ol-item.lv3 .text { font-weight: 400; }
+.ol-item.lv4 .text { font-weight: 400; color: var(--mk-fg-muted); }
 .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { padding: 18px 12px; font-size: 13px; color: var(--mk-fg-muted); }
 </style>

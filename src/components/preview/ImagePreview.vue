@@ -124,9 +124,13 @@ watch(
   flex: 1;
   overflow: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 16px;
+}
+/* 居中用子项 margin:auto 而非容器的 align/justify center：
+   flex 容器居中 + overflow 时，上/左方向溢出不可达（滚不上去）——
+   margin:auto 在内容小于容器时同样居中，溢出方向全部可滚动 */
+.img-stage img {
+  margin: auto;
 }
 .img-stage img.fit {
   max-width: 100%;
@@ -139,6 +143,7 @@ watch(
 }
 .pv-hint,
 .pv-error {
+  margin: auto; /* 容器改用子项 margin:auto 居中后，提示同样保持居中 */
   color: var(--mk-fg-soft, #666);
   font-size: 14px;
 }

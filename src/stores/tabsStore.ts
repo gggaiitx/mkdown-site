@@ -7,10 +7,10 @@ const nextId = () => `tab-${++uid}`;
 
 /**
  * 标签内容种类：
- * - md / text / html：文本类，进编辑器（html 在阅读/分栏态由 HtmlFrame 接管渲染）
+ * - md / text / html / svg：文本类，进编辑器（html/svg 在分栏/阅读态由对应 Frame 接管渲染）
  * - docx / xlsx / image：预览类，只读，由对应预览组件渲染，禁止任何保存路径
  */
-export type TabKind = 'md' | 'text' | 'html' | 'docx' | 'xlsx' | 'image';
+export type TabKind = 'md' | 'text' | 'html' | 'svg' | 'docx' | 'xlsx' | 'image';
 
 /** 预览类标签（只读，无编辑/保存语义） */
 export type PreviewKind = 'docx' | 'xlsx' | 'image';
@@ -24,6 +24,7 @@ function textKindOf(path: string): TabKind {
   const dot = lower.lastIndexOf('.');
   const ext = dot > 0 ? lower.slice(dot + 1) : '';
   if (ext === 'html' || ext === 'htm') return 'html';
+  if (ext === 'svg') return 'svg';
   if (ext === 'md' || ext === 'markdown' || ext === 'mdx') return 'md';
   return 'text';
 }

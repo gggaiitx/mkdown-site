@@ -239,7 +239,9 @@ pub fn is_text_file(path: &Path) -> bool {
 /// - docx：docx-preview（纯前端渲染 OOXML）；遗留 OLE 的 .doc 无可靠前端解析器，不收；
 /// - xlsx/xlsm：SheetJS 解析 + HTML 表格渲染；.xls 同为 OLE，不收；
 /// - image：仅收 WebView2（Chromium）原生可解码的格式；
-///   tiff/heic/emf/wmf/psd 浏览器不能渲染，交系统查看器。
+///   tiff/heic/emf/wmf/psd 浏览器不能渲染，交系统查看器；
+/// - svg 不在此列：内容是文本（is_text_file 命中在先），前端按 kind='svg'
+///   开文本标签支持编辑/分栏/阅读三模式（阅读态由 SvgFrame 渲染）。
 ///
 /// 文件本体不读盘，纯扩展名判定（与 is_text_file 同级的零 IO 闸门）。
 pub fn preview_kind(path: &Path) -> Option<&'static str> {
@@ -247,7 +249,7 @@ pub fn preview_kind(path: &Path) -> Option<&'static str> {
     match ext.as_str() {
         "docx" => Some("docx"),
         "xlsx" | "xlsm" => Some("xlsx"),
-        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "ico" => Some("image"),
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "ico" => Some("image"),
         _ => None,
     }
 }
@@ -413,6 +415,17 @@ mod tests {
             None,
             "无扩展名不预览"
         );
+    }
+
+    #[test]
+    fn svg_opens_as_text_for_three_modes() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.svg");
+        fs::write(&p, "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>").unwrap();
+        // svg 语义是图片但内容是文本：进编辑器（前端 tabsStore 归 kind='svg'，
+        // 由 SvgFrame 提供分栏/阅读态的 webview 渲染），不走只读图片预览
+        assert!(is_text_file(&p), "svg 应作为文本进编辑器");
+        assert_eq!(preview_kind(&p), None, "svg 不进只读图片预览，三模式由前端接管");
     }
 
     #[test]

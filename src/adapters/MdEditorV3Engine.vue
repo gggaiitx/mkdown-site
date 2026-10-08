@@ -27,6 +27,8 @@ const props = defineProps<{
   /** 当前文档路径（null = 未保存新建），用于图片落盘与相对路径解析 */
   docPath: string | null;
   editorId: string;
+  /** 编辑器顶部功能栏显隐（设置-编辑器）：false = 隐藏（正文区上移） */
+  showToolbar?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -509,7 +511,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="rootRef" class="engine-root" :class="mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : ''">
+  <div ref="rootRef" class="engine-root" :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false }]">
     <!-- 阅读态：独立滚动容器 + 居中阅读栏，内容可正常滚动；key 绑定 docPath，切文档时重建以套用新目录 -->
     <div v-if="mode === 'read'" class="read-scroll">
       <div class="read-column" :class="`read-column--${readLayout ?? 'medium'}`">
@@ -567,11 +569,15 @@ onBeforeUnmount(() => {
 }
 .engine-root :deep(.md-editor) {
   height: 100%;
-  /* md-editor 根容器默认带 1px 边框（--md-border-color），与应用 chrome 的
-     分隔线（标签栏底线/侧栏缘线/状态栏顶线）叠加成双线框。
-     用面板色边框代替删除：保持默认盒模型不变（直接 none 会因几何变化在
-     四边交界露出亚像素缝隙），且四邻全是 --mk-panel 面板（标签栏/文件树/
-     状态栏/大纲），1px 边框融入背景——功能栏背景与树边线无缝接拢 */
+}
+/* md-editor 根容器默认带 1px 边框（--md-border-color），与应用 chrome 的
+   分隔线（标签栏底线/侧栏缘线/状态栏顶线）叠加成双线框。
+   用面板色边框代替删除：保持默认盒模型不变（直接 none 会因几何变化在
+   四边交界露出亚像素缝隙），且四邻全是 --mk-panel 面板（标签栏/文件树/
+   状态栏/大纲），1px 边框融入背景——功能栏背景与树边线无缝接拢。
+   注意：阅读态 MdPreview 的根节点 class 同样含 .md-editor（md-editor-previewOnly），
+   必须排除——否则阅读内容列两侧各多一条 1px 面板色线，与白色背景形成视觉分隔 */
+.engine-root :deep(.md-editor:not(.md-editor-previewOnly)) {
   border: 1px solid var(--mk-panel);
 }
 /* 暗色下 md-editor 内置背景板（--md-bk-color 默认 #000）对齐全局 --mk-bg，
@@ -656,7 +662,15 @@ onBeforeUnmount(() => {
 .engine-root :deep(.markdown-body) {
   font-size: var(--mk-font-size) !important;
 }
-/* ---- 功能栏视觉对齐：底色/边线对齐应用 chrome，图标色与 hover 语言同顶栏 ----
+/* ---- 功能栏显隐（设置-编辑器「显示功能栏」）----
+   display:none 直接收起 #mkdown-editor-toolbar-wrapper（内核按普通流布局，
+   正文区自行上移铺满；CM6 容器高度变化走自身 ResizeObserver 重测量）。
+   类挂在 engine-root 上，选择器带 .no-toolbar 限定，不影响导出预览宿主 */
+.engine-root.no-toolbar :deep(.md-editor-toolbar-wrapper) {
+  display: none;
+}
+
+/* 功能栏视觉对齐：底色/边线对齐应用 chrome，图标色与 hover 语言同顶栏 ----
    md-editor v7 默认：图标 --md-color（亮 #3f4a54 / 暗 #999）、hover 底 --md-bk-color-outstand，
    与应用 token 体系脱节；这里逐项映射到 --mk-*，主题切换自动跟随 */
 .engine-root :deep(.md-editor-toolbar-wrapper) {

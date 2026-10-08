@@ -22,6 +22,7 @@ import DocxPreview from '../components/preview/DocxPreview.vue';
 import SheetPreview from '../components/preview/SheetPreview.vue';
 import ImagePreview from '../components/preview/ImagePreview.vue';
 import HtmlFrame from '../components/preview/HtmlFrame.vue';
+import SvgFrame from '../components/preview/SvgFrame.vue';
 import { MdEditorV3Engine, type EngineHandle } from '../adapters';
 import { formatMarkdown } from '../utils/mdFormat';
 import {
@@ -227,16 +228,27 @@ function onWsRemoveAllConfirm() {
 
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 
-/** 激活标签是否为 HTML（三模式：edit 源码 / split 源码+iframe / read iframe 渲染） */
-const isHtmlTab = computed(() => tabs.activeTab?.kind === 'html');
-/** HTML 文档所在目录（相对资源经 asset:// base 解析） */
-const htmlDocDir = computed(() => {
+/**
+ * 标记类文本标签（html / svg）：三模式管线一致——
+ * edit=源码，split=源码+Frame 渲染，read=Frame 渲染（引擎隐藏不卸载）。
+ */
+const isMarkupTab = computed(() => {
+  const k = tabs.activeTab?.kind;
+  return k === 'html' || k === 'svg';
+});
+/** 标记文档所在目录（相对资源经 asset:// base 解析） */
+const markupDocDir = computed(() => {
   const p = tabs.activeTab?.path;
   return p ? p.replace(/[\\/][^\\/]*$/, '') : null;
 });
-/** 大纲面板可见性：预览类与 HTML 标签没有 Markdown 大纲概念 */
+/** 大纲面板可见性：预览类与标记类标签没有 Markdown 大纲概念 */
 const showOutline = computed(
-  () => !!tabs.activeTab && !tabs.activeIsPreview && tabs.activeTab.kind !== 'html' && editor.mode !== 'edit',
+  () =>
+    !!tabs.activeTab &&
+    !tabs.activeIsPreview &&
+    tabs.activeTab.kind !== 'html' &&
+    tabs.activeTab.kind !== 'svg' &&
+    editor.mode !== 'edit',
 );
 
 /**
@@ -479,6 +491,7 @@ let wsRestoreStartX = 0;
 function cleanupWsRestore() {
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
+  document.body.classList.remove('mk-col-dragging');
   window.removeEventListener('mousemove', onWsRestoreMove);
   window.removeEventListener('mouseup', onWsRestoreEnd);
 }
@@ -486,6 +499,8 @@ function onWsRestoreStart(e: MouseEvent) {
   wsRestoreStartX = e.clientX;
   document.body.style.cursor = 'col-resize';
   document.body.style.userSelect = 'none';
+  // iframe 会吞掉拖拽中的 mousemove/mouseup（见 global.css mk-col-dragging 注释）
+  document.body.classList.add('mk-col-dragging');
   window.addEventListener('mousemove', onWsRestoreMove);
   window.addEventListener('mouseup', onWsRestoreEnd);
 }
@@ -914,16 +929,17 @@ watch(() => editor.mode, (m) => {
           <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :path="tabs.activeTab.path ?? ''" />
           <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :path="tabs.activeTab.path ?? ''" />
           <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :path="tabs.activeTab.path ?? ''" />
-          <!-- 文本类标签：md/text 由引擎接管；html 三模式
-               （edit=源码，split=源码+iframe，read=iframe 渲染，引擎隐藏不卸载） -->
-          <div v-else class="text-area" :class="[{ 'html-mode': isHtmlTab }, editor.mode]">
+          <!-- 文本类标签：md/text 由引擎接管；html/svg 三模式
+               （edit=源码，split=源码+Frame，read=Frame 渲染，引擎隐藏不卸载） -->
+          <div v-else class="text-area" :class="[{ 'html-mode': isMarkupTab }, editor.mode]">
             <MdEditorV3Engine
               ref="engineRef"
               :model-value="tabs.activeTab.content"
-              :mode="isHtmlTab ? 'edit' : editor.mode"
+              :mode="isMarkupTab ? 'edit' : editor.mode"
               :theme="settings.settings.theme"
               :preview-theme="settings.settings.previewTheme"
               :read-layout="settings.settings.readLayout"
+              :show-toolbar="settings.settings.showToolbar"
               :doc-path="activeDocPath"
               editor-id="mkdown-editor"
               @update:model-value="onContentChange"
@@ -934,11 +950,20 @@ watch(() => editor.mode, (m) => {
               @toast="(t: string) => editor.showToast(t, 'error')"
             />
             <HtmlFrame
-              v-if="isHtmlTab && editor.mode !== 'edit'"
+              v-if="tabs.activeTab.kind === 'html' && editor.mode !== 'edit'"
               class="html-frame-host"
               :content="tabs.activeTab.content"
-              :dir="htmlDocDir"
+              :dir="markupDocDir"
               :path="tabs.activeTab.path"
+              :dark="settings.isDark"
+            />
+            <SvgFrame
+              v-else-if="tabs.activeTab.kind === 'svg' && editor.mode !== 'edit'"
+              class="html-frame-host"
+              :content="tabs.activeTab.content"
+              :dir="markupDocDir"
+              :path="tabs.activeTab.path"
+              :dark="settings.isDark"
             />
           </div>
         </div>

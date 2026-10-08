@@ -88,6 +88,8 @@ export interface AppSettings {
   readLayout: ReadLayout;
   scrollSync: boolean;
   wordWrap: boolean;
+  /** 编辑器顶部功能栏（格式工具条）显隐：false = 隐藏，正文区上移 */
+  showToolbar: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -104,4 +106,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   readLayout: 'medium',
   scrollSync: true,
   wordWrap: true,
+  showToolbar: true,
 };
