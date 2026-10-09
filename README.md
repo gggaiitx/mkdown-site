@@ -4,7 +4,7 @@
 >
 > 纯本地、离线优先、中文原生。文档、图片、配置全部落在本机磁盘，不上云、不登录、不联网。
 
-**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.5.0）或[官网下载页](https://mkdown.opensites.net)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
+**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.5.1）或[官网下载页](https://mkdown.opensites.net)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
 
 ## 技术栈
 
