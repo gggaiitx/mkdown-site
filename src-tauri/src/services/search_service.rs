@@ -21,10 +21,63 @@ const LINE_TEXT_MAX_CHARS: usize = 300;
 /// 正在编辑的文档（本仓库就有 400+ 个 md），排除会让用户"搜什么都无命中"。
 const EXCLUDED_DIRS: &[&str] = &[".git", "node_modules"];
 
-/// 纯文本类扩展名（快路径：ripgrep 内核；非 UTF-8 走编码探测慢路径）
+/// 纯文本类扩展名（快路径：ripgrep 内核；非 UTF-8 走编码探测慢路径）。
+/// 集合与 fs_service::TEXT_EXTS、codeLanguage.ts loaders 对齐——新增可检索代码类型时三处同步。
 const TEXT_EXTS: &[&str] = &[
-    "md", "markdown", "txt", "text", "log", "csv", "json", "yaml", "yml", "toml", "ini", "conf",
-    "xml", "html", "htm", "css", "js", "ts", "vue", "sql", "py", "sh", "bat", "ps1",
+    // —— 基础文本 / 标记 ——
+    "md", "markdown", "mdx", "txt", "text", "log", "csv", "tsv",
+    "json", "jsonc", "json5", "ndjson", "geojson", "jsonld",
+    "yaml", "yml", "toml",
+    "ini", "cfg", "conf", "properties", "env", "config", "cnf", "inf",
+    "xml", "xsd", "xsl", "rss", "atom", "wsdl", "plist",
+    "diff", "patch",
+    // —— Web ——
+    "html", "htm", "xhtml", "vue", "svelte",
+    "jsp", "jspx", "erb", "ejs", "hbs", "mustache",
+    "css", "scss", "less", "sass", "pcss", "styl",
+    // —— 脚本 / 后端 ——
+    "js", "mjs", "cjs", "jsx", "es6", "pac",
+    "ts", "tsx", "mts", "cts",
+    "py", "pyw", "pyi", "pyx",
+    "rs", "java", "rb", "rake", "gemspec", "ru",
+    "sh", "bash", "zsh", "ksh",
+    "bat", "ps1", "pwsh",
+    "lua", "luau", "nse",
+    "pl", "pm", "perl",
+    "r", "swift", "go",
+    "sql", "mysql", "pgsql", "postgres", "sqlite", "mssql", "mariadb", "oracle", "hive", "spark",
+    // —— C / C++ / C# / 系 ——
+    "c", "h", "cpp", "hpp", "cc", "cxx", "hxx", "hh", "c++", "h++",
+    "ino", "ipp", "tpp", "cs", "scala", "kotlin", "kt", "dart",
+    // —— 其他编译型语言 ——
+    "pas", "pp", "p", "lpr", "dpr", "d",
+    "f", "for", "f77", "f90", "f95", "f03", "f08", "fpp", "ftn",
+    "v", "sv", "svh", "vhd", "vhdl",
+    "asm", "s", "nasm", "cob", "cbl", "cobol", "cr",
+    "groovy", "gradle", "gvy", "julia", "jl",
+    "clj", "cljs", "cljc", "edn", "hs", "lhs", "elm",
+    "erl", "hrl", "lisp", "cl", "lsp", "el", "scm", "ss",
+    "ocaml", "ml", "fs", "fsharp", "sml",
+    "coffeescript", "coffee", "iced",
+    // —— 标记 / 查询 / 文档 ——
+    "tex", "sty", "cls", "bib", "stex", "tcl", "tclsh",
+    "feature", "proto", "solr", "sparql", "rq", "ttl", "nt", "msc",
+    "widl", "webidl", "idl", "xq", "xql", "xquery", "xqy", "xqm",
+    // —— 构建 / 运维 / DSL ——
+    "dockerfile", "containerfile", "cmake", "nsi", "nsh",
+    "puppet", "vb", "vbs", "vm", "nginx", "rpm", "spec",
+    "oz", "pig", "pegjs", "peg", "sas",
+    // —— 函数式 / 学术 / 小众 ——
+    "factor", "fcl", "forth", "frt", "dylan", "dyl", "ebnf", "ecl",
+    "eiffel", "e", "haxe", "hxml", "http",
+    "jinja", "j2", "jinja2", "livescript", "ls",
+    "mathematica", "mma", "mbox", "mirc", "mrc",
+    "modelica", "mo", "octave", "smalltalk", "st",
+    "sieve", "siv", "textile", "tiddlywiki", "tid", "tiki",
+    "troff", "roff", "ttcn", "ttcn3", "ttcnpp",
+    "wast", "wat", "yacas", "z80", "apl",
+    "asn", "asn1", "asc", "asterisk", "brainfuck", "bf",
+    "cypher", "cql", "dtd",
 ];
 /// OOXML 办公文档（zip + XML，需 office_text 还原正文）
 const OOXML_EXTS: &[&str] = &["docx", "xlsx", "pptx"];
