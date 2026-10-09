@@ -38,18 +38,28 @@ const EXT_KIND: Record<string, FileKind> = {
   ini: 'code',
   cfg: 'code',
   conf: 'code',
+  properties: 'code',
+  env: 'code',
   xml: 'code',
+  xsd: 'code',
+  xsl: 'code',
   html: 'code',
   htm: 'code',
   css: 'code',
   scss: 'code',
+  less: 'code',
+  sass: 'code',
   js: 'code',
+  mjs: 'code',
+  cjs: 'code',
   ts: 'code',
   tsx: 'code',
   jsx: 'code',
   vue: 'code',
+  svelte: 'code',
   rs: 'code',
   py: 'code',
+  rb: 'code',
   go: 'code',
   java: 'code',
   sql: 'code',
@@ -120,6 +130,14 @@ export function fileKind(name: string): FileKind {
   const dot = lower.lastIndexOf('.');
   if (dot <= 0 || dot === lower.length - 1) return 'other';
   return EXT_KIND[lower.slice(dot + 1)] ?? 'other';
+}
+
+/** 是否为代码类扩展名（与 Rust 侧 TEXT_EXTS 的代码集对齐，供 tabsStore 归 kind='code'） */
+export function isCodeExt(name: string): boolean {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf('.');
+  if (dot <= 0 || dot === lower.length - 1) return false;
+  return EXT_KIND[lower.slice(dot + 1)] === 'code';
 }
 
 /** 悬浮提示：简要类型说明 */

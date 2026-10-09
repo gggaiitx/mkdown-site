@@ -16,6 +16,7 @@ import '../styles/win-theme.css';
 
 import { savePastedImage } from '../api/imageApi';
 import { openUrl } from '../api/fileApi';
+import { modKey } from '../utils/keyHint';
 import type { EditorMode, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
 import { setCurrentDocDir, setupMdRenderer } from './mdRendererConfig';
@@ -214,7 +215,7 @@ async function handleUploadImg(
   callback: (urls: string[]) => void,
 ): Promise<void> {
   if (!props.docPath) {
-    emit('toast', t('engine.saveImgFirst'));
+    emit('toast', t('engine.saveImgFirst', { mod: modKey() }));
     return;
   }
   const urls: string[] = [];

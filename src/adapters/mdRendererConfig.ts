@@ -17,6 +17,7 @@ import 'katex/dist/katex.min.css';
 
 import { mkFindExtension } from './findHighlight';
 import { headingLineExtension } from './cmHeadingLine';
+import { isMac } from '../utils/keyHint';
 
 let currentDocDir = '';
 
@@ -42,62 +43,52 @@ let configured = false;
 /**
  * 中文语言包覆盖：功能栏 hover 提示（原生 title）追加实际绑定的快捷键。
  * 快捷键来源必须与实际行为严格同步——
- * - 内核 CM6 keymap：Ctrl+B/I/U/1~6、Ctrl+Shift+C/S/U、Ctrl+Alt+C、Ctrl+Alt+Shift+T、Ctrl+Z/Y、Ctrl+S；
- * - 应用层（Workbench.onKeydown）：Ctrl+K 链接、Ctrl+Shift+I 图片、F11 页面全屏（内核是 pageFullscreen）；
- * - 不标注实际不可用的项（如 orderedList 的 Ctrl+O 被应用层「打开文件」抢占）。
+ * - 内核 CM6 keymap：Mod+B/I/U/1~6、Mod+Shift+C/S/U、Alt+Mod+C、Alt+Shift+Mod+T、Mod+Z/Y、Mod+S
+ *   （Mod 在 Mac=⌘、其他=Ctrl，见 utils/keyHint）；
+ * - 应用层（Workbench.onKeydown）：Mod+K 链接、Mod+Shift+I 图片、F11 页面全屏（内核是 pageFullscreen）；
+ * - 不标注实际不可用的项（如 orderedList 的 Mod+O 被应用层「打开文件」抢占）。
  * 语言包走 languageUserDefined 整体 deepMerge（内核内部合并基准是 en-US，必须 spread 完整 zh_CN，
  * 否则未覆盖的顶层键会回退成英文）。
+ * 平台化：模块加载时按 isMac 一次性取符号（⌘/⌥/⇧ 或 Ctrl/Alt/Shift），语言切换重挂载不受影响。
  */
+/** Mac 符号键位（Apple HIG 顺序：⌥ ⇧ ⌘） */
+const zhTipsMac = {
+  bold: '加粗 ⌘B', underline: '下划线 ⌘U', italic: '斜体 ⌘I', strikeThrough: '删除线 ⇧⌘S',
+  title: '标题 ⌘1~6', sup: '上标 ⌘↑', sub: '下标 ⌘↓', unorderedList: '无序列表 ⇧⌘U',
+  codeRow: '行内代码 ⌥⌘C', code: '块级代码 ⇧⌘C', link: '链接 ⌘K', image: '图片 ⇧⌘I',
+  table: '表格 ⌥⇧⌘T', revoke: '后退 ⌘Z', next: '前进 ⌘Y', save: '保存 ⌘S', pageFullscreen: '页面全屏 F11',
+};
+const zhTipsWin = {
+  bold: '加粗 Ctrl+B', underline: '下划线 Ctrl+U', italic: '斜体 Ctrl+I', strikeThrough: '删除线 Ctrl+Shift+S',
+  title: '标题 Ctrl+1~6', sup: '上标 Ctrl+↑', sub: '下标 Ctrl+↓', unorderedList: '无序列表 Ctrl+Shift+U',
+  codeRow: '行内代码 Ctrl+Alt+C', code: '块级代码 Ctrl+Shift+C', link: '链接 Ctrl+K', image: '图片 Ctrl+Shift+I',
+  table: '表格 Ctrl+Alt+Shift+T', revoke: '后退 Ctrl+Z', next: '前进 Ctrl+Y', save: '保存 Ctrl+S', pageFullscreen: '页面全屏 F11',
+};
+const enTipsMac = {
+  bold: 'Bold ⌘B', underline: 'Underline ⌘U', italic: 'Italic ⌘I', strikeThrough: 'Strikethrough ⇧⌘S',
+  title: 'Heading ⌘1~6', sup: 'Superscript ⌘↑', sub: 'Subscript ⌘↓', unorderedList: 'Bullet list ⇧⌘U',
+  codeRow: 'Inline code ⌥⌘C', code: 'Code block ⇧⌘C', link: 'Link ⌘K', image: 'Image ⇧⌘I',
+  table: 'Table ⌥⇧⌘T', revoke: 'Undo ⌘Z', next: 'Redo ⌘Y', save: 'Save ⌘S', pageFullscreen: 'Page fullscreen F11',
+};
+const enTipsWin = {
+  bold: 'Bold Ctrl+B', underline: 'Underline Ctrl+U', italic: 'Italic Ctrl+I', strikeThrough: 'Strikethrough Ctrl+Shift+S',
+  title: 'Heading Ctrl+1~6', sup: 'Superscript Ctrl+↑', sub: 'Subscript Ctrl+↓', unorderedList: 'Bullet list Ctrl+Shift+U',
+  codeRow: 'Inline code Ctrl+Alt+C', code: 'Code block Ctrl+Shift+C', link: 'Link Ctrl+K', image: 'Image Ctrl+Shift+I',
+  table: 'Table Ctrl+Alt+Shift+T', revoke: 'Undo Ctrl+Z', next: 'Redo Ctrl+Y', save: 'Save Ctrl+S', pageFullscreen: 'Page fullscreen F11',
+};
+
 const zhWithShortcuts = {
   'zh-CN': {
     ...zh_CN,
-    toolbarTips: {
-      ...zh_CN.toolbarTips,
-      bold: '加粗 Ctrl+B',
-      underline: '下划线 Ctrl+U',
-      italic: '斜体 Ctrl+I',
-      strikeThrough: '删除线 Ctrl+Shift+S',
-      title: '标题 Ctrl+1~6',
-      sup: '上标 Ctrl+↑',
-      sub: '下标 Ctrl+↓',
-      unorderedList: '无序列表 Ctrl+Shift+U',
-      codeRow: '行内代码 Ctrl+Alt+C',
-      code: '块级代码 Ctrl+Shift+C',
-      link: '链接 Ctrl+K',
-      image: '图片 Ctrl+Shift+I',
-      table: '表格 Ctrl+Alt+Shift+T',
-      revoke: '后退 Ctrl+Z',
-      next: '前进 Ctrl+Y',
-      save: '保存 Ctrl+S',
-      pageFullscreen: '页面全屏 F11',
-    },
+    toolbarTips: { ...zh_CN.toolbarTips, ...(isMac ? zhTipsMac : zhTipsWin) },
   },
 };
 
-/** 英文语言包（内核内置 en-US 基础上同样合并快捷键提示，见 zhWithShortcuts 注释） */
+/** 英文语言包（内核内置 en-US 基础上同样合并快捷键提示，见上注释） */
 const enWithShortcuts = {
   'en-US': {
     ...en_US,
-    toolbarTips: {
-      ...en_US.toolbarTips,
-      bold: 'Bold Ctrl+B',
-      underline: 'Underline Ctrl+U',
-      italic: 'Italic Ctrl+I',
-      strikeThrough: 'Strikethrough Ctrl+Shift+S',
-      title: 'Heading Ctrl+1~6',
-      sup: 'Superscript Ctrl+↑',
-      sub: 'Subscript Ctrl+↓',
-      unorderedList: 'Bullet list Ctrl+Shift+U',
-      codeRow: 'Inline code Ctrl+Alt+C',
-      code: 'Code block Ctrl+Shift+C',
-      link: 'Link Ctrl+K',
-      image: 'Image Ctrl+Shift+I',
-      table: 'Table Ctrl+Alt+Shift+T',
-      revoke: 'Undo Ctrl+Z',
-      next: 'Redo Ctrl+Y',
-      save: 'Save Ctrl+S',
-      pageFullscreen: 'Page fullscreen F11',
-    },
+    toolbarTips: { ...en_US.toolbarTips, ...(isMac ? enTipsMac : enTipsWin) },
   },
 };
 

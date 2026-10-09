@@ -4,7 +4,7 @@
 export default {
   zh: {
     engine: {
-      saveImgFirst: '请先保存文档（Ctrl+S），再粘贴/插入图片',
+      saveImgFirst: '请先保存文档（{mod}+S），再粘贴/插入图片',
       imgSaveFail: '图片保存失败：{msg}',
       openUrlFail: '浏览器打开失败：{url}',
       noJumpLink: '应用内不跳转该链接：{href}',
@@ -13,7 +13,7 @@ export default {
   },
   en: {
     engine: {
-      saveImgFirst: 'Save the document first (Ctrl+S) before pasting/inserting images',
+      saveImgFirst: 'Save the document first ({mod}+S) before pasting/inserting images',
       imgSaveFail: 'Failed to save image: {msg}',
       openUrlFail: 'Failed to open in browser: {url}',
       noJumpLink: 'This link is not opened in-app: {href}',

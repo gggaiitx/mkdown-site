@@ -14,6 +14,8 @@ export default {
       toast: {
         noDoc: '没有打开的文档',
         previewReadonlyBeautify: '预览标签为只读，不支持美化',
+        codeNoBeautify: '当前文件不支持 Markdown 美化',
+        codeNoExport: '当前文件不支持导出与打印',
         alreadyFormatted: '文档已是规范格式',
         beautified: 'Markdown 已美化',
         wsSwitched: '已切换工作区：{name}',
@@ -35,7 +37,7 @@ export default {
         readonlyMode: '阅读模式不可编辑，Alt+E/W/R 可切换视图',
         openBeforeFind: '请先打开文档，再按 Ctrl+F 查找',
         lastWsUnavailable: '上次工作区不可用，可重新打开',
-        skippedNonMd: '已忽略 {n} 个非 Markdown/TXT 文件',
+        skippedNonMd: '已忽略 {n} 个无法在编辑器打开的文件',
       },
       placeholder: {
         bold: '加粗文本',
@@ -76,6 +78,8 @@ export default {
       toast: {
         noDoc: 'No document open',
         previewReadonlyBeautify: 'Preview tabs are read-only and cannot be beautified',
+        codeNoBeautify: 'This file does not support Markdown beautification',
+        codeNoExport: 'This file does not support export or printing',
         alreadyFormatted: 'Document is already well-formatted',
         beautified: 'Markdown beautified',
         wsSwitched: 'Workspace switched: {name}',
@@ -98,7 +102,7 @@ export default {
         readonlyMode: 'Read mode is read-only; press Alt+E/W/R to switch views',
         openBeforeFind: 'Open a document first, then press Ctrl+F to find',
         lastWsUnavailable: 'Last workspace is unavailable; you can reopen it',
-        skippedNonMd: 'Skipped {n} non-Markdown/TXT file(s)',
+        skippedNonMd: 'Skipped {n} file(s) that cannot be opened in the editor',
       },
       placeholder: {
         bold: 'Bold text',

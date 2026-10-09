@@ -1,5 +1,6 @@
 export { default as MdEditorV3Engine } from './MdEditorV3Engine.vue';
-export type { EngineHandle, OutlineItem, EditorMode, ThemeKind } from './IMarkdownEngine';
+export { default as CodeEditorEngine } from './CodeEditorEngine.vue';
+export type { EngineHandle, CommonEngineHandle, MarkdownEngineHandle, OutlineItem, EditorMode, ThemeKind } from './IMarkdownEngine';
 
 /**
  * 内核工厂：当前唯一实现 md-editor-v3。

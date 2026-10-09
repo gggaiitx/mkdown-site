@@ -11,6 +11,7 @@ import {
 } from '@lucide/vue';
 
 import type { EditorMode, ThemeKind } from '../api/types';
+import { altHint } from '../utils/keyHint';
 import { useEditorStore } from '../stores/editorStore';
 import { useI18n } from '../i18n';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
@@ -24,6 +25,8 @@ defineProps<{
   searchActive: boolean;
   /** 左侧工作区已隐藏：顶栏前部显示「展开侧边栏」 */
   sidebarHidden: boolean;
+  /** 激活标签为代码类：分栏/阅读模式按钮禁用（代码引擎只有编辑态） */
+  codeTab?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -126,9 +129,9 @@ watch(downloadState, (s) => {
 });
 
 const modes = computed<{ key: EditorMode; label: string; hint: string; icon: unknown }[]>(() => [
-  { key: 'edit', label: t('toolbar.modeEdit'), hint: 'Alt+E', icon: Pencil },
-  { key: 'split', label: t('toolbar.modeSplit'), hint: 'Alt+W', icon: Columns2 },
-  { key: 'read', label: t('toolbar.modeRead'), hint: 'Alt+R', icon: BookOpen },
+  { key: 'edit', label: t('toolbar.modeEdit'), hint: altHint('E'), icon: Pencil },
+  { key: 'split', label: t('toolbar.modeSplit'), hint: altHint('W'), icon: Columns2 },
+  { key: 'read', label: t('toolbar.modeRead'), hint: altHint('R'), icon: BookOpen },
 ]);
 
 // ---- 窗口控制（decorations=false，本栏即标题栏） ----
@@ -203,7 +206,8 @@ function closeWindow() {
         :key="m.key"
         class="tb-btn tb-btn--icon"
         :class="{ 'tb-btn--active': mode === m.key }"
-        :data-tip="`${m.label} (${m.hint})`"
+        :disabled="codeTab && m.key !== 'edit'"
+        :data-tip="codeTab && m.key !== 'edit' ? undefined : `${m.label} (${m.hint})`"
         @click="emit('set-mode', m.key)"
       >
         <component :is="m.icon" class="icon" />

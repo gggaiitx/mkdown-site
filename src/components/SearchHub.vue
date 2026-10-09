@@ -6,6 +6,7 @@ import { useEditorStore } from '../stores/editorStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { openInSystem, probeTextFile } from '../api/fileApi';
+import { modKey } from '../utils/keyHint';
 import type { SearchHit } from '../api/types';
 import { fileKind } from '../utils/fileKind';
 import { useI18n } from '../i18n';
@@ -340,8 +341,8 @@ const footCount = computed(() =>
 );
 
 const switchLabel = computed(() => (props.mode === 'file' ? t('search.switchToGlobal') : t('search.switchToFile')));
-/** 底栏切换提示：显示"另一个模式"的实际快捷键（文件内=Ctrl+P 去全局 / 全局=Ctrl+F 回文件内） */
-const switchKey = computed(() => (props.mode === 'file' ? 'Ctrl + P' : 'Ctrl + F'));
+/** 底栏切换提示：显示"另一个模式"的实际快捷键（文件内=⌘/Ctrl+P 去全局 / 全局=⌘/Ctrl+F 回文件内），Mac 用 ⌘ 符号 */
+const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 'F'}`);
 </script>
 
 <template>

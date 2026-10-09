@@ -83,7 +83,9 @@ body,
 
 body {
   font-family: 'Geist Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
-  font-size: var(--mk-font-size);
+  /* chrome 基准字号固定（顶栏/标签栏/状态栏/目录树/对话框等 UI 不随「字号」设置缩放）；
+     设置的字号 --mk-font-size 仅由编辑区/预览正文消费（见 md 引擎与代码引擎样式覆盖） */
+  font-size: 15px;
   color: var(--mk-fg);
   background: var(--mk-bg);
   overflow: hidden;

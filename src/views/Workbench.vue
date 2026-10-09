@@ -23,7 +23,7 @@ import SheetPreview from '../components/preview/SheetPreview.vue';
 import ImagePreview from '../components/preview/ImagePreview.vue';
 import HtmlFrame from '../components/preview/HtmlFrame.vue';
 import SvgFrame from '../components/preview/SvgFrame.vue';
-import { MdEditorV3Engine, type EngineHandle } from '../adapters';
+import { MdEditorV3Engine, CodeEditorEngine, type EngineHandle } from '../adapters';
 import { formatMarkdown } from '../utils/mdFormat';
 import {
   hydrateSession,
@@ -53,6 +53,7 @@ import {
 import { exportHtml } from '../api/exportApi';
 import { allowAssetDir } from '../api/imageApi';
 import type { EditorMode, ThemeKind } from '../api/types';
+import { isCodeExt } from '../utils/fileKind';
 import { TEMPLATES, type MdTemplate } from '../utils/markdownTemplate';
 import { debounce } from '../utils/common';
 import { useI18n } from '../i18n';
@@ -161,6 +162,11 @@ function beautifyActive() {
     editor.showToast(t('workbench.toast.previewReadonlyBeautify'), 'info');
     return;
   }
+  // 代码 / HTML 文件不走 Markdown 规则美化，避免规则式改写破坏源码结构
+  if (usesCodeEngine.value) {
+    editor.showToast(t('workbench.toast.codeNoBeautify'), 'info');
+    return;
+  }
   const formatted = formatMarkdown(tab.content);
   if (formatted === tab.content) {
     editor.showToast(t('workbench.toast.alreadyFormatted'), 'info');
@@ -233,25 +239,39 @@ function onWsRemoveAllConfirm() {
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 
 /**
- * 标记类文本标签（html / svg）：三模式管线一致——
- * edit=源码，split=源码+Frame 渲染，read=Frame 渲染（引擎隐藏不卸载）。
+ * 标记类文本标签（html / svg）：三模式管线——
+ * edit=代码引擎源码，split=源码+Frame 渲染，read=Frame 渲染（编辑器隐藏不卸载）。
  */
 const isMarkupTab = computed(() => {
   const k = tabs.activeTab?.kind;
   return k === 'html' || k === 'svg';
+});
+/** 代码类标签：只支持编辑态（无分栏/阅读），由 CodeEditorEngine 接管 */
+const isCodeTab = computed(() => tabs.activeTab?.kind === 'code');
+/** 编辑区由 CodeMirror 代码引擎接管的标签：code 恒编辑；html/svg 三模式中的源码侧；
+ *  'text' 为旧会话快照兼容（新打开不再产生，txt/log/csv 等已归 'code'）——
+ *  即除 Markdown 外的一切文本都走代码引擎，杜绝 txt 被当 Markdown 渲染 */
+const usesCodeEngine = computed(() => {
+  const k = tabs.activeTab?.kind;
+  return !!k && k !== 'md';
+});
+// 激活代码标签时全局视图强制编辑态（不写回设置偏好；切回 md 标签用户可再切回）
+watch(isCodeTab, (isCode) => {
+  if (isCode && editor.mode !== 'edit') editor.setMode('edit');
 });
 /** 标记文档所在目录（相对资源经 asset:// base 解析） */
 const markupDocDir = computed(() => {
   const p = tabs.activeTab?.path;
   return p ? p.replace(/[\\/][^\\/]*$/, '') : null;
 });
-/** 大纲面板可见性：预览类与标记类标签没有 Markdown 大纲概念 */
+/** 大纲面板可见性：预览类与标记类/代码类标签没有 Markdown 大纲概念 */
 const showOutline = computed(
   () =>
     !!tabs.activeTab &&
     !tabs.activeIsPreview &&
     tabs.activeTab.kind !== 'html' &&
     tabs.activeTab.kind !== 'svg' &&
+    tabs.activeTab.kind !== 'code' &&
     editor.mode !== 'edit',
 );
 
@@ -288,7 +308,9 @@ async function routeByType(path: string): Promise<'text' | 'handled'> {
 async function openFilePath(path: string, modeOverride?: EditorMode, skipTypeCheck = false) {
   if (!skipTypeCheck && (await routeByType(path)) !== 'text') return;
   try {
-    await tabs.openByPath(path, modeOverride ?? settings.settings.editorMode);
+    // 打开默认模式：调用方未指定时，源码类（html/svg/代码）进编辑态，其余用用户偏好视图
+    const mode = modeOverride ?? (opensInEdit(path) ? 'edit' : settings.settings.editorMode);
+    await tabs.openByPath(path, mode);
     ws.expandTo(path);
     ws.select(path);
     rememberRecent(path);
@@ -306,11 +328,16 @@ async function openFileInEditMode(path: string) {
   await openFilePath(path, 'edit');
 }
 
-/** 左侧目录点击打开：文本文件默认阅读模式；docx/xlsx/图片开预览标签；其余交系统默认程序 */
-async function openFileInReadMode(path: string) {
+/** 源码类文件（html/svg + 代码扩展名）：打开即进编辑态（渲染由分栏/阅读承担） */
+const opensInEdit = (p: string): boolean => /\.(html?|svg)$/i.test(p) || isCodeExt(p);
+
+/** 左侧目录点击打开：Markdown/TXT 默认阅读模式；html/svg/代码类默认编辑模式；
+ *  docx/xlsx/图片开预览标签；其余交系统默认程序 */
+async function openFileFromTree(path: string) {
   if ((await routeByType(path)) !== 'text') return;
-  editor.setMode('read');
-  await openFilePath(path, 'read', true);
+  const mode: EditorMode = opensInEdit(path) ? 'edit' : 'read';
+  editor.setMode(mode);
+  await openFilePath(path, mode, true);
 }
 
 async function openFileByDialog() {
@@ -524,6 +551,8 @@ const lastWorkMode = ref<EditorMode>(
   settings.settings.editorMode === 'read' ? 'split' : settings.settings.editorMode,
 );
 function setMode(m: EditorMode) {
+  // 代码标签只支持编辑态：模式按钮已禁用，这里兜底拦截 Alt+E/W/R 快捷键
+  if (isCodeTab.value && m !== 'edit') return;
   if (m !== 'read') lastWorkMode.value = m;
   editor.setMode(m);
   void settings.update({ editorMode: m });
@@ -634,6 +663,11 @@ async function doExportHtml() {
     editor.showToast(t('workbench.toast.previewNoExportHtml'), 'info');
     return;
   }
+  // 代码 / HTML 标签没有 Markdown 渲染 HTML 来源（previewHtml），导出会得到残留内容
+  if (usesCodeEngine.value) {
+    editor.showToast(t('workbench.toast.codeNoExport'), 'info');
+    return;
+  }
   try {
     const html = deAssetify(wrapExportHtml(), tab.path ?? t('workbench.untitledMd'));
     const out = await exportHtml(tab.path ?? t('workbench.untitledMd'), html);
@@ -648,10 +682,15 @@ async function doPrintPdf() {
     editor.showToast(t('workbench.toast.previewNoPrint'), 'info');
     return;
   }
+  // 代码 / HTML 标签不实现 exportPdf（无 Markdown 打印宿主），给出明确提示而非静默
+  if (usesCodeEngine.value) {
+    editor.showToast(t('workbench.toast.codeNoExport'), 'info');
+    return;
+  }
   // 打印 PDF：引擎内官方 ExportPDF 的 trigger（window.print + 官方 @media print 裁剪，
   // 打印范围 = #export-pdf-preview 导出预览体）。编辑/分栏/阅读三态通用。
   try {
-    await engineRef.value?.exportPdf();
+    await engineRef.value?.exportPdf?.();
   } catch (err) {
     editor.showToast(t('workbench.toast.printFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   }
@@ -680,6 +719,8 @@ function engineEditable(): boolean {
  * 保证行为与设置面板说明一致。
  */
 function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
+  // 代码 / HTML 标签：格式键全部交还 CM6/浏览器，不做 Markdown 包裹（防止把源码包进 ** 等）
+  if (usesCodeEngine.value) return false;
   const kernelBound =
     (!e.shiftKey && (k === 'b' || k === 'i' || (k >= '1' && k <= '6'))) ||
     (e.shiftKey && k === 'c');
@@ -687,7 +728,7 @@ function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
 
   const wrap = (prefix: string, suffix: string, placeholder: string) => {
     e.preventDefault();
-    if (engineEditable()) engineRef.value?.wrapSelection(prefix, suffix, placeholder);
+    if (engineEditable()) engineRef.value?.wrapSelection?.(prefix, suffix, placeholder);
   };
   if (!e.shiftKey) {
     if (k === 'b') { wrap('**', '**', t('workbench.placeholder.bold')); return true; }
@@ -695,7 +736,7 @@ function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
     if (k === 'k') { wrap('[', '](https://)', t('workbench.placeholder.link')); return true; }
     if (k >= '1' && k <= '6') {
       e.preventDefault();
-      if (engineEditable()) engineRef.value?.setHeading(Number(k));
+      if (engineEditable()) engineRef.value?.setHeading?.(Number(k));
       return true;
     }
   } else {
@@ -707,9 +748,11 @@ function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
 
 function onKeydown(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey;
-  // 模式快捷键：Alt+E 编辑 / Alt+W 分栏 / Alt+R 阅读
+  // 模式快捷键：Alt+E 编辑 / Alt+W 分栏 / Alt+R 阅读。
+  // Mac 的 Option+字母是死字符输入（e.key 变 '´' 等），必须按 e.code 匹配物理键位
   if (e.altKey && !ctrl) {
-    const ak = e.key.toLowerCase();
+    const codeMap: Record<string, string> = { KeyE: 'e', KeyW: 'w', KeyR: 'r' };
+    const ak = codeMap[e.code] ?? e.key.toLowerCase();
     if (ak === 'e') { e.preventDefault(); setMode('edit'); return; }
     if (ak === 'w') { e.preventDefault(); setMode('split'); return; }
     if (ak === 'r') { e.preventDefault(); setMode('read'); return; }
@@ -730,7 +773,7 @@ function onKeydown(e: KeyboardEvent) {
     if (e.key === 'F11') {
       // 编辑器全屏（页面内全屏，同工具栏 pageFullscreen）：阻止 WebView 原生全屏
       e.preventDefault();
-      if (engineEditable()) engineRef.value?.togglePageFullscreen();
+      if (engineEditable()) engineRef.value?.togglePageFullscreen?.();
       return;
     }
     return;
@@ -803,16 +846,19 @@ async function confirmCloseWindow(action: 'discard' | 'cancel') {
 // ---------- 拖拽文件到窗口打开（阅读模式） ----------
 // Tauri v2 默认 dragDropEnabled=true 会拦截原生 HTML5 DnD，必须走 onDragDropEvent
 let unlistenDrop: (() => void) | null = null;
-const OPENABLE_EXT = /\.(md|markdown|txt)$/i;
+/** 拖拽可打开：Markdown/TXT + html/svg（isCodeExt 不含 svg，fileKind 归 image）+ 代码扩展名 */
+const OPENABLE_EXT = /\.(md|markdown|txt|html?|svg)$/i;
+const isDragOpenable = (p: string): boolean => OPENABLE_EXT.test(p) || isCodeExt(p);
 function onDragDrop(ev: { payload: { type: string; paths?: string[] } }) {
   if (ev.payload.type !== 'drop' || !ev.payload.paths) return;
-  const files = ev.payload.paths.filter((p) => OPENABLE_EXT.test(p));
+  const files = ev.payload.paths.filter(isDragOpenable);
   const skipped = ev.payload.paths.length - files.length;
   if (skipped > 0) editor.showToast(t('workbench.toast.skippedNonMd', { n: skipped }), 'info');
   if (files.length === 0) return;
-  editor.setMode('read'); // 拖入即阅读
+  // 拖入默认模式：首个文件为源码类（html/svg/代码）→ 编辑态；Markdown/TXT → 阅读态
+  editor.setMode(opensInEdit(files[0]) ? 'edit' : 'read');
   void (async () => {
-    for (const p of files) await openFilePath(p, 'read');
+    for (const p of files) await openFilePath(p, opensInEdit(p) ? 'edit' : 'read');
   })();
 }
 
@@ -908,6 +954,7 @@ watch(() => editor.mode, (m) => {
       :has-active="!!tabs.activeTab"
       :search-active="search.visible"
       :sidebar-hidden="!sidebarVisible"
+      :code-tab="isCodeTab"
       @toggle-sidebar="sidebarVisible = !sidebarVisible"
       @open-file="openFileByDialog"
       @open-workspace="openWorkspace"
@@ -928,7 +975,7 @@ watch(() => editor.mode, (m) => {
     <div class="main">
       <FileTree
         v-if="sidebarVisible"
-        @open-file="openFileInReadMode"
+        @open-file="openFileFromTree"
         @open-file-edit="openFileInEditMode"
         @hide="sidebarVisible = false"
         @switch-workspace="switchWorkspace"
@@ -949,13 +996,26 @@ watch(() => editor.mode, (m) => {
           <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :path="tabs.activeTab.path ?? ''" />
           <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :path="tabs.activeTab.path ?? ''" />
           <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :path="tabs.activeTab.path ?? ''" />
-          <!-- 文本类标签：md/text 由引擎接管；html/svg 三模式
-               （edit=源码，split=源码+Frame，read=Frame 渲染，引擎隐藏不卸载） -->
+          <!-- 文本类标签：md/text/svg 由 md 引擎接管；html 与 code 由代码引擎接管源码侧。
+               html/svg 三模式：edit=代码编辑器，split=代码编辑器+Frame，read=Frame
+               （编辑器恒挂载不卸载，html-mode 布局类控显隐，:first-child 规则命中编辑器） -->
           <div v-else class="text-area" :class="[{ 'html-mode': isMarkupTab }, editor.mode]">
-            <MdEditorV3Engine
+            <!-- code / html / svg 标签：CodeMirror 6 代码引擎（html/svg 的 split/read 渲染由 Frame 承担） -->
+            <CodeEditorEngine
+              v-if="usesCodeEngine"
               ref="engineRef"
               :model-value="tabs.activeTab.content"
-              :mode="isMarkupTab ? 'edit' : editor.mode"
+              :theme="settings.settings.theme"
+              :path="tabs.activeTab.path"
+              @update:model-value="onContentChange"
+              @save="() => saveActive()"
+              @cursor="({ line, col }) => editor.setCursor(line, col)"
+            />
+            <MdEditorV3Engine
+              v-else
+              ref="engineRef"
+              :model-value="tabs.activeTab.content"
+              :mode="editor.mode"
               :theme="settings.settings.theme"
               :preview-theme="settings.settings.previewTheme"
               :read-layout="settings.settings.readLayout"
