@@ -11,7 +11,8 @@
 | 层 | 选型 |
 | --- | --- |
 | 外壳 | Rust + Tauri 2.x（Windows 优先，WebView2；macOS 走 CI 云端构建） |
-| 编辑内核 | md-editor-v3 v7（CodeMirror 6 内核，经 `IMarkdownEngine` 适配层隔离） |
+| 编辑内核 | md-editor-v3 v7（CodeMirror 6 内核，经 `IMarkdownEngine` 适配层隔离，仅处理 Markdown） |
+| 代码编辑引擎 | CodeMirror 6 自建（`CodeEditorEngine.vue`，经 `adapters` 适配层与 Markdown 内核并列，处理全部非 Markdown 文本 / 源码） |
 | 前端 | Vue 3 + Vite 7 + TypeScript 5 + Pinia 3 |
 | 富媒体预览 | docx-preview（Word）+ SheetJS `sheet_to_html`（Excel）+ 原生 `<img>` / `iframe` |
 | 文件 IO | 自写 `#[tauri::command]`（原子写 / 编码探测 / 回收站删除） |
@@ -19,7 +20,7 @@
 
 ## 功能总览
 
-### 编辑与阅读
+### 编辑与阅读（Markdown 文本）
 - **编辑 / 分屏 / 阅读** 三模式切换（分栏实时预览、滚动同步、沉浸阅读态）
 - **多标签页**，脏标记 ●，切换 / 关闭 / 退出均有未保存确认
 - **大纲面板**：随内容实时更新，点击跳转（编辑态 CodeMirror 定位 / 阅读态锚点滚动）；左缘拖拽调宽（160–460px），拖到最右隐藏、拖动右缘边线复原
@@ -27,6 +28,25 @@
 - **模板库**：新建文档可套用「笔记 / 方案骨架」；**自动保存**（可开关，停顿后原子落盘）
 - **图表与公式**：Mermaid 流程图 + KaTeX 公式（内核按需懒加载）
 - **预览主题**：内置 default / github / vuepress / mk-cute / smart-blue / cyanosis 六主题，另含自建 **win** 主题（Windows 11 Fluent 风：系统蓝强调、Segoe UI 字体栈、卡片式代码块、可隐藏 mac 红绿灯）；打印 PDF 与预览同主题
+
+### 代码编辑引擎（非 Markdown 文本）
+
+Markdown 之外的所有文本文件统一由自建 **CodeMirror 6 代码引擎**接管（与 md-editor-v3 内核经 `src/adapters/` 适配层隔离，互不耦合）：
+
+- **语法高亮（40+ 扩展名，按需懒加载、首屏零增长）**：
+  - JS / TS 系：`js` `mjs` `cjs` `jsx` `ts` `tsx`
+  - JSON 系：`json` `jsonc` `json5`
+  - Web 标记：`html` `htm` `vue` `svelte` `xml` `xsd` `xsl` `svg`
+  - 样式：`css` `scss` `less` `sass`
+  - 后端 / 脚本：`py` `rs` `java` `sql` `yaml` `yml`
+  - C 系：`c` `h` `cpp` `hpp` `cc`（含 sniff 兜底）
+  - 轻量语法（legacy）：`go` `rb` `sh` `bat` `ps1` `toml` `ini` `cfg` `conf` `properties` `env`
+- **纯文本不再误渲染**：`.txt / .log / .csv / .tsv` 及无扩展名文本文件改为纯文本编辑，`#`、`**`、`-` 等字符保持字面量原样，不再被误判为 Markdown。
+- **HTML / SVG 源码高亮**：编辑态为带高亮的源码；分栏态左侧源码、右侧 `<iframe>` 实时渲染（相对资源经 `<base href=asset://>` 加载、脚本不执行）；阅读态由内置 Frame 呈现。
+- **拖拽即开**：拖入代码、文本、HTML、SVG 文件直接打开编辑，源码类默认进编辑态。
+- **配色**：自建 GitHub Light / GitHub Dark 双主题（关键词红、函数紫、类型橙、字符串浅蓝、注释灰斜体），跟随亮 / 暗切换；选区与光标清晰可见。
+- **快捷键跨平台**：提示按平台显示（⌘ / ⌥ / ⇧ 或 Ctrl / Alt / Shift），⌥E / ⌥W / ⌥R 模式切换在 macOS 可用（Option 死字符键位已兼容）。
+- **界面字号固定**：顶栏 / 标签栏 / 状态栏 / 目录树等界面文字不再随「字号」设置缩放，字号仅作用于编辑区与预览正文。
 
 ### 文件与工作区
 - **多工作区**：左上角根目录名一键切换，最近列表（上限 10）自动去重，支持单项移除 / 全部移除（仅清列表不删文件）；切换前未保存文档确认
@@ -40,7 +60,7 @@
 - **Word（.docx）**：docx-preview 渲染，保留 Word 纸张视觉 / 页眉页脚 / 图片
 - **Excel（.xlsx）**：SheetJS 转 HTML 表格，多工作表页签切换
 - **图片**：png / jpg / gif / bmp / webp / svg / ico，带缩放工具条
-- **HTML**：编辑 / 分屏 / 阅读三模式；相对路径资源经 `<base href=asset://>` 正常加载；脚本不执行（安全设计）
+- **HTML / SVG**：已移交代码编辑引擎——编辑态源码高亮，分栏态左侧源码 + 右侧 `<iframe>` 实时渲染（相对资源经 `<base href=asset://>` 加载、脚本不执行），阅读态由内置 Frame 呈现（详见上文「代码编辑引擎」）。
 - 预览区均带「用系统默认程序打开」按钮；.doc / .ppt 等遗留 OLE 格式仍交系统程序
 
 ### 其他
@@ -85,7 +105,7 @@ src-tauri/src/
   error.rs         # AppError：稳定错误码 {code, message} IPC 契约
   models.rs        # serde 结构体（camelCase 输出，与 src/api/types.ts 手工同步）
 src/
-  adapters/        # ★ IMarkdownEngine 契约 + MdEditorV3Engine（唯一可 import md-editor-v3 处）
+  adapters/        # ★ IMarkdownEngine 契约 + MdEditorV3Engine（Markdown）+ CodeEditorEngine（非 Markdown 代码引擎）；业务层唯一 import 入口
   api/             # invoke 封装 + 类型化命令 API
   stores/          # Pinia：workspace / tabs / editor / settings / search
   components/      # Toolbar / FileTree / TabBar / FloatTip / preview(Docx/Sheet/Image/Html) / ...
@@ -96,7 +116,7 @@ vendor/            # schemars 依赖补丁（勿删）
 
 ## 架构约束（重要）
 
-1. **业务代码禁止 import md-editor-v3**——只允许出现在 `src/adapters/MdEditorV3Engine.vue`（换内核成本≈改一个文件）。
+1. **双编辑内核、经适配层隔离**：Markdown 走 `src/adapters/MdEditorV3Engine.vue`（md-editor-v3 v7），非 Markdown 文本走 `src/adapters/CodeEditorEngine.vue`（自建 CodeMirror 6）；业务层一律经 `src/adapters/` 入口，禁止直接 import 任一方（换 / 加内核成本≈改一个文件）。
 2. **前端不直接碰文件系统**——所有 IO 走 Rust command；前端只透传路径字符串。
 3. **文件打开分流判定在 Rust 侧**（`probe_text_file` + `probe_preview_kind`），前端不做扩展名猜测。
 4. **预览本地资源必须走 `convertFileSrc`（asset://）**，打开工作区时由 `allow_asset_dir` 运行时动态授权。
