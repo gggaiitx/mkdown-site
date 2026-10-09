@@ -33,14 +33,16 @@
 
 Markdown 之外的所有文本文件统一由自建 **CodeMirror 6 代码引擎**接管（与 md-editor-v3 内核经 `src/adapters/` 适配层隔离，互不耦合）：
 
-- **语法高亮（40+ 扩展名，按需懒加载、首屏零增长）**：
-  - JS / TS 系：`js` `mjs` `cjs` `jsx` `ts` `tsx`
-  - JSON 系：`json` `jsonc` `json5`
-  - Web 标记：`html` `htm` `vue` `svelte` `xml` `xsd` `xsl` `svg`
-  - 样式：`css` `scss` `less` `sass`
-  - 后端 / 脚本：`py` `rs` `java` `sql` `yaml` `yml`
-  - C 系：`c` `h` `cpp` `hpp` `cc`（含 sniff 兜底）
-  - 轻量语法（legacy）：`go` `rb` `sh` `bat` `ps1` `toml` `ini` `cfg` `conf` `properties` `env`
+- **语法高亮（250+ 扩展名，按需懒加载、首屏零增长）**：
+  - JS / TS 系：`js` `mjs` `cjs` `jsx` `ts` `tsx` `es6` `mts` `cts`
+  - JSON / 数据交换：`json` `jsonc` `json5` `ndjson` `geojson` `jsonld`
+  - Web 标记 / 模板：`html` `htm` `xhtml` `vue` `svelte` `xml` `xsd` `xsl` `svg` `rss` `atom` `jsp` `erb` `ejs`
+  - 样式：`css` `scss` `less` `sass` `pcss` `stylus`
+  - 配置 / 差异：`toml` `ini` `cfg` `conf` `properties` `env` `config` `diff` `patch` `dockerfile` `cmake`
+  - 后端 / 脚本：`py` `rs` `go` `java` `rb` `lua` `pl` `r` `swift` `groovy` `julia` `sh` `bash` `bat` `ps1`
+  - C / C++ / 系：`c` `h` `cpp` `hpp` `cc` `cxx` `cs` `scala` `kotlin` `dart`
+  - SQL 方言：`sql` `mysql` `pgsql` `sqlite` `mssql` `mariadb` `oracle` `hive` `spark`
+  - 更多（legacy-modes）：`clj` `hs` `elm` `erl` `lisp` `scm` `ocaml` `pas` `d` `fortran` `v` `vhd` `asm` `cob` `cr` `coffee` `tex` `tcl` `proto` `sparql` `xquery` 等
 - **纯文本不再误渲染**：`.txt / .log / .csv / .tsv` 及无扩展名文本文件改为纯文本编辑，`#`、`**`、`-` 等字符保持字面量原样，不再被误判为 Markdown。
 - **HTML / SVG 源码高亮**：编辑态为带高亮的源码；分栏态左侧源码、右侧 `<iframe>` 实时渲染（相对资源经 `<base href=asset://>` 加载、脚本不执行）；阅读态由内置 Frame 呈现。
 - **拖拽即开**：拖入代码、文本、HTML、SVG 文件直接打开编辑，源码类默认进编辑态。
