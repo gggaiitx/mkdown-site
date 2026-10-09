@@ -871,11 +871,10 @@
     macTip.addEventListener('mouseenter',showTip);macTip.addEventListener('mouseleave',hideTip);
   }
 
-  // FAQ accordion：默认展开第一条示范交互，resize 时重算展开项高度
-  document.querySelectorAll('.faq-q').forEach((q,i)=>{
+  // FAQ accordion：默认全部收起，resize 时重算展开项高度
+  document.querySelectorAll('.faq-q').forEach(q=>{
     const item=q.parentElement;
     const ans=item.querySelector('.faq-a');
-    if(i===0){item.classList.add('open');ans.style.maxHeight=ans.scrollHeight+'px';}
     q.addEventListener('click',()=>{
       const open=item.classList.toggle('open');
       ans.style.maxHeight=open?(ans.scrollHeight+'px'):'0px';
