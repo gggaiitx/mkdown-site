@@ -246,11 +246,6 @@
     transition:color .25s,border-color .25s}
   .scn .card:hover .chips span{color:#c3d6ee;border-color:rgba(55,138,221,.30)}
 
-  /* showcase */
-  .shots{display:grid;grid-template-columns:repeat(2,1fr);gap:22px}
-  .shots .shot{aspect-ratio:16/10}
-  .shots .shot .label{font-size:14px}
-
   /* changelog timeline: horizontal auto-scroll (drag / wheel supported) */
   .timeline{
     position:relative;overflow:hidden;width:100%;padding:2px 0 8px;
@@ -395,7 +390,6 @@
     .hero{padding:72px 0 60px}
     .features{grid-template-columns:1fr}
     .scn{grid-template-columns:1fr}
-    .shots{grid-template-columns:1fr}
     .tech-grid{grid-template-columns:repeat(2,1fr)}
     .faq-cols{grid-template-columns:1fr}
     .brand-sub{display:none}
@@ -431,7 +425,6 @@
     <nav class="nav-links">
       <a href="#features">功能</a>
       <a href="#scenarios">场景</a>
-      <a href="#showcase">界面</a>
       <a href="#changelog">更新</a>
       <a href="#tech">技术</a>
       <a href="#faq">常见问题</a>
@@ -628,43 +621,6 @@
   </div>
 </section>
 
-<!-- SHOWCASE -->
-<section id="showcase">
-  <div class="wrap">
-    <div class="section-head reveal">
-      <div class="kicker">Screenshots</div>
-      <h2>界面一览</h2>
-      <p>编辑、预览、代码引擎与富媒体文档，一屏尽览。</p>
-    </div>
-    <div class="shots">
-      <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/editor-split.png" alt="分屏对照：左侧编辑右侧实时预览" loading="lazy" />
-        <div class="label">分屏对照 · 所见即所得</div>
-      </div>
-      <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/code-engine.png" alt="代码编辑引擎：CodeMirror 6 语法高亮" loading="lazy" />
-        <div class="label">代码引擎 · 250+ 语言高亮</div>
-      </div>
-      <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/reader.png" alt="阅读模式：Mermaid 流程图渲染与大纲导航" loading="lazy" />
-        <div class="label">图表渲染 · 沉浸阅读</div>
-      </div>
-      <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/preview-word.png" alt="应用内预览 Word 文档" loading="lazy" />
-        <div class="label">富媒体预览 · Word 直接看</div>
-      </div>
-      <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/preview-svg.png" alt="SVG 业务流程图预览与缩放工具条" loading="lazy" />
-        <div class="label">SVG 预览 · 缩放工具条</div>
-      </div>
-      <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/doc-render.png" alt="长文档渲染：表格与大纲导航" loading="lazy" />
-        <div class="label">文档渲染 · 表格与大纲</div>
-      </div>
-    </div>
-  </div>
-</section>
-
 <!-- CHANGELOG -->
 <section id="changelog">
   <div class="wrap">
@@ -836,7 +792,6 @@
     <div class="foot-links">
       <a href="#features">功能</a>
       <a href="#scenarios">场景</a>
-      <a href="#showcase">界面</a>
       <a href="#changelog">更新</a>
       <a href="#tech">技术</a>
       <a href="#faq">常见问题</a>
