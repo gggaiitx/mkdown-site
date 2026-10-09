@@ -6,6 +6,8 @@
 <title>码克 MkDown · 本地优先的 Markdown 编辑器</title>
 <meta name="description" content="码克（MkDown）是一款基于 Tauri 2 + Rust + Vue3 的本地优先 Markdown 编辑与阅读器，支持实时预览、多工作区、富媒体预览、图表渲染与 250+ 语言代码编辑。纯本地、离线优先、中文原生。" />
 <meta name="keywords" content="Markdown,编辑器,Markdown Editor,Tauri,Rust,本地优先,代码高亮,文档工具" />
+<link rel="icon" type="image/png" href="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/logo.png" />
+<link rel="apple-touch-icon" href="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/logo.png" />
 <style>
   :root{
     --bg:#080a10;
@@ -87,12 +89,9 @@
     border-left:1px solid var(--border);line-height:1;transform:translateY(1px);
   }
   .logo{
-    width:30px;height:30px;border-radius:8px;
-    background:linear-gradient(135deg,#E6F1FB,#9cc7f5);
-    display:flex;align-items:center;justify-content:center;
-    color:#0C447C;font-weight:800;font-size:17px;position:relative;
+    width:30px;height:30px;display:block;flex:none;
+    filter:drop-shadow(0 2px 8px rgba(55,138,221,.35));
   }
-  .logo::after{content:"";position:absolute;right:5px;bottom:6px;width:7px;height:9px;background:var(--brand);border-radius:1px}
   .nav-links{display:flex;gap:26px;align-items:center}
   .nav-links a{color:#c7d0e0;font-size:14.5px;transition:color .2s;position:relative}
   .nav-links a::after{content:"";position:absolute;left:0;right:100%;bottom:-6px;height:2px;background:var(--brand);border-radius:2px;transition:right .25s}
@@ -421,7 +420,7 @@
 <div class="page">
 <header class="nav" id="nav">
   <div class="wrap nav-inner">
-    <div class="brand"><span class="logo">M</span> 码克 <span class="brand-sub">Markdown 编辑器</span></div>
+    <div class="brand"><img class="logo" src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/logo.png" alt="码克 MkDown 应用图标" width="30" height="30"> 码克 <span class="brand-sub">Markdown 编辑器</span></div>
     <nav class="nav-links">
       <a href="#features">功能</a>
       <a href="#scenarios">场景</a>
