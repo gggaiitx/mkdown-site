@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ChevronsDownUp, ChevronDown, Check, FolderOpen, PanelLeftClose, RefreshCw, Search, Trash2, X } from '@lucide/vue';
+import { ChevronsDownUp, ChevronsUpDown, ChevronDown, Check, FolderOpen, PanelLeftClose, RefreshCw, Search, Trash2, X } from '@lucide/vue';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useEditorStore } from '../stores/editorStore';
 import { revealInExplorer } from '../api/fileApi';
 import { useCtxMenu } from '../composables/useCtxMenu';
+import { shiftHint } from '../utils/keyHint';
 import type { NodeKind, WorkspaceNode } from '../api/types';
 import FileTreeNode from './FileTreeNode.vue';
 import AppDialog from './AppDialog.vue';
@@ -122,8 +123,81 @@ function closeMenu() {
   closeCtxMenu();
   wsMenuOpen.value = false;
 }
-onMounted(() => document.addEventListener('click', closeMenu));
-onBeforeUnmount(() => document.removeEventListener('click', closeMenu));
+// ---- 键盘导航：↑/↓ 在可见行（目录 + 文件）间移动选中（过滤模式=在过滤结果里移动），
+//      Enter：目录 = 展开/折叠，文件 = 打开（查看）----
+// 树行是普通 div 不持焦点，监听挂 window；生效前提 = 最近一次鼠标按下在目录树内
+// （clickInTree，pointerdown capture 记录）：点过编辑器/搜索面板等非目录区 → 放行，
+// 上下键/回车交给该区域自有行为；Shift+F 打开过滤框视为树交互意图（置 true）。
+// 其余守卫保留做双保险：树内菜单/对话框或模态（.mask）、搜索面板（.hub）在屏 → 忽略；
+// 按钮焦点 → 放行（Enter 激活按钮是原生行为）；文本输入类 → 仅过滤框例外。
+const rootEl = ref<HTMLElement | null>(null);
+const clickInTree = ref(false);
+function onDocPointerDown(e: PointerEvent): void {
+  clickInTree.value = !!rootEl.value?.contains(e.target as Node);
+}
+
+const visibleRows = computed<WorkspaceNode[]>(() => {
+  if (!ws.tree) return [];
+  const walk = (nodes: WorkspaceNode[], out: WorkspaceNode[]): void => {
+    for (const n of nodes) {
+      out.push(n);
+      // 目录可见性：过滤模式结果自动全展开；正常模式跟随展开态
+      if (n.kind === 'dir' && (filterActive.value || ws.expanded.has(n.path))) walk(n.children ?? [], out);
+    }
+  };
+  const rows: WorkspaceNode[] = [];
+  walk(filterActive.value ? filteredTree.value ?? [] : ws.tree.children ?? [], rows);
+  return rows;
+});
+
+/** 选中行滚动到可见（行 div 带 data-path；CSS.escape 防路径反斜杠破坏属性选择器） */
+function scrollSelVisible(path: string): void {
+  document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+
+function onTreeKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+  if (menu.value || wsMenuOpen.value || createDialog.value.visible || renameDialog.value.visible || deleteDialog.value.visible) return;
+  if (document.querySelector('.mask, .hub')) return;
+  // 主门卫：最近一次鼠标按下不在目录树内 → 放行（上下键/回车交给当前区域的自然行为）
+  if (!clickInTree.value) return;
+  const tgt = e.target as HTMLElement | null;
+  if (document.querySelector('.cm-editor.cm-focused')) return; // 双保险：点编辑器已置 clickInTree=false
+  if (tgt?.closest('button, [role="button"]')) return; // 树内按钮焦点：Enter 激活按钮是原生行为
+  if (tgt && tgt !== filterIpt.value && tgt.closest('input, textarea, [contenteditable="true"]')) return;
+  const rows = visibleRows.value;
+  if (!rows.length) return;
+  const cur = ws.selectedPath ? rows.findIndex((r) => r.path === ws.selectedPath) : -1;
+  if (e.key === 'Enter') {
+    // 目录 → 展开/折叠；文件 → 打开查看（与单击同一 emit 链路，Workbench.routeByType 统一分流）
+    const node = cur >= 0 ? rows[cur] : null;
+    if (node) {
+      e.preventDefault();
+      if (node.kind === 'dir') ws.toggleExpand(node.path);
+      else emit('open-file', node.path);
+    }
+    return;
+  }
+  e.preventDefault(); // 防过滤框光标跳到行首/尾、防容器滚动
+  let next: number;
+  if (cur < 0) next = e.key === 'ArrowDown' ? 0 : rows.length - 1; // 无选中：Down 首项 / Up 末项
+  else if (e.key === 'ArrowDown') next = Math.min(cur + 1, rows.length - 1);
+  else next = Math.max(cur - 1, 0);
+  if (next === cur) return; // 已在边界
+  ws.select(rows[next].path);
+  void nextTick(() => scrollSelVisible(rows[next].path));
+}
+
+onMounted(() => {
+  document.addEventListener('click', closeMenu);
+  document.addEventListener('pointerdown', onDocPointerDown, true); // capture：先于任何 stopPropagation 记录
+  window.addEventListener('keydown', onTreeKeydown);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeMenu);
+  document.removeEventListener('pointerdown', onDocPointerDown, true);
+  window.removeEventListener('keydown', onTreeKeydown);
+});
 
 function menuNewFile() { openCreate('file', targetDir.value); }
 function menuNewDir() { openCreate('dir', targetDir.value); }
@@ -208,6 +282,32 @@ async function doDelete() {
 }
 const deleteError = ref('');
 
+// ---- 折叠/展开全部循环按钮：有展开目录 → 折叠全部；已全折叠 → 展开全部（图标与提示随态切换） ----
+// collapseAll 保留根（expanded 至少含根），故「全折叠态」= size <= 1
+const allCollapsed = computed(() => ws.expanded.size <= 1);
+const toggleAllTip = computed(() =>
+  allCollapsed.value ? t('filetree.expandAll') : t('filetree.collapseAll'),
+);
+function toggleAll(): void {
+  if (allCollapsed.value) ws.expandAll();
+  else ws.collapseAll();
+}
+
+// ---- 刷新动效：点击时图标旋转，转多久跟实际刷新耗时走 ----// 保底 600ms（= 动画一整圈周期）：本地目录刷新极快（几十 ms），不补足会"刚转就停"看不见动效；
+// 补足后快速刷新恰好转满一圈自然复位，无急停跳变。请求中防重入。
+const refreshing = ref(false);
+async function onRefresh() {
+  if (refreshing.value) return;
+  refreshing.value = true;
+  const start = performance.now();
+  try {
+    await ws.refresh();
+  } finally {
+    const remain = Math.max(0, 600 - (performance.now() - start));
+    window.setTimeout(() => { refreshing.value = false; }, remain);
+  }
+}
+
 // ---- 按名称过滤（当前工作区的目录 / 文件名，纯前端过滤已加载的全量树） ----
 const filterVisible = ref(false);
 const filterText = ref('');
@@ -224,6 +324,15 @@ function toggleFilter(): void {
     filterText.value = '';
   }
 }
+
+/** 快捷键 Shift+F 入口：打开过滤并聚焦（已开时仅聚焦；关闭走输入框 Esc，同 toggle 语义互补）。
+ *  键盘开启视为树交互意图：置 clickInTree，使后续 ↑/↓/回车可直接导航过滤结果 */
+function openFilter(): void {
+  clickInTree.value = true;
+  filterVisible.value = true;
+  void nextTick(() => filterIpt.value?.focus());
+}
+defineExpose({ openFilter });
 
 function closeFilter(): void {
   filterVisible.value = false;
@@ -271,7 +380,7 @@ watch(filteredTree, (nodes) => {
 </script>
 
 <template>
-  <aside class="explorer" :class="{ dragging }" :style="{ width: `${width}px` }">
+  <aside ref="rootEl" class="explorer" :class="{ dragging }" :style="{ width: `${width}px` }">
     <!-- 右缘拖拽手柄（拖到最左可隐藏）；原生 title 提示（全高细条会让 data-tip 气泡垂直定位跑飞，见 v0.3.1 反馈） -->
     <div
       class="resizer"
@@ -289,9 +398,12 @@ watch(filteredTree, (nodes) => {
         <ChevronDown class="root-caret" :size="12" />
       </button>
       <span class="tools">
-        <button class="tool" :class="{ on: filterVisible }" :data-tip="t('filetree.filterTip')" @click="toggleFilter"><Search class="t-icon" /></button>
-        <button class="tool" :data-tip="t('filetree.collapseAll')" @click="ws.collapseAll()"><ChevronsDownUp class="t-icon" /></button>
-        <button class="tool" :data-tip="t('filetree.refresh')" @click="ws.refresh()"><RefreshCw class="t-icon" /></button>
+        <button class="tool" :class="{ on: filterVisible }" :data-tip="t('filetree.filterTip', { key: shiftHint('F') })" @click="toggleFilter"><Search class="t-icon" /></button>
+        <button class="tool" :data-tip="toggleAllTip" @click="toggleAll">
+          <ChevronsDownUp v-if="!allCollapsed" class="t-icon" />
+          <ChevronsUpDown v-else class="t-icon" />
+        </button>
+        <button class="tool" :data-tip="t('filetree.refresh')" @click="onRefresh"><RefreshCw class="t-icon" :class="{ spinning: refreshing }" /></button>
         <button class="tool" :data-tip="t('filetree.hideWorkspace')" @click="emit('hide')"><PanelLeftClose class="t-icon" /></button>
       </span>
     </div>
@@ -545,6 +657,12 @@ watch(filteredTree, (nodes) => {
   cursor: pointer;
 }
 .tool:hover { background: var(--mk-hover); color: var(--mk-fg); }
+/* 刷新中旋转：周期 600ms 与 script 保底时长一致，快速刷新恰好转满一圈后复位（无急停跳变） */
+.tool .spinning { animation: ft-spin 0.6s linear infinite; }
+@keyframes ft-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 /* 过滤开关激活态：淡底色 + 主题色描边，明确"当前开着" */
 .tool.on {
   background: var(--mk-accent-weak);
@@ -603,6 +721,9 @@ watch(filteredTree, (nodes) => {
   position: fixed;
   z-index: 90;
   min-width: 160px;
+  /* max-content：fixed 未设宽时 shrink-to-fit 会被「视口宽-left」压缩——
+     右键点在树右缘时菜单被压窄、中文项折行，且夹紧公式用的正是被压窄的测量值（与 TabBar 同修） */
+  width: max-content;
   background: var(--mk-panel);
   color: var(--mk-fg);
   border: 1px solid var(--mk-border);
@@ -621,6 +742,7 @@ watch(filteredTree, (nodes) => {
   padding: 6px 10px;
   border-radius: var(--mk-radius-sm);
   cursor: pointer;
+  white-space: nowrap; /* 兜底：菜单文案任何情况下不折行 */
 }
 .ctx-item:hover:not(:disabled) { background: var(--mk-hover); }
 .ctx-item.danger { color: var(--mk-danger); }

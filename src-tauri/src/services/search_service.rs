@@ -29,6 +29,7 @@ const TEXT_EXTS: &[&str] = &[
     "json", "jsonc", "json5", "ndjson", "geojson", "jsonld",
     "yaml", "yml", "toml",
     "ini", "cfg", "conf", "properties", "env", "config", "cnf", "inf",
+    "service", "timer", "socket", "target", "mount", "desktop",
     "xml", "xsd", "xsl", "rss", "atom", "wsdl", "plist",
     "diff", "patch",
     // —— Web ——

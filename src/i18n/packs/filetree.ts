@@ -6,8 +6,9 @@ export default {
     filetree: {
       resizerTitle: '拖动调整宽度，拖到最左可隐藏',
       explorer: '资源管理器',
-      filterTip: '按名称过滤（目录 / 文件）',
+      filterTip: '按名称过滤（目录 / 文件） · {key}',
       collapseAll: '折叠全部',
+      expandAll: '展开全部',
       refresh: '刷新',
       hideWorkspace: '隐藏工作区',
       switchTitle: '切换工作区',
@@ -41,8 +42,9 @@ export default {
     filetree: {
       resizerTitle: 'Drag to resize; drag fully left to hide',
       explorer: 'Explorer',
-      filterTip: 'Filter by name (dirs / files)',
+      filterTip: 'Filter by name (dirs / files) · {key}',
       collapseAll: 'Collapse all',
+      expandAll: 'Expand all',
       refresh: 'Refresh',
       hideWorkspace: 'Hide workspace',
       switchTitle: 'Switch workspace',

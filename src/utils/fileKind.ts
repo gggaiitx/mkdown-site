@@ -66,6 +66,9 @@ const EXT_KIND: Record<string, FileKind> = {
   sh: 'code',
   bat: 'code',
   ps1: 'code',
+  // systemd unit / desktop 入口（ini 风格键值，2026-10-09 补）
+  service: 'code', timer: 'code', socket: 'code',
+  target: 'code', mount: 'code', desktop: 'code',
 
   // —— 扩展代码 / 配置 / 标记语言（与 Rust fs_service::TEXT_EXTS、codeLanguage.ts 对齐）——
   es6: 'code', pac: 'code', mts: 'code', cts: 'code',

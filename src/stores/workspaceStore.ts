@@ -66,6 +66,17 @@ export const useWorkspaceStore = defineStore('workspace', {
     collapseAll() {
       this.expanded = new Set(this.root ? [this.root] : []);
     },
+    /** 一键展开：递归展开全部目录（折叠全部的反向操作，按钮循环切换用） */
+    expandAll() {
+      const next = new Set<string>();
+      const walk = (node: WorkspaceNode | null): void => {
+        if (!node || node.kind !== 'dir') return;
+        next.add(node.path);
+        for (const c of node.children ?? []) walk(c);
+      };
+      walk(this.tree);
+      this.expanded = next;
+    },
     expandTo(path: string) {
       const next = new Set(this.expanded);
       let dir = path.replace(/[\\/][^\\/]*$/, '');

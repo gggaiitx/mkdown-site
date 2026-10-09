@@ -289,6 +289,10 @@ function menuCloseAll() {
   position: fixed;
   z-index: 90;
   min-width: 150px;
+  /* max-content：fixed 未设宽时 shrink-to-fit 会被「视口宽-left」压缩——
+     右键点在标签栏右缘时菜单被压窄，「关闭全部 Ctrl+Shift+W」折行，
+     且 useCtxMenu 夹紧公式用的正是这个被压窄的测量值。锁定内容宽后测量即真实宽 */
+  width: max-content;
   background: var(--mk-panel);
   color: var(--mk-fg);
   border: 1px solid var(--mk-border);
@@ -311,6 +315,7 @@ function menuCloseAll() {
   align-items: center;
   gap: 8px;
   min-width: 168px;
+  white-space: nowrap; /* 兜底：菜单文案任何情况下不折行 */
 }
 .ctx-ico { width: 13px; height: 13px; flex: none; opacity: 0.75; }
 .ctx-key {
@@ -320,6 +325,7 @@ function menuCloseAll() {
   font-size: 11px;
   color: var(--mk-fg-muted);
   pointer-events: none;
+  white-space: nowrap;
 }
 .ctx-item:hover:not(:disabled) { background: var(--mk-hover); }
 .ctx-item.danger { color: var(--mk-danger); }

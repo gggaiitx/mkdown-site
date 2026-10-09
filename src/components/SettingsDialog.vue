@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue';
-import { ExternalLink, Info, Keyboard, Palette, RefreshCw, SlidersHorizontal } from '@lucide/vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { Download, ExternalLink, Info, Keyboard, Palette, RefreshCw, SlidersHorizontal } from '@lucide/vue';
 import pkg from '../../package.json';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useI18n } from '../i18n';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { openUrl } from '../api/fileApi';
+import { flushSessionSnapshot } from '../utils/sessionSnapshot';
 import type { AppSettings } from '../api/types';
 
 const settings = useSettingsStore();
@@ -19,14 +20,18 @@ function openGithub() {
   void openUrl(GITHUB_URL).catch(() => undefined);
 }
 
-// ---- 更新检测（与顶栏更新按钮共用同一 composable/会话缓存；下载与重启流程由顶栏承担，
-//      此处只做「检测 + 展示 + 跳发布页」，避免出现第二个下载入口造成状态失同步） ----
+// ---- 更新检测（与顶栏更新按钮共用同一 composable；状态为模块级单例，
+//      此处的下载/安装与顶栏是同一条链路：进度实时反映在顶栏进度环上，
+//      下载完成顶栏自动弹重启确认，避免出现两个入口状态失同步） ----
 const {
   state: updateState,
   currentVersion,
   latestVersion,
   releaseUrl,
+  downloadState,
   check,
+  startDownload,
+  applyUpdate,
 } = useUpdateCheck();
 const checking = ref(false);
 async function recheckUpdate() {
@@ -45,13 +50,34 @@ const updateStatusText = () => {
     case 'uptodate':
       return t('settings.updateUpToDate', { v: currentVersion.value });
     case 'available':
-      return t('settings.updateAvailable', { latest: latestVersion.value, current: currentVersion.value });
+      return t('settings.updateAvailable', { latest: latestVersion.value });
     case 'error':
       return t('settings.updateError');
     default:
       return t('settings.updateNotChecked');
   }
 };
+
+/** 「下载更新」按钮文案：随下载状态流转（下载中禁用 → 已下载转安装） */
+const settingsUpdateBtnText = computed(() => {
+  if (downloadState.value === 'downloading') return t('settings.downloading');
+  if (downloadState.value === 'downloaded') return t('settings.restartInstall');
+  return t('settings.downloadUpdate');
+});
+
+/** 与顶栏更新按钮同一条链路：available → 后台下载（顶栏进度环实时显示）；
+ *  已下载 → 固化会话并静默安装重启（与顶栏「立即更新」确认等价） */
+async function onSettingsUpdateClick() {
+  if (updateState.value !== 'available') return;
+  if (downloadState.value === 'downloading') return;
+  if (downloadState.value === 'downloaded') {
+    // 退出前固化会话（含未保存草稿），重启后由会话恢复流程还原
+    await flushSessionSnapshot();
+    await applyUpdate(); // 进程将在此退出并重启
+    return;
+  }
+  void startDownload();
+}
 
 /**
  * 快捷键说明：与 Workbench.onKeydown / 内核 keymap 的实际绑定严格同步，勿凭记忆增删。
@@ -81,6 +107,7 @@ const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
     items: [
       ['Ctrl + F', 'settings.scFindInFile'],
       ['Ctrl + P', 'settings.scSearchAll'],
+      ['Shift + F', 'settings.scFilterTree'],
     ],
   },
   {
@@ -331,13 +358,24 @@ onBeforeUnmount(onDragEnd);
                     <RefreshCw :size="13" :class="{ spin: checking || updateState === 'checking' }" />
                     <span>{{ checking || updateState === 'checking' ? t('settings.checking') : t('settings.checkUpdate') }}</span>
                   </button>
+                  <!-- 检测失败：兜底跳发布页手动查看 -->
                   <button
-                    v-if="updateState === 'available' || updateState === 'error'"
+                    v-if="updateState === 'error'"
                     class="link-btn"
                     @click="openUrl(releaseUrl).catch(() => undefined)"
                   >
                     <ExternalLink :size="12" />
                     <span>{{ t('settings.goRelease') }}</span>
+                  </button>
+                  <!-- 有新版：直接触发顶栏同款下载逻辑（状态单例共享，进度实时反映在顶栏进度环上） -->
+                  <button
+                    v-if="updateState === 'available'"
+                    class="link-btn"
+                    :disabled="downloadState === 'downloading'"
+                    @click="onSettingsUpdateClick"
+                  >
+                    <Download :size="13" />
+                    <span>{{ settingsUpdateBtnText }}</span>
                   </button>
                 </div>
               </div>

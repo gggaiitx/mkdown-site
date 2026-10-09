@@ -122,6 +122,8 @@ const TEXT_EXTS: &[&str] = &[
     "json", "jsonc", "json5", "ndjson", "geojson", "jsonld",
     "yml", "yaml", "toml",
     "ini", "cfg", "conf", "properties", "env", "config", "cnf", "inf",
+    // systemd unit / desktop 入口（ini 风格键值，2026-10-09 补）
+    "service", "timer", "socket", "target", "mount", "desktop",
     "xml", "xsd", "xsl", "rss", "atom", "wsdl", "plist",
     "diff", "patch",
     // —— Web ——

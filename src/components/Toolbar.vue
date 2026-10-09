@@ -58,6 +58,7 @@ const {
   downloadUrl,
   downloadState,
   progress,
+  check,
   startDownload,
   applyUpdate,
 } = useUpdateCheck();
@@ -96,15 +97,24 @@ const updateTip = computed(() => {
   }
 });
 
-/** 点击更新：有可用更新则后台下载；下载完成则弹出重启确认；
- *  已是最新时右上角 toast 提示、不跳转；检查失败才兜底跳转发布页 */
-function onUpdateClick() {
+/** 点击更新：
+ *  - 有可用更新 → 后台下载；已下载 → 弹重启确认；
+ *  - 其余状态（已是最新/检测失败/未检测）→ 先强制重检再按结果处理：
+ *    后端发布新版后点击即可检测到并直接进入下载，无需重启应用（2026-10-09）；
+ *  - 重检后仍最新 → toast；仍失败 → 兜底跳发布页 */
+async function onUpdateClick() {
   if (updateState.value === 'available' && downloadUrl.value) {
     if (downloadState.value === 'downloading') return; // 下载中：忽略
     if (downloadState.value === 'downloaded') {
       showUpdateDialog.value = true; // 已下载：再次弹出重启确认
       return;
     }
+    void startDownload();
+    return;
+  }
+  if (updateState.value === 'checking') return; // 正在检测：忽略重复点击
+  await check(true); // force：绕过会话缓存重新请求 GitHub
+  if (updateState.value === 'available' && downloadUrl.value) {
     void startDownload();
     return;
   }
@@ -296,7 +306,7 @@ function closeWindow() {
           {{ Math.round(downloadPct) }}
         </text>
       </svg>
-      <span v-else-if="downloadState === 'downloading'" class="spin" />
+      <span v-else-if="downloadState === 'downloading' || updateState === 'checking'" class="spin" />
       <Download v-else class="icon" />
       <span
         v-if="updateState === 'available' && downloadState !== 'downloading' && downloadState !== 'downloaded'"

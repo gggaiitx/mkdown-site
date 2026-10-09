@@ -3,7 +3,7 @@
 > 版本：v1.0（简单 PRD）
 > 作者：许清楚（产品经理）
 > 日期：2026-09
-> 状态：待飞总确认
+> 状态：飞总已确认
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 项 | 内容 |
 |---|---|
-| Language | 中文 |
+| Language | 中文/英文 |
 | Programming Language | 外壳 Rust + Tauri 2.x；前端 Vue 3 + Vite + TypeScript（推荐，见选型结论） |
 | Project Name | `mkdown` |
 | 工作目录 | `D:\WWW\MkDown` |

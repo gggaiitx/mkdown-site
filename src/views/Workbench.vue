@@ -68,6 +68,8 @@ const search = useSearchStore();
 const engineRef = ref<EngineHandle | null>(null);
 /** 标签栏组件引用：F2 重命名当前文档经 TabBar.renameActive() 走同一对话框链路 */
 const tabBarRef = ref<InstanceType<typeof TabBar> | null>(null);
+/** 目录树组件引用：Shift+F 按名称过滤经 FileTree.openFilter() 打开并聚焦 */
+const fileTreeRef = ref<InstanceType<typeof FileTree> | null>(null);
 const activeDocPath = computed(() => tabs.activeTab?.path ?? null);
 const showSettings = ref(false);
 
@@ -776,6 +778,22 @@ function onKeydown(e: KeyboardEvent) {
       if (engineEditable()) engineRef.value?.togglePageFullscreen?.();
       return;
     }
+    // Shift+F：目录树按名称过滤（跨平台统一，Mac=⇧F；⌘⇧F 已被美化占用故不带 Cmd）。
+    // 按 e.code 匹配防中文输入法 e.key 异化；焦点在编辑器/输入框时放行——此时 Shift+F 是正常的大写 F 输入
+    if (e.shiftKey && e.code === 'KeyF' && !e.altKey) {
+      const tgt = e.target as HTMLElement | null;
+      const inEditable = isEditorFocused() || !!tgt?.closest?.('input, textarea, [contenteditable="true"]');
+      if (inEditable) return;
+      e.preventDefault();
+      if (sidebarVisible.value) {
+        fileTreeRef.value?.openFilter();
+      } else {
+        // 侧栏已隐藏：先展开，等挂载完成后开过滤
+        sidebarVisible.value = true;
+        void nextTick(() => fileTreeRef.value?.openFilter());
+      }
+      return;
+    }
     return;
   }
   const k = e.key.toLowerCase();
@@ -975,6 +993,7 @@ watch(() => editor.mode, (m) => {
     <div class="main">
       <FileTree
         v-if="sidebarVisible"
+        ref="fileTreeRef"
         @open-file="openFileFromTree"
         @open-file-edit="openFileInEditMode"
         @hide="sidebarVisible = false"

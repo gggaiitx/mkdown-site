@@ -20,3 +20,6 @@ export const modHint = (key: string): string => (isMac ? `⌘${key}` : `Ctrl+${k
 
 /** Alt+键名提示：Mac=⌥E，其他=Alt+E */
 export const altHint = (key: string): string => (isMac ? `⌥${key}` : `Alt+${key}`);
+
+/** Shift+键名提示：Mac=⇧F，其他=Shift+F */
+export const shiftHint = (key: string): string => (isMac ? `⇧${key}` : `Shift+${key}`);

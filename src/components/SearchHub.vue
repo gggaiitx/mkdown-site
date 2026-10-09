@@ -286,6 +286,8 @@ function onUp(): void {
 }
 
 // ================= 拖动 =================
+// 手柄两处：标题栏（hub-head）+ 底栏空白区（hub-foot 的 cnt/keys）；按钮/输入框由
+// dragStart 的 closest('input, button') 守卫排除，不触发拖移
 const pos = ref<{ x: number; y: number } | null>(null); // null = 默认右上角
 const dragging = ref(false);
 let dragOff = { x: 0, y: 0 };
@@ -447,8 +449,8 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
       </template>
     </div>
 
-    <!-- 底栏：结果数 + 快捷键提示 + 模式切换 -->
-    <div class="hub-foot">
+    <!-- 底栏：结果数 + 快捷键提示 + 模式切换；空白区（cnt/keys）同为拖动手柄，与标题栏一致 -->
+    <div class="hub-foot" @pointerdown="dragStart" @pointermove="dragMove" @pointerup="dragEnd" @pointercancel="dragEnd">
       <span class="cnt">{{ footCount }}</span>
       <span class="keys">
         <kbd>↑</kbd><kbd>↓</kbd> {{ t('search.nav') }}
@@ -588,7 +590,7 @@ mark {
   padding: 0 1px;
 }
 
-/* ---- 底栏 ---- */
+/* ---- 底栏（空白区同为拖动手柄：cursor 对齐标题栏；按钮自身 pointer 优先） ---- */
 .hub-foot {
   display: flex;
   align-items: center;
@@ -597,7 +599,9 @@ mark {
   border-top: 1px solid var(--mk-border);
   font-size: 12px;
   color: var(--mk-fg-muted);
+  cursor: grab;
 }
+.hub-foot:active { cursor: grabbing; }
 .cnt { flex: none; min-width: 64px; }
 .keys { flex: 1; display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; }
 kbd {

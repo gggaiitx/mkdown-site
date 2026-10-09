@@ -24,13 +24,229 @@ function defineLegacy(parser: unknown) {
   return StreamLanguage.define(parser as Parameters<typeof StreamLanguage.define>[0]);
 }
 
-/** legacy 语言加载器：按 (模块名, 导出名) 动态 import。模块路径前缀静态可析，Vite 据此分包。 */
+/**
+ * legacy 语言加载器（查表）：按 (模块名, 导出名) 取下方字面量动态 import。
+ * ★ 必须逐模块字面量 import——bare specifier 的模板字符串动态 import 在浏览器运行时
+ *   无法解析（WebView 不认裸模块名），Vite 亦无法静态分析（dynamic-import-vars 限制），
+ *   会导致全部 legacy 语言静默失败退回纯文本（2026-10-09 实测踩坑：.sh/.conf 等无着色）。
+ *   字面量 import 可被 Vite 静态析出 → dev 预构建 + build 按 chunk 分包，懒加载语义不变。
+ */
 function legacy(mod: string, name: string): LangLoader {
-  return async () => {
-    const m = (await import(`@codemirror/legacy-modes/mode/${mod}`)) as Record<string, unknown>;
-    return [defineLegacy(m[name])];
-  };
+  return legacyLoaders[`${mod}:${name}`] ?? (async () => []);
 }
+
+// ── legacy 模块字面量加载器（104 个去重模块；由 gen 脚本生成，手工增改见上表注释）──
+const L_javascript_jsonld: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/javascript')) as Record<string, unknown>).jsonld)];
+const L_xml_xml: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/xml')) as Record<string, unknown>).xml)];
+const L_stylus_stylus: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/stylus')) as Record<string, unknown>).stylus)];
+const L_sql_mySQL: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sql')) as Record<string, unknown>).mySQL)];
+const L_sql_pgSQL: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sql')) as Record<string, unknown>).pgSQL)];
+const L_sql_sqlite: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sql')) as Record<string, unknown>).sqlite)];
+const L_sql_msSQL: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sql')) as Record<string, unknown>).msSQL)];
+const L_sql_mariaDB: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sql')) as Record<string, unknown>).mariaDB)];
+const L_sql_plSQL: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sql')) as Record<string, unknown>).plSQL)];
+const L_sql_hive: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sql')) as Record<string, unknown>).hive)];
+const L_sql_sparkSQL: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sql')) as Record<string, unknown>).sparkSQL)];
+const L_clike_csharp: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/clike')) as Record<string, unknown>).csharp)];
+const L_clike_scala: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/clike')) as Record<string, unknown>).scala)];
+const L_clike_kotlin: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/clike')) as Record<string, unknown>).kotlin)];
+const L_clike_dart: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/clike')) as Record<string, unknown>).dart)];
+const L_toml_toml: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/toml')) as Record<string, unknown>).toml)];
+const L_properties_properties: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/properties')) as Record<string, unknown>).properties)];
+const L_diff_diff: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/diff')) as Record<string, unknown>).diff)];
+const L_dockerfile_dockerFile: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/dockerfile')) as Record<string, unknown>).dockerFile)];
+const L_cmake_cmake: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/cmake')) as Record<string, unknown>).cmake)];
+const L_go_go: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/go')) as Record<string, unknown>).go)];
+const L_ruby_ruby: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/ruby')) as Record<string, unknown>).ruby)];
+const L_shell_shell: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/shell')) as Record<string, unknown>).shell)];
+const L_powershell_powerShell: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/powershell')) as Record<string, unknown>).powerShell)];
+const L_lua_lua: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/lua')) as Record<string, unknown>).lua)];
+const L_perl_perl: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/perl')) as Record<string, unknown>).perl)];
+const L_r_r: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/r')) as Record<string, unknown>).r)];
+const L_swift_swift: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/swift')) as Record<string, unknown>).swift)];
+const L_clojure_clojure: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/clojure')) as Record<string, unknown>).clojure)];
+const L_haskell_haskell: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/haskell')) as Record<string, unknown>).haskell)];
+const L_elm_elm: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/elm')) as Record<string, unknown>).elm)];
+const L_erlang_erlang: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/erlang')) as Record<string, unknown>).erlang)];
+const L_commonlisp_commonLisp: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/commonlisp')) as Record<string, unknown>).commonLisp)];
+const L_scheme_scheme: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/scheme')) as Record<string, unknown>).scheme)];
+const L_mllike_oCaml: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mllike')) as Record<string, unknown>).oCaml)];
+const L_mllike_fSharp: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mllike')) as Record<string, unknown>).fSharp)];
+const L_mllike_sml: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mllike')) as Record<string, unknown>).sml)];
+const L_pascal_pascal: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/pascal')) as Record<string, unknown>).pascal)];
+const L_d_d: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/d')) as Record<string, unknown>).d)];
+const L_fortran_fortran: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/fortran')) as Record<string, unknown>).fortran)];
+const L_verilog_verilog: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/verilog')) as Record<string, unknown>).verilog)];
+const L_vhdl_vhdl: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/vhdl')) as Record<string, unknown>).vhdl)];
+const L_gas_gas: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/gas')) as Record<string, unknown>).gas)];
+const L_cobol_cobol: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/cobol')) as Record<string, unknown>).cobol)];
+const L_crystal_crystal: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/crystal')) as Record<string, unknown>).crystal)];
+const L_groovy_groovy: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/groovy')) as Record<string, unknown>).groovy)];
+const L_julia_julia: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/julia')) as Record<string, unknown>).julia)];
+const L_coffeescript_coffeeScript: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/coffeescript')) as Record<string, unknown>).coffeeScript)];
+const L_stex_stex: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/stex')) as Record<string, unknown>).stex)];
+const L_tcl_tcl: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/tcl')) as Record<string, unknown>).tcl)];
+const L_gherkin_gherkin: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/gherkin')) as Record<string, unknown>).gherkin)];
+const L_protobuf_protobuf: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/protobuf')) as Record<string, unknown>).protobuf)];
+const L_solr_solr: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/solr')) as Record<string, unknown>).solr)];
+const L_sparql_sparql: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sparql')) as Record<string, unknown>).sparql)];
+const L_turtle_turtle: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/turtle')) as Record<string, unknown>).turtle)];
+const L_ntriples_ntriples: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/ntriples')) as Record<string, unknown>).ntriples)];
+const L_mscgen_mscgen: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mscgen')) as Record<string, unknown>).mscgen)];
+const L_webidl_webIDL: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/webidl')) as Record<string, unknown>).webIDL)];
+const L_idl_idl: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/idl')) as Record<string, unknown>).idl)];
+const L_xquery_xQuery: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/xquery')) as Record<string, unknown>).xQuery)];
+const L_nsis_nsis: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/nsis')) as Record<string, unknown>).nsis)];
+const L_puppet_puppet: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/puppet')) as Record<string, unknown>).puppet)];
+const L_vb_vb: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/vb')) as Record<string, unknown>).vb)];
+const L_vbscript_vbScript: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/vbscript')) as Record<string, unknown>).vbScript)];
+const L_velocity_velocity: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/velocity')) as Record<string, unknown>).velocity)];
+const L_nginx_nginx: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/nginx')) as Record<string, unknown>).nginx)];
+const L_rpm_rpmChanges: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/rpm')) as Record<string, unknown>).rpmChanges)];
+const L_rpm_rpmSpec: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/rpm')) as Record<string, unknown>).rpmSpec)];
+const L_oz_oz: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/oz')) as Record<string, unknown>).oz)];
+const L_pig_pig: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/pig')) as Record<string, unknown>).pig)];
+const L_pegjs_pegjs: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/pegjs')) as Record<string, unknown>).pegjs)];
+const L_sas_sas: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sas')) as Record<string, unknown>).sas)];
+const L_factor_factor: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/factor')) as Record<string, unknown>).factor)];
+const L_fcl_fcl: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/fcl')) as Record<string, unknown>).fcl)];
+const L_forth_forth: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/forth')) as Record<string, unknown>).forth)];
+const L_dylan_dylan: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/dylan')) as Record<string, unknown>).dylan)];
+const L_ebnf_ebnf: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/ebnf')) as Record<string, unknown>).ebnf)];
+const L_ecl_ecl: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/ecl')) as Record<string, unknown>).ecl)];
+const L_eiffel_eiffel: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/eiffel')) as Record<string, unknown>).eiffel)];
+const L_haxe_haxe: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/haxe')) as Record<string, unknown>).haxe)];
+const L_haxe_hxml: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/haxe')) as Record<string, unknown>).hxml)];
+const L_http_http: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/http')) as Record<string, unknown>).http)];
+const L_livescript_liveScript: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/livescript')) as Record<string, unknown>).liveScript)];
+const L_mathematica_mathematica: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mathematica')) as Record<string, unknown>).mathematica)];
+const L_mbox_mbox: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mbox')) as Record<string, unknown>).mbox)];
+const L_mirc_mirc: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mirc')) as Record<string, unknown>).mirc)];
+const L_modelica_modelica: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/modelica')) as Record<string, unknown>).modelica)];
+const L_octave_octave: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/octave')) as Record<string, unknown>).octave)];
+const L_smalltalk_smalltalk: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/smalltalk')) as Record<string, unknown>).smalltalk)];
+const L_sieve_sieve: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/sieve')) as Record<string, unknown>).sieve)];
+const L_textile_textile: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/textile')) as Record<string, unknown>).textile)];
+const L_tiddlywiki_tiddlyWiki: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/tiddlywiki')) as Record<string, unknown>).tiddlyWiki)];
+const L_tiki_tiki: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/tiki')) as Record<string, unknown>).tiki)];
+const L_troff_troff: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/troff')) as Record<string, unknown>).troff)];
+const L_ttcn_ttcn: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/ttcn')) as Record<string, unknown>).ttcn)];
+const L_ttcn_cfg_ttcnCfg: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/ttcn-cfg')) as Record<string, unknown>).ttcnCfg)];
+const L_wast_wast: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/wast')) as Record<string, unknown>).wast)];
+const L_yacas_yacas: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/yacas')) as Record<string, unknown>).yacas)];
+const L_apl_apl: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/apl')) as Record<string, unknown>).apl)];
+const L_asciiarmor_asciiArmor: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/asciiarmor')) as Record<string, unknown>).asciiArmor)];
+const L_asterisk_asterisk: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/asterisk')) as Record<string, unknown>).asterisk)];
+const L_brainfuck_brainfuck: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/brainfuck')) as Record<string, unknown>).brainfuck)];
+const L_cypher_cypher: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/cypher')) as Record<string, unknown>).cypher)];
+const L_dtd_dtd: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/dtd')) as Record<string, unknown>).dtd)];
+
+const legacyLoaders: Record<string, LangLoader> = {
+  'javascript:jsonld': L_javascript_jsonld,
+  'xml:xml': L_xml_xml,
+  'stylus:stylus': L_stylus_stylus,
+  'sql:mySQL': L_sql_mySQL,
+  'sql:pgSQL': L_sql_pgSQL,
+  'sql:sqlite': L_sql_sqlite,
+  'sql:msSQL': L_sql_msSQL,
+  'sql:mariaDB': L_sql_mariaDB,
+  'sql:plSQL': L_sql_plSQL,
+  'sql:hive': L_sql_hive,
+  'sql:sparkSQL': L_sql_sparkSQL,
+  'clike:csharp': L_clike_csharp,
+  'clike:scala': L_clike_scala,
+  'clike:kotlin': L_clike_kotlin,
+  'clike:dart': L_clike_dart,
+  'toml:toml': L_toml_toml,
+  'properties:properties': L_properties_properties,
+  'diff:diff': L_diff_diff,
+  'dockerfile:dockerFile': L_dockerfile_dockerFile,
+  'cmake:cmake': L_cmake_cmake,
+  'go:go': L_go_go,
+  'ruby:ruby': L_ruby_ruby,
+  'shell:shell': L_shell_shell,
+  'powershell:powerShell': L_powershell_powerShell,
+  'lua:lua': L_lua_lua,
+  'perl:perl': L_perl_perl,
+  'r:r': L_r_r,
+  'swift:swift': L_swift_swift,
+  'clojure:clojure': L_clojure_clojure,
+  'haskell:haskell': L_haskell_haskell,
+  'elm:elm': L_elm_elm,
+  'erlang:erlang': L_erlang_erlang,
+  'commonlisp:commonLisp': L_commonlisp_commonLisp,
+  'scheme:scheme': L_scheme_scheme,
+  'mllike:oCaml': L_mllike_oCaml,
+  'mllike:fSharp': L_mllike_fSharp,
+  'mllike:sml': L_mllike_sml,
+  'pascal:pascal': L_pascal_pascal,
+  'd:d': L_d_d,
+  'fortran:fortran': L_fortran_fortran,
+  'verilog:verilog': L_verilog_verilog,
+  'vhdl:vhdl': L_vhdl_vhdl,
+  'gas:gas': L_gas_gas,
+  'cobol:cobol': L_cobol_cobol,
+  'crystal:crystal': L_crystal_crystal,
+  'groovy:groovy': L_groovy_groovy,
+  'julia:julia': L_julia_julia,
+  'coffeescript:coffeeScript': L_coffeescript_coffeeScript,
+  'stex:stex': L_stex_stex,
+  'tcl:tcl': L_tcl_tcl,
+  'gherkin:gherkin': L_gherkin_gherkin,
+  'protobuf:protobuf': L_protobuf_protobuf,
+  'solr:solr': L_solr_solr,
+  'sparql:sparql': L_sparql_sparql,
+  'turtle:turtle': L_turtle_turtle,
+  'ntriples:ntriples': L_ntriples_ntriples,
+  'mscgen:mscgen': L_mscgen_mscgen,
+  'webidl:webIDL': L_webidl_webIDL,
+  'idl:idl': L_idl_idl,
+  'xquery:xQuery': L_xquery_xQuery,
+  'nsis:nsis': L_nsis_nsis,
+  'puppet:puppet': L_puppet_puppet,
+  'vb:vb': L_vb_vb,
+  'vbscript:vbScript': L_vbscript_vbScript,
+  'velocity:velocity': L_velocity_velocity,
+  'nginx:nginx': L_nginx_nginx,
+  'rpm:rpmChanges': L_rpm_rpmChanges,
+  'rpm:rpmSpec': L_rpm_rpmSpec,
+  'oz:oz': L_oz_oz,
+  'pig:pig': L_pig_pig,
+  'pegjs:pegjs': L_pegjs_pegjs,
+  'sas:sas': L_sas_sas,
+  'factor:factor': L_factor_factor,
+  'fcl:fcl': L_fcl_fcl,
+  'forth:forth': L_forth_forth,
+  'dylan:dylan': L_dylan_dylan,
+  'ebnf:ebnf': L_ebnf_ebnf,
+  'ecl:ecl': L_ecl_ecl,
+  'eiffel:eiffel': L_eiffel_eiffel,
+  'haxe:haxe': L_haxe_haxe,
+  'haxe:hxml': L_haxe_hxml,
+  'http:http': L_http_http,
+  'livescript:liveScript': L_livescript_liveScript,
+  'mathematica:mathematica': L_mathematica_mathematica,
+  'mbox:mbox': L_mbox_mbox,
+  'mirc:mirc': L_mirc_mirc,
+  'modelica:modelica': L_modelica_modelica,
+  'octave:octave': L_octave_octave,
+  'smalltalk:smalltalk': L_smalltalk_smalltalk,
+  'sieve:sieve': L_sieve_sieve,
+  'textile:textile': L_textile_textile,
+  'tiddlywiki:tiddlyWiki': L_tiddlywiki_tiddlyWiki,
+  'tiki:tiki': L_tiki_tiki,
+  'troff:troff': L_troff_troff,
+  'ttcn:ttcn': L_ttcn_ttcn,
+  'ttcn-cfg:ttcnCfg': L_ttcn_cfg_ttcnCfg,
+  'wast:wast': L_wast_wast,
+  'yacas:yacas': L_yacas_yacas,
+  'apl:apl': L_apl_apl,
+  'asciiarmor:asciiArmor': L_asciiarmor_asciiArmor,
+  'asterisk:asterisk': L_asterisk_asterisk,
+  'brainfuck:brainfuck': L_brainfuck_brainfuck,
+  'cypher:cypher': L_cypher_cypher,
+  'dtd:dtd': L_dtd_dtd,
+};
 
 // ── 官方语言包（优先于 legacy，动态 import 懒加载）──
 const jsLoader = async () => [(await import('@codemirror/lang-javascript')).javascript({ jsx: true })];
@@ -97,6 +313,10 @@ const loaders: Record<string, LangLoader> = {
   conf: legacy('properties', 'properties'), properties: legacy('properties', 'properties'),
   env: legacy('properties', 'properties'), config: legacy('properties', 'properties'),
   cnf: legacy('properties', 'properties'), inf: legacy('properties', 'properties'),
+  // systemd unit（.service/.timer/.socket/.target/.mount）与 .desktop 入口：同为 ini 风格键值
+  service: legacy('properties', 'properties'), timer: legacy('properties', 'properties'),
+  socket: legacy('properties', 'properties'), target: legacy('properties', 'properties'),
+  mount: legacy('properties', 'properties'), desktop: legacy('properties', 'properties'),
   diff: legacy('diff', 'diff'), patch: legacy('diff', 'diff'),
   dockerfile: legacy('dockerfile', 'dockerFile'), containerfile: legacy('dockerfile', 'dockerFile'),
   cmake: legacy('cmake', 'cmake'),
