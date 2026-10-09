@@ -115,47 +115,55 @@
   .menu-toggle{display:none;background:none;border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 10px;cursor:pointer;font-size:18px}
 
   /* ===== HERO ===== */
-  .hero{position:relative;padding:96px 0 84px;overflow:hidden}
-  .hero-grid{position:relative;display:grid;grid-template-columns:1fr 1.04fr;gap:56px;align-items:center}
-  .tag{
-    display:inline-flex;align-items:center;gap:8px;
-    padding:7px 15px;border-radius:999px;border:1px solid var(--border);
-    background:rgba(255,255,255,.04);font-size:13px;color:var(--muted);margin-bottom:24px;
-  }
-  .tag .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
-  .hero-title{margin-bottom:24px}
+  .hero{position:relative;padding:76px 0 64px;overflow:hidden}
+  .hero-center{display:flex;flex-direction:column;align-items:center;text-align:center}
+  .hero-copy{width:100%;max-width:820px;display:flex;flex-direction:column;align-items:center}
+  .hero-title{margin-bottom:18px}
   .hero-title .sub{display:block;font-size:clamp(17px,1.9vw,23px);font-weight:600;color:#aeb9cf;letter-spacing:.5px;line-height:1.45;margin-bottom:10px}
   .hero-title .main{
-    display:block;font-size:clamp(32px,4.2vw,50px);font-weight:800;line-height:1.04;letter-spacing:-1px;
+    display:block;font-size:clamp(34px,4.6vw,54px);font-weight:800;line-height:1.04;letter-spacing:-1px;
     background:linear-gradient(92deg,#7fe3d8,#378ADD 55%,#9cc7f5);
     -webkit-background-clip:text;background-clip:text;color:transparent;
     filter:drop-shadow(0 8px 30px rgba(55,138,221,.32));
   }
-  .lead{font-size:17px;color:var(--muted);max-width:540px;margin-bottom:32px}
-  .hero-cta{display:flex;gap:14px;flex-wrap:wrap}
-  .hero-meta{display:flex;gap:14px;margin-top:38px;flex-wrap:wrap;
-    background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:14px;padding:18px 22px}
-  .hero-meta div{flex:1;min-width:90px}
-  .hero-meta div span{display:block;font-size:23px;font-weight:800;
-    background:linear-gradient(90deg,#7fe3d8,#378ADD);-webkit-background-clip:text;background-clip:text;color:transparent}
-  .hero-meta div small{color:var(--muted);font-size:12.5px}
+  .lead{font-size:17px;line-height:1.75;color:var(--muted);max-width:660px;margin:0 auto 26px}
+  .hero-cta{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+  .hero-stats{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:24px 0 40px}
+  .hero-stats span{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:999px;
+    background:rgba(255,255,255,.04);border:1px solid var(--border);font-size:13.5px;color:var(--muted)}
+  .hero-stats b{font-size:16px;font-weight:800;color:var(--text)}
 
-  /* hero product stage */
-  .shot-wrap{position:relative;display:flex;flex-direction:column;align-items:center;gap:22px}
+  /* hero product stage + carousel */
+  .shot-wrap{position:relative;display:flex;flex-direction:column;align-items:center;gap:18px;width:100%}
+  .carousel{position:relative;width:100%;max-width:1080px;aspect-ratio:16/10;margin:0 auto;border-radius:16px}
+  .carousel .shot{
+    position:absolute;inset:0;width:100%;height:100%;max-width:none;aspect-ratio:auto;
+    opacity:0;transition:opacity .6s ease;z-index:0;pointer-events:none;
+  }
+  .carousel .shot.is-active{opacity:1;z-index:2;pointer-events:auto}
   .shot{
     position:relative;border-radius:16px;overflow:hidden;
     border:1px solid var(--border-strong);background:var(--panel-2);
-    width:100%;max-width:560px;aspect-ratio:16/10;display:flex;flex-direction:column;
-    box-shadow:0 44px 100px -36px rgba(55,138,221,.6),0 0 0 1px rgba(55,138,221,.18);
+    display:flex;flex-direction:column;
+    box-shadow:0 48px 110px -34px rgba(55,138,221,.58),0 0 0 1px rgba(55,138,221,.18);
   }
-  .shot .bar{height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.03)}
-  .shot .bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
-  .shot .bar .r{background:#ff5f57}.shot .bar .y{background:#febc2e}.shot .bar .g{background:#28c840}
-  .shot .body{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+  .shot .body{flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
   .shot img{width:100%;height:100%;object-fit:cover;object-position:top center;display:block;transition:transform .5s ease}
   .shot:hover img{transform:scale(1.04)}
-  .shot .label{position:absolute;left:12px;bottom:12px;font-size:12px;color:var(--text);
-    background:rgba(8,10,16,.72);border:1px solid var(--border);padding:4px 11px;border-radius:8px;backdrop-filter:blur(6px)}
+  .shot .label{position:absolute;left:14px;bottom:14px;font-size:12.5px;color:var(--text);
+    background:rgba(8,10,16,.72);border:1px solid var(--border);padding:5px 12px;border-radius:8px;backdrop-filter:blur(6px);z-index:3}
+  .car-nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:50%;
+    background:rgba(8,10,16,.55);border:1px solid var(--border);color:#e8eefb;font-size:24px;line-height:1;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;backdrop-filter:blur(8px);z-index:6;
+    transition:background .2s,opacity .25s,transform .2s;opacity:0;user-select:none}
+  .carousel:hover .car-nav{opacity:1}
+  .car-nav:hover{background:rgba(55,138,221,.6);transform:translateY(-50%) scale(1.06)}
+  .car-nav:active{transform:translateY(-50%) scale(.95)}
+  .car-prev{left:16px}.car-next{right:16px}
+  .car-dots{display:flex;gap:9px;justify-content:center}
+  .car-dot{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.28);border:none;padding:0;cursor:pointer;transition:background .25s,width .25s}
+  .car-dot.is-active{background:var(--accent);width:24px;border-radius:5px}
+  @media (hover:none){.car-nav{opacity:1;background:rgba(8,10,16,.6)}}
   .hero-pills{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
   .hero-pill{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border-radius:999px;font-size:13px;font-weight:600;
     background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--muted);backdrop-filter:blur(10px)}
@@ -168,12 +176,12 @@
   .section-head h2{font-size:clamp(27px,3.6vw,40px);font-weight:800;margin:14px 0 14px;letter-spacing:-.3px}
   .section-head p{color:var(--muted);font-size:16px}
 
-  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
   .card{
     background:linear-gradient(160deg,rgba(255,255,255,.06),rgba(255,255,255,.018));
     backdrop-filter:blur(14px);
     border:1px solid var(--border);border-radius:var(--radius);
-    padding:28px;transition:transform .25s,border-color .25s,box-shadow .25s,background .25s;
+    padding:22px 22px 24px;transition:transform .25s,border-color .25s,box-shadow .25s,background .25s;
     position:relative;overflow:hidden;
   }
   .card::before{content:"";position:absolute;inset:0;border-radius:var(--radius);padding:1px;
@@ -183,41 +191,98 @@
   .card:hover{transform:translateY(-6px);border-color:rgba(55,138,221,.45);
     box-shadow:0 26px 56px -22px rgba(55,138,221,.55);background:linear-gradient(160deg,rgba(255,255,255,.085),rgba(255,255,255,.025))}
   .card:hover::before{opacity:1}
-  .card .ico{width:46px;height:46px;border-radius:12px;background:var(--brand-soft);
-    display:flex;align-items:center;justify-content:center;margin-bottom:18px;color:var(--brand);transition:transform .25s}
+  .card .ico{width:44px;height:44px;border-radius:11px;background:var(--brand-soft);
+    display:flex;align-items:center;justify-content:center;margin-bottom:14px;color:var(--brand);transition:transform .25s}
   .card:hover .ico{transform:scale(1.06)}
-  .card h3{font-size:17.5px;margin-bottom:9px}
-  .card p{color:var(--muted);font-size:14.5px}
+  .card h3{font-size:17px;margin-bottom:7px}
+  .card p{color:var(--muted);font-size:14px;line-height:1.6}
+
+  /* feature cards: centered, denser visual gravity */
+  .features{counter-reset:fcard}
+  .features .card{text-align:center;display:flex;flex-direction:column;align-items:center;padding:26px 22px 28px}
+  .features .card::after{counter-increment:fcard;content:"0" counter(fcard);
+    position:absolute;right:16px;top:13px;
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace;
+    font-size:12px;font-weight:700;letter-spacing:1px;line-height:1;
+    color:rgba(255,255,255,.15);transition:color .25s}
+  .features .card:hover::after{color:var(--accent)}
+  .features .card .ico{width:54px;height:54px;border-radius:15px;margin-bottom:18px;font-size:24px;
+    background:linear-gradient(135deg,rgba(55,138,221,.18),rgba(90,209,196,.14));box-shadow:0 10px 24px -10px rgba(55,138,221,.25);
+    transition:transform .25s,background .25s,box-shadow .25s}
+  .features .card:hover .ico{transform:scale(1.08);
+    background:linear-gradient(135deg,rgba(55,138,221,.34),rgba(90,209,196,.22));
+    box-shadow:0 12px 28px -10px rgba(55,138,221,.55)}
+  .features .card .ico svg{width:26px;height:26px}
+  .features .card h3{font-size:18px;margin-bottom:10px}
+  .features .card p{line-height:1.65;max-width:290px;margin:0 auto;transition:color .25s}
+  .features .card:hover p{color:#a9b8d2}
 
   /* scenarios */
   .scenarios{background:var(--bg-soft);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
   .scn{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
-  .scn .card{padding:26px 26px 22px}
-  .scn-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-  .scn .card .ico{width:40px;height:40px;border-radius:11px;margin-bottom:0;background:linear-gradient(135deg,rgba(90,209,196,.18),rgba(55,138,221,.12))}
-  .scn .card .tagline{color:var(--accent);font-size:11.5px;font-weight:700;letter-spacing:1px;margin-bottom:0}
-  .scn .card h3{font-size:18px;margin-bottom:8px}
-  .scn .card p{font-size:14px;margin-bottom:14px}
-  .scn .chips{display:flex;flex-wrap:wrap;gap:7px}
-  .scn .chips span{font-size:12px;color:var(--muted);background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:999px;padding:3px 10px}
+  .scn .card{display:flex;flex-direction:column;padding:24px 24px 22px}
+  .scn .card::after{content:"";position:absolute;right:-40px;top:-40px;width:170px;height:170px;border-radius:50%;
+    background:radial-gradient(circle,rgba(55,138,221,.10),transparent 70%);pointer-events:none}
+  .scn-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+  .scn .card .ico{width:46px;height:46px;border-radius:13px;margin-bottom:0;color:var(--accent);
+    background:linear-gradient(135deg,rgba(90,209,196,.20),rgba(55,138,221,.14));
+    border:1px solid rgba(90,209,196,.30);
+    box-shadow:inset 0 0 14px rgba(90,209,196,.10);
+    transition:transform .25s,box-shadow .25s}
+  .scn .card:hover .ico{transform:scale(1.06);
+    box-shadow:inset 0 0 18px rgba(90,209,196,.16),0 8px 20px -8px rgba(90,209,196,.5)}
+  .scn .card .tagline{display:inline-flex;align-items:center;gap:9px;margin-bottom:0;
+    color:var(--accent);font-size:11.5px;font-weight:700;letter-spacing:1.6px;
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace}
+  .scn .card .tagline::before{content:"";width:18px;height:1.5px;border-radius:2px;
+    background:linear-gradient(90deg,transparent,var(--accent))}
+  .scn .card h3{font-size:17.5px;margin-bottom:8px}
+  .scn .card p{font-size:13.5px;line-height:1.65;margin-bottom:16px}
+  .scn .chips{margin-top:auto;padding-top:14px;border-top:1px dashed rgba(255,255,255,.10);
+    display:flex;flex-wrap:wrap;gap:7px}
+  .scn .chips span{font-size:11.5px;color:var(--muted);background:rgba(255,255,255,.045);
+    border:1px solid var(--border);border-radius:999px;padding:3px 11px;letter-spacing:.2px;
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace;
+    transition:color .25s,border-color .25s}
+  .scn .card:hover .chips span{color:#c3d6ee;border-color:rgba(55,138,221,.30)}
 
   /* showcase */
   .shots{display:grid;grid-template-columns:repeat(2,1fr);gap:22px}
   .shots .shot{aspect-ratio:16/10}
   .shots .shot .label{font-size:14px}
 
-  /* changelog timeline */
-  .timeline{position:relative;max-width:820px;margin:0 auto;padding-left:4px}
-  .timeline::before{content:"";position:absolute;left:9px;top:6px;bottom:6px;width:2px;
-    background:linear-gradient(180deg,var(--brand),rgba(90,209,196,.5),transparent)}
-  .tl-item{position:relative;padding:0 0 30px 46px}
-  .tl-item:last-child{padding-bottom:0}
-  .tl-dot{position:absolute;left:1px;top:3px;width:18px;height:18px;border-radius:50%;z-index:1;
+  /* changelog timeline: horizontal auto-scroll (drag / wheel supported) */
+  .timeline{
+    position:relative;overflow:hidden;width:100%;padding:2px 0 8px;
+    touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 48px,#000 calc(100% - 48px),transparent);
+            mask-image:linear-gradient(90deg,transparent,#000 48px,#000 calc(100% - 48px),transparent);
+  }
+  .timeline.dragging{cursor:grabbing}
+  .tl-track{
+    position:relative;display:flex;width:max-content;will-change:transform;
+  }
+  .tl-track::before{content:"";position:absolute;left:0;right:0;top:9px;height:2px;border-radius:2px;
+    background:linear-gradient(90deg,var(--brand) 0%,rgba(90,209,196,.55) 28%,var(--brand) 55%,rgba(90,209,196,.55) 82%,var(--brand) 100%);opacity:.9}
+  .tl-item{position:relative;flex:none;width:min(370px,82vw);padding:0 22px 0 0;display:flex;flex-direction:column}
+  .tl-dot{position:absolute;left:1px;top:1px;width:18px;height:18px;border-radius:50%;z-index:1;
     background:var(--bg);border:2px solid var(--brand);box-shadow:0 0 0 4px rgba(55,138,221,.14)}
-  .tl-item:first-child .tl-dot{background:var(--brand);box-shadow:0 0 0 5px rgba(55,138,221,.22),0 0 18px rgba(55,138,221,.7)}
-  .tl-card{background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.015));
-    border:1px solid var(--border);border-radius:14px;padding:22px 24px;transition:border-color .25s,transform .25s}
-  .tl-card:hover{border-color:rgba(55,138,221,.4);transform:translateX(4px)}
+  .tl-item.is-latest .tl-dot{background:var(--brand);
+    box-shadow:0 0 0 5px rgba(55,138,221,.22),0 0 18px rgba(55,138,221,.7)}
+  .tl-card{flex:1;margin-top:32px;
+    background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.015));
+    border:1px solid var(--border);border-radius:14px;padding:22px 24px;
+    transition:border-color .25s,transform .25s,box-shadow .25s}
+  .tl-card:hover{border-color:rgba(55,138,221,.4);transform:translateY(-4px);
+    box-shadow:0 22px 44px -20px rgba(55,138,221,.45)}
+  .tl-more{flex:1;margin-top:32px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+    border:1px dashed rgba(255,255,255,.22);border-radius:14px;padding:22px 24px;text-align:center;color:var(--muted);
+    transition:border-color .25s,color .25s,transform .25s,background .25s,box-shadow .25s}
+  .tl-more svg{width:28px;height:28px;color:var(--brand)}
+  .tl-more .tt{font-size:15.5px;font-weight:700;color:var(--text)}
+  .tl-more small{font-size:12px;letter-spacing:.3px}
+  .tl-more:hover{border-color:var(--brand);background:var(--brand-soft);transform:translateY(-4px);
+    box-shadow:0 22px 44px -20px rgba(55,138,221,.45)}
   .tl-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
   .tl-ver{font-size:18px;font-weight:800;color:var(--text)}
   .tl-date{font-size:12.5px;color:var(--muted)}
@@ -229,29 +294,62 @@
   .tl-card li b{color:var(--text);font-weight:600}
 
   /* tech */
-  .tech-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:10px}
+  .tech-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:8px}
   .tech{
+    display:flex;align-items:flex-start;gap:14px;
     background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.015));
     border:1px solid var(--border);border-radius:14px;
-    padding:22px;text-align:center;transition:border-color .25s,transform .25s,box-shadow .25s;
+    padding:18px 20px;position:relative;overflow:hidden;
+    transition:border-color .25s,transform .25s,box-shadow .25s,background .25s;
   }
-  .tech:hover{border-color:var(--brand);transform:translateY(-4px);box-shadow:0 18px 40px -20px rgba(55,138,221,.5)}
-  .tech .t{font-weight:700;font-size:16.5px;margin-bottom:4px}
-  .tech .d{color:var(--muted);font-size:13px}
-  .tech .pill{display:inline-block;margin-top:11px;font-size:11.5px;color:var(--brand);border:1px solid var(--border);border-radius:999px;padding:2px 11px}
+  .tech:hover{border-color:rgba(55,138,221,.5);transform:translateY(-3px);
+    box-shadow:0 18px 40px -20px rgba(55,138,221,.5);
+    background:linear-gradient(160deg,rgba(55,138,221,.10),rgba(255,255,255,.02))}
+  .tech .badge{
+    flex:none;width:46px;height:46px;border-radius:12px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace;
+    font-size:15px;font-weight:800;letter-spacing:.5px;color:#d8ecff;
+    background:linear-gradient(135deg,rgba(55,138,221,.32),rgba(90,209,196,.14));
+    border:1px solid rgba(55,138,221,.35);
+    box-shadow:inset 0 0 14px rgba(55,138,221,.14);
+    transition:transform .25s,box-shadow .25s;
+  }
+  .tech:hover .badge{transform:scale(1.06);
+    box-shadow:inset 0 0 18px rgba(55,138,221,.24),0 6px 18px -8px rgba(55,138,221,.6)}
+  .tech .body{flex:1;min-width:0}
+  .tech .head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .tech .t{font-weight:700;font-size:16px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace}
+  .tech .d{color:var(--muted);font-size:13px;line-height:1.6;margin-top:6px}
+  .tech .pill{margin:0;flex:none;font-size:11px;color:var(--brand);white-space:nowrap;
+    border:1px solid rgba(55,138,221,.30);border-radius:999px;padding:3px 11px;background:var(--brand-soft)}
 
   /* faq */
   .faq{background:var(--bg-soft);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
-  .faq-list{max-width:820px;margin:0 auto;display:grid;gap:14px}
+  .faq-cols{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  .faq-col{display:grid;gap:16px}
   .faq-item{background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.015));
-    border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:border-color .25s}
-  .faq-item.open{border-color:rgba(55,138,221,.4)}
-  .faq-q{display:flex;align-items:center;justify-content:space-between;gap:16px;
-    padding:20px 24px;cursor:pointer;font-size:16px;font-weight:600;user-select:none}
-  .faq-q .chev{width:20px;height:20px;flex:none;color:var(--muted);transition:transform .3s,color .25s}
+    border:1px solid var(--border);border-radius:14px;overflow:hidden;
+    transition:border-color .25s,background .25s}
+  .faq-item:hover{border-color:rgba(255,255,255,.22)}
+  .faq-item.open{border-color:rgba(55,138,221,.4);
+    background:linear-gradient(160deg,rgba(55,138,221,.08),rgba(255,255,255,.015))}
+  .faq-q{display:flex;align-items:center;gap:13px;
+    padding:18px 20px;cursor:pointer;font-size:15.5px;font-weight:600;user-select:none}
+  .faq-idx{flex:none;width:30px;height:30px;border-radius:9px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace;
+    font-size:12px;font-weight:700;color:var(--brand);
+    background:var(--brand-soft);border:1px solid rgba(55,138,221,.28);
+    transition:background .25s,border-color .25s,color .25s}
+  .faq-item.open .faq-idx{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .faq-q .txt{flex:1;transition:color .25s}
+  .faq-item.open .faq-q .txt{color:#cfe2f7}
+  .faq-q .chev{width:19px;height:19px;flex:none;color:var(--muted);transition:transform .3s,color .25s}
   .faq-item.open .faq-q .chev{transform:rotate(180deg);color:var(--brand)}
   .faq-a{max-height:0;overflow:hidden;transition:max-height .35s ease}
-  .faq-a p{padding:0 24px 22px;color:var(--muted);font-size:14.5px;line-height:1.8}
+  .faq-a p{padding:0 20px 20px 63px;color:var(--muted);font-size:14.5px;line-height:1.8}
   .faq-a code{background:rgba(255,255,255,.08);padding:1px 7px;border-radius:5px;font-size:13px;color:#bcd3ee}
 
   /* cta / download */
@@ -294,12 +392,12 @@
     .nav-links a::after{display:none}
     .menu-toggle{display:inline-block}
     .nav.open .nav-links{display:flex}
-    .hero-grid{grid-template-columns:1fr;gap:44px}
-    .hero .shot-wrap{order:-1}
+    .hero{padding:72px 0 60px}
     .features{grid-template-columns:1fr}
     .scn{grid-template-columns:1fr}
     .shots{grid-template-columns:1fr}
     .tech-grid{grid-template-columns:repeat(2,1fr)}
+    .faq-cols{grid-template-columns:1fr}
     .brand-sub{display:none}
   }
   @media(max-width:560px){
@@ -309,14 +407,15 @@
     .hero{padding:54px 0 44px}
     .hero-title .main{font-size:clamp(27px,8vw,34px)}
     .lead{font-size:15.5px;margin-bottom:26px}
-    .hero-meta{gap:10px;padding:14px}
-    .hero-meta div span{font-size:19px}
-    .hero-meta div small{font-size:11.5px}
+    .hero-stats{gap:8px 18px;margin:20px 0 32px;font-size:13px}
+    .hero-stats b{font-size:15px}
     .hero-cta{flex-direction:column;gap:12px}
     .btn{width:100%;justify-content:center}
     .cta-box{padding:40px 22px}
     .cta-box h2{font-size:25px}
     .tech-grid{grid-template-columns:1fr}
+    .faq-q{padding:16px 16px;gap:11px}
+    .faq-a p{padding:0 16px 18px}
     .foot-inner{flex-direction:column;align-items:flex-start;gap:18px}
   }
 </style>
@@ -349,9 +448,8 @@
 
 <!-- HERO -->
 <section class="hero">
-  <div class="wrap hero-grid">
-    <div>
-      <div class="tag"><span class="dot"></span> 本地优先 · 数据不出本机</div>
+  <div class="wrap hero-center">
+    <div class="hero-copy">
       <h1 class="hero-title">
         <span class="sub">为写作与技术文档而生的</span>
         <span class="main">Markdown 编辑器</span>
@@ -361,23 +459,63 @@
         <a href="#download" class="btn btn-primary">立即下载</a>
         <a href="#features" class="btn btn-ghost">查看功能</a>
       </div>
-      <div class="hero-meta">
-        <div><span>3 种</span><small>编辑 / 分屏 / 阅读</small></div>
-        <div><span>5+ 类</span><small>文档应用内预览</small></div>
-        <div><span>250+</span><small>代码语言高亮</small></div>
-        <div><span>0</span><small>云端依赖</small></div>
+      <div class="hero-stats">
+        <span><b>3</b> 种编辑模式</span>
+        <span><b>5+</b> 类应用内预览</span>
+        <span><b>250+</b> 代码语言高亮</span>
+        <span><b>0</b> 云端依赖</span>
       </div>
     </div>
 
     <div class="shot-wrap reveal">
-      <div class="shot">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/hero-editor.png" alt="码克欢迎页：打开工作区、从模板新建与最近文档" loading="eager" />
-        <div class="label">欢迎页 · 打开工作区 / 最近文档</div>
+      <div class="carousel" id="heroCarousel">
+        <div class="shot is-active">
+          <div class="body">
+            <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/editor-split.png" alt="分屏对照：左侧编辑右侧实时预览" loading="eager" />
+            <div class="label">分屏对照 · 编辑与预览同屏</div>
+          </div>
+        </div>
+        <div class="shot">
+          <div class="body">
+            <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/code-engine.png" alt="代码编辑引擎：CodeMirror 6 语法高亮" loading="lazy" />
+            <div class="label">代码编辑引擎 · 250+ 语言高亮</div>
+          </div>
+        </div>
+        <div class="shot">
+          <div class="body">
+            <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/reader.png" alt="阅读模式：Mermaid 流程图渲染与大纲导航" loading="lazy" />
+            <div class="label">阅读模式 · Mermaid 图表与大纲</div>
+          </div>
+        </div>
+        <div class="shot">
+          <div class="body">
+            <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/preview-word.png" alt="应用内预览 Word 文档" loading="lazy" />
+            <div class="label">应用内预览 · Word 直接看</div>
+          </div>
+        </div>
+        <div class="shot">
+          <div class="body">
+            <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/preview-svg.png" alt="SVG 业务流程图预览与缩放工具条" loading="lazy" />
+            <div class="label">SVG 预览 · 缩放工具条</div>
+          </div>
+        </div>
+        <div class="shot">
+          <div class="body">
+            <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/doc-render.png" alt="长文档渲染：表格与大纲导航" loading="lazy" />
+            <div class="label">文档渲染 · 表格与大纲导航</div>
+          </div>
+        </div>
+        <button class="car-nav car-prev" aria-label="上一张">‹</button>
+        <button class="car-nav car-next" aria-label="下一张">›</button>
       </div>
+      <div class="car-dots" id="heroDots"></div>
       <div class="hero-pills">
         <span class="hero-pill"><span class="bi"></span> 实时预览</span>
         <span class="hero-pill"><span class="bi"></span> 本地优先</span>
         <span class="hero-pill"><span class="bi"></span> 多工作区</span>
+        <span class="hero-pill"><span class="bi"></span> 代码高亮</span>
+        <span class="hero-pill"><span class="bi"></span> 离线可用</span>
+        <span class="hero-pill"><span class="bi"></span> 隐私安全</span>
       </div>
     </div>
   </div>
@@ -496,24 +634,32 @@
     <div class="section-head reveal">
       <div class="kicker">Screenshots</div>
       <h2>界面一览</h2>
-      <p>编辑、预览、多工作区与富媒体文档，一屏尽览。</p>
+      <p>编辑、预览、代码引擎与富媒体文档，一屏尽览。</p>
     </div>
     <div class="shots">
       <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/workspace.png" alt="多工作区：切换工作区与最近文档列表" loading="lazy" />
-        <div class="label">多工作区 · 一键切换</div>
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/editor-split.png" alt="分屏对照：左侧编辑右侧实时预览" loading="lazy" />
+        <div class="label">分屏对照 · 所见即所得</div>
       </div>
       <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/preview-docx.png" alt="应用内预览 Word 文档" loading="lazy" />
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/code-engine.png" alt="代码编辑引擎：CodeMirror 6 语法高亮" loading="lazy" />
+        <div class="label">代码引擎 · 250+ 语言高亮</div>
+      </div>
+      <div class="shot reveal">
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/reader.png" alt="阅读模式：Mermaid 流程图渲染与大纲导航" loading="lazy" />
+        <div class="label">图表渲染 · 沉浸阅读</div>
+      </div>
+      <div class="shot reveal">
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/preview-word.png" alt="应用内预览 Word 文档" loading="lazy" />
         <div class="label">富媒体预览 · Word 直接看</div>
       </div>
       <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/read-mode.png" alt="技术文档阅读：代码块高亮与大纲导航" loading="lazy" />
-        <div class="label">代码高亮 · 沉浸阅读</div>
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/preview-svg.png" alt="SVG 业务流程图预览与缩放工具条" loading="lazy" />
+        <div class="label">SVG 预览 · 缩放工具条</div>
       </div>
       <div class="shot reveal">
-        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/split-view.png" alt="分屏对照：左侧编辑右侧实时预览" loading="lazy" />
-        <div class="label">分屏对照 · 所见即所得</div>
+        <img src="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/doc-render.png" alt="长文档渲染：表格与大纲导航" loading="lazy" />
+        <div class="label">文档渲染 · 表格与大纲</div>
       </div>
     </div>
   </div>
@@ -525,56 +671,65 @@
     <div class="section-head reveal">
       <div class="kicker">Changelog</div>
       <h2>版本更新时间线</h2>
-      <p>持续迭代，每一版都让本地写作更顺手。</p>
+      <p>持续迭代，每一版都让本地写作更顺手。轨道自动滚动，支持拖拽与滚轮横向查看，悬停暂停。</p>
     </div>
     <div class="timeline">
-      <div class="tl-item reveal">
-        <div class="tl-dot"></div>
-        <div class="tl-card">
-          <div class="tl-head"><span class="tl-ver">v0.5.0</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
-          <ul>
-            <li><b>代码编辑引擎</b>：CodeMirror 6 自建，250+ 扩展名语法高亮，首屏零增长</li>
-            <li><b>纯文本不再误渲染</b>：txt / log / csv / tsv 等按字面量编辑</li>
-            <li><b>HTML / SVG 源码高亮</b>：编辑态带高亮，分栏 / 阅读模式保留</li>
-            <li><b>语法配色升级</b>：GitHub Light / Dark 双主题，跟随亮暗切换</li>
-            <li><b>Mac 快捷键适配</b>与界面字号固定（仅作用于编辑 / 预览正文）</li>
-          </ul>
+      <div class="tl-track" id="tlTrack">
+        <div class="tl-item reveal is-latest">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.5.0</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <ul>
+              <li><b>代码编辑引擎</b>：CodeMirror 6 自建，250+ 扩展名语法高亮，首屏零增长</li>
+              <li><b>纯文本不再误渲染</b>：txt / log / csv / tsv 等按字面量编辑</li>
+              <li><b>HTML / SVG 源码高亮</b>：编辑态带高亮，分栏 / 阅读模式保留</li>
+              <li><b>语法配色升级</b>：GitHub Light / Dark 双主题，跟随亮暗切换</li>
+              <li><b>Mac 快捷键适配</b>与界面字号固定（仅作用于编辑 / 预览正文）</li>
+            </ul>
+          </div>
         </div>
-      </div>
-      <div class="tl-item reveal">
-        <div class="tl-dot"></div>
-        <div class="tl-card">
-          <div class="tl-head"><span class="tl-ver">v0.4.0</span><span class="tl-date">2026.10</span></div>
-          <ul>
-            <li><b>三模式位置同步</b>：切换时精确锚定同一位置，滚动互切稳定不回跳</li>
-            <li><b>全套中英双语</b>：界面语言一键切换，覆盖全部文案与功能栏提示</li>
-            <li><b>标签右键菜单升级</b>：配图标与快捷键（关闭 / 重命名）</li>
-            <li><b>编辑区行高对齐阅读态</b>，修复内核写死行距导致的拥挤</li>
-          </ul>
+        <div class="tl-item reveal">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.4.0</span><span class="tl-date">2026.10</span></div>
+            <ul>
+              <li><b>三模式位置同步</b>：切换时精确锚定同一位置，滚动互切稳定不回跳</li>
+              <li><b>全套中英双语</b>：界面语言一键切换，覆盖全部文案与功能栏提示</li>
+              <li><b>标签右键菜单升级</b>：配图标与快捷键（关闭 / 重命名）</li>
+              <li><b>编辑区行高对齐阅读态</b>，修复内核写死行距导致的拥挤</li>
+            </ul>
+          </div>
         </div>
-      </div>
-      <div class="tl-item reveal">
-        <div class="tl-dot"></div>
-        <div class="tl-card">
-          <div class="tl-head"><span class="tl-ver">v0.3.6</span><span class="tl-date">2026.09</span></div>
-          <ul>
-            <li><b>SVG 三模式</b>与 <b>HTML / SVG 缩放工具条</b>（30%–300%）</li>
-            <li><b>设置面板全面改版</b>：外观 / 编辑器 / 快捷键 / 关于 四分组</li>
-            <li><b>大纲层级标记</b>改为小圆点 + 字重分层，更易辨级</li>
-            <li>集中修复拖拽与边线细节，新增 Gitee 同步工作流</li>
-          </ul>
+        <div class="tl-item reveal">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.3.6</span><span class="tl-date">2026.09</span></div>
+            <ul>
+              <li><b>SVG 三模式</b>与 <b>HTML / SVG 缩放工具条</b>（30%–300%）</li>
+              <li><b>设置面板全面改版</b>：外观 / 编辑器 / 快捷键 / 关于 四分组</li>
+              <li><b>大纲层级标记</b>改为小圆点 + 字重分层，更易辨级</li>
+              <li>集中修复拖拽与边线细节，新增 Gitee 同步工作流</li>
+            </ul>
+          </div>
         </div>
-      </div>
-      <div class="tl-item reveal">
-        <div class="tl-dot"></div>
-        <div class="tl-card">
-          <div class="tl-head"><span class="tl-ver">v0.3.5</span><span class="tl-date">2026.09</span></div>
-          <ul>
-            <li><b>编辑区体验打磨</b>：去除多余边框、修复代码块头部栏层级</li>
-            <li><b>滚动条统一</b>：编辑态滑槽透明、目录树 / 大纲规格一致</li>
-            <li><b>标题排版</b>：标题行字号与预览主题对齐</li>
-            <li>顶栏按钮重新分组，工作区边线精细化</li>
-          </ul>
+        <div class="tl-item reveal">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.3.5</span><span class="tl-date">2026.09</span></div>
+            <ul>
+              <li><b>编辑区体验打磨</b>：去除多余边框、修复代码块头部栏层级</li>
+              <li><b>滚动条统一</b>：编辑态滑槽透明、目录树 / 大纲规格一致</li>
+              <li><b>标题排版</b>：标题行字号与预览主题对齐</li>
+              <li>顶栏按钮重新分组，工作区边线精细化</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
+          <a class="tl-more" href="https://github.com/gggaiitx/mkdown-site/releases" target="_blank" rel="noopener" aria-label="前往 GitHub Releases 查看全部版本更新">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 12h7M13 9.5l2.5 2.5-2.5 2.5"/></svg>
+            <span class="tt">查看更多版本</span>
+            <small>GitHub Releases · 完整更新日志</small>
+          </a>
         </div>
       </div>
     </div>
@@ -590,15 +745,15 @@
       <p>以 Rust 与 Tauri 2 保证性能与安全，以 Vue3 与 Vite 提供流畅体验。</p>
     </div>
     <div class="tech-grid">
-      <div class="tech reveal"><div class="t">Rust</div><div class="d">系统级性能</div><span class="pill">核心后端</span></div>
-      <div class="tech reveal"><div class="t">Tauri 2</div><div class="d">轻量跨平台壳</div><span class="pill">桌面运行时</span></div>
-      <div class="tech reveal"><div class="t">Vue 3</div><div class="d">组合式 API</div><span class="pill">前端框架</span></div>
-      <div class="tech reveal"><div class="t">Vite</div><div class="d">极速构建</div><span class="pill">工程化</span></div>
-      <div class="tech reveal"><div class="t">Pinia</div><div class="d">状态管理</div><span class="pill">数据流</span></div>
-      <div class="tech reveal"><div class="t">TypeScript</div><div class="d">类型安全</div><span class="pill">开发语言</span></div>
-      <div class="tech reveal"><div class="t">md-editor-v3</div><div class="d">Markdown 内核</div><span class="pill">编辑引擎</span></div>
-      <div class="tech reveal"><div class="t">CodeMirror 6</div><div class="d">代码编辑内核</div><span class="pill">编辑引擎</span></div>
-      <div class="tech reveal"><div class="t">JSON</div><div class="d">settings.json 持久化</div><span class="pill">本地配置</span></div>
+      <div class="tech reveal"><div class="badge">Rs</div><div class="body"><div class="head"><div class="t">Rust</div><span class="pill">核心后端</span></div><div class="d">系统级性能 · 内存安全</div></div></div>
+      <div class="tech reveal"><div class="badge">T2</div><div class="body"><div class="head"><div class="t">Tauri 2</div><span class="pill">桌面运行时</span></div><div class="d">轻量跨平台壳 · 原生 WebView</div></div></div>
+      <div class="tech reveal"><div class="badge">V3</div><div class="body"><div class="head"><div class="t">Vue 3</div><span class="pill">前端框架</span></div><div class="d">组合式 API · 响应式界面</div></div></div>
+      <div class="tech reveal"><div class="badge">Vi</div><div class="body"><div class="head"><div class="t">Vite</div><span class="pill">工程化</span></div><div class="d">极速冷启动 · 即时热更新</div></div></div>
+      <div class="tech reveal"><div class="badge">Pi</div><div class="body"><div class="head"><div class="t">Pinia</div><span class="pill">数据流</span></div><div class="d">轻量状态管理 · 模块化 store</div></div></div>
+      <div class="tech reveal"><div class="badge">TS</div><div class="body"><div class="head"><div class="t">TypeScript</div><span class="pill">开发语言</span></div><div class="d">静态类型 · 重构无忧</div></div></div>
+      <div class="tech reveal"><div class="badge">Md</div><div class="body"><div class="head"><div class="t">md-editor-v3</div><span class="pill">编辑引擎</span></div><div class="d">Markdown 内核 · 实时预览</div></div></div>
+      <div class="tech reveal"><div class="badge">CM</div><div class="body"><div class="head"><div class="t">CodeMirror 6</div><span class="pill">编辑引擎</span></div><div class="d">代码编辑内核 · 250+ 语言</div></div></div>
+      <div class="tech reveal"><div class="badge">{}</div><div class="body"><div class="head"><div class="t">JSON</div><span class="pill">本地配置</span></div><div class="d">settings.json 本地持久化</div></div></div>
     </div>
   </div>
 </section>
@@ -611,38 +766,42 @@
       <h2>常见问题</h2>
       <p>关于本地优先、平台支持与使用的常见疑问，这里都有答案。</p>
     </div>
-    <div class="faq-list">
-      <div class="faq-item reveal">
-        <div class="faq-q">文档会上传到云端吗？<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
-        <div class="faq-a"><p>不会。码克是纯本地优先应用——文档、图片与配置全部落在本机磁盘，不上云、不登录、不联网。所有文件 IO 都经本地 Rust 命令完成，你的内容始终留在自己电脑上。</p></div>
+    <div class="faq-cols">
+      <div class="faq-col">
+        <div class="faq-item reveal">
+          <div class="faq-q"><span class="faq-idx">01</span><span class="txt">文档会上传到云端吗？</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="faq-a"><p>不会。码克是纯本地优先应用——文档、图片与配置全部落在本机磁盘，不上云、不登录、不联网。所有文件 IO 都经本地 Rust 命令完成，你的内容始终留在自己电脑上。</p></div>
+        </div>
+        <div class="faq-item reveal">
+          <div class="faq-q"><span class="faq-idx">02</span><span class="txt">支持哪些操作系统？</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="faq-a"><p>Windows：NSIS 安装包（x64），自带卸载程序、注册到系统「应用与功能」，卸载保留用户数据。macOS：提供 Apple 芯片（aarch64）与 Intel（x86_64）双架构 dmg。</p></div>
+        </div>
+        <div class="faq-item reveal">
+          <div class="faq-q"><span class="faq-idx">03</span><span class="txt">macOS 打开提示「无法验证开发者 / 已损坏」怎么办？</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="faq-a"><p>本应用未做 Apple 开发者签名，首次打开任选其一绕过（只需一次）：① 打开 <b>系统设置 → 隐私与安全性</b>，拉到最底部点击「仍要打开」；② 终端执行 <code>xattr -cr /Applications/码克.app</code> 后正常打开。M 系列芯片选「Apple 芯片版」，Intel 选「Intel 版」。</p></div>
+        </div>
+        <div class="faq-item reveal">
+          <div class="faq-q"><span class="faq-idx">04</span><span class="txt">Markdown 之外的文件能打开吗？</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="faq-a"><p>能。代码类 <b>250+ 扩展名</b>语法高亮（py / rs / ts / js / json / sql / css / go / sh / toml / yaml 等）；txt / log / csv / tsv 按纯文本编辑；docx / xlsx / 图片应用内预览；pdf / ppt 等交系统默认程序打开。</p></div>
+        </div>
       </div>
-      <div class="faq-item reveal">
-        <div class="faq-q">支持哪些操作系统？<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
-        <div class="faq-a"><p>Windows：NSIS 安装包（x64），自带卸载程序、注册到系统「应用与功能」，卸载保留用户数据。macOS：提供 Apple 芯片（aarch64）与 Intel（x86_64）双架构 dmg。</p></div>
-      </div>
-      <div class="faq-item reveal">
-        <div class="faq-q">macOS 打开提示「无法验证开发者 / 已损坏」怎么办？<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
-        <div class="faq-a"><p>本应用未做 Apple 开发者签名，首次打开任选其一绕过（只需一次）：① 打开 <b>系统设置 → 隐私与安全性</b>，拉到最底部点击「仍要打开」；② 终端执行 <code>xattr -cr /Applications/码克.app</code> 后正常打开。M 系列芯片选「Apple 芯片版」，Intel 选「Intel 版」。</p></div>
-      </div>
-      <div class="faq-item reveal">
-        <div class="faq-q">Markdown 之外的文件能打开吗？<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
-        <div class="faq-a"><p>能。代码类 <b>250+ 扩展名</b>语法高亮（py / rs / ts / js / json / sql / css / go / sh / toml / yaml 等）；txt / log / csv / tsv 按纯文本编辑；docx / xlsx / 图片应用内预览；pdf / ppt 等交系统默认程序打开。</p></div>
-      </div>
-      <div class="faq-item reveal">
-        <div class="faq-q">大文件能处理吗？<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
-        <div class="faq-a"><p>文本类文件以 8MB 为性能闸门——超过则判为不可编辑，避免卡顿。常规文档、笔记与源码远在此阈值内；超大日志 / 数据文件建议用专业编辑器处理。</p></div>
-      </div>
-      <div class="faq-item reveal">
-        <div class="faq-q">如何更新到新版本？<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
-        <div class="faq-a"><p>应用内「关于」页或顶栏按钮均可手动检查更新；macOS 按当前架构下载 dmg 并替换，Windows 走安装包。发现新版可直接前往发布页获取。</p></div>
-      </div>
-      <div class="faq-item reveal">
-        <div class="faq-q">为什么基于 Tauri 而不是 Electron？<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
-        <div class="faq-a"><p>Tauri 以原生 WebView（Windows 的 WebView2 / macOS 的 WKWebView）承载界面、Rust 编写后端，安装包体积更小、内存占用更低、启动更快，且天然适配系统安全模型。</p></div>
-      </div>
-      <div class="faq-item reveal">
-        <div class="faq-q">支持导出吗？<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
-        <div class="faq-a"><p>支持。可<b>导出 HTML</b>（相对路径自动还原），亦可走 WebView <b>打印为 PDF</b>，满足文档分发与归档需求。</p></div>
+      <div class="faq-col">
+        <div class="faq-item reveal">
+          <div class="faq-q"><span class="faq-idx">05</span><span class="txt">大文件能处理吗？</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="faq-a"><p>文本类文件以 8MB 为性能闸门——超过则判为不可编辑，避免卡顿。常规文档、笔记与源码远在此阈值内；超大日志 / 数据文件建议用专业编辑器处理。</p></div>
+        </div>
+        <div class="faq-item reveal">
+          <div class="faq-q"><span class="faq-idx">06</span><span class="txt">如何更新到新版本？</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="faq-a"><p>应用内「关于」页或顶栏按钮均可手动检查更新；macOS 按当前架构下载 dmg 并替换，Windows 走安装包。发现新版可直接前往发布页获取。</p></div>
+        </div>
+        <div class="faq-item reveal">
+          <div class="faq-q"><span class="faq-idx">07</span><span class="txt">为什么基于 Tauri 而不是 Electron？</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="faq-a"><p>Tauri 以原生 WebView（Windows 的 WebView2 / macOS 的 WKWebView）承载界面、Rust 编写后端，安装包体积更小、内存占用更低、启动更快，且天然适配系统安全模型。</p></div>
+        </div>
+        <div class="faq-item reveal">
+          <div class="faq-q"><span class="faq-idx">08</span><span class="txt">支持导出吗？</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="faq-a"><p>支持。可<b>导出 HTML</b>（相对路径自动还原），亦可走 WebView <b>打印为 PDF</b>，满足文档分发与归档需求。</p></div>
+        </div>
       </div>
     </div>
   </div>
@@ -757,15 +916,154 @@
     macTip.addEventListener('mouseenter',showTip);macTip.addEventListener('mouseleave',hideTip);
   }
 
-  // FAQ accordion
-  document.querySelectorAll('.faq-q').forEach(q=>{
+  // FAQ accordion：默认展开第一条示范交互，resize 时重算展开项高度
+  document.querySelectorAll('.faq-q').forEach((q,i)=>{
+    const item=q.parentElement;
+    const ans=item.querySelector('.faq-a');
+    if(i===0){item.classList.add('open');ans.style.maxHeight=ans.scrollHeight+'px';}
     q.addEventListener('click',()=>{
-      const item=q.parentElement;
-      const ans=item.querySelector('.faq-a');
       const open=item.classList.toggle('open');
       ans.style.maxHeight=open?(ans.scrollHeight+'px'):'0px';
     });
   });
+  window.addEventListener('resize',()=>{
+    document.querySelectorAll('.faq-item.open .faq-a').forEach(a=>{a.style.maxHeight=a.scrollHeight+'px';});
+  });
+
+  // hero 多图轮播
+  (function(){
+    const root=document.getElementById('heroCarousel');
+    if(!root)return;
+    const slides=root.querySelectorAll('.shot');
+    const dotsWrap=document.getElementById('heroDots');
+    const N=slides.length;if(N<=1)return;
+    let idx=0,timer=null;
+    slides.forEach((s,i)=>{
+      const d=document.createElement('button');
+      d.className='car-dot'+(i===0?' is-active':'');
+      d.setAttribute('aria-label','第'+(i+1)+'张');
+      d.addEventListener('click',()=>go(i,true));
+      dotsWrap.appendChild(d);
+    });
+    const dots=dotsWrap.querySelectorAll('.car-dot');
+    function go(n,manual){
+      idx=(n+N)%N;
+      slides.forEach((s,i)=>s.classList.toggle('is-active',i===idx));
+      dots.forEach((d,i)=>d.classList.toggle('is-active',i===idx));
+      if(manual)restart();
+    }
+    function start(){if(reduce)return;timer=setInterval(()=>go(idx+1),4500);}
+    function stop(){clearInterval(timer);}
+    function restart(){stop();start();}
+    const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    root.querySelector('.car-next').addEventListener('click',()=>go(idx+1,true));
+    root.querySelector('.car-prev').addEventListener('click',()=>go(idx-1,true));
+    root.addEventListener('mouseenter',stop);
+    root.addEventListener('mouseleave',start);
+    document.addEventListener('visibilitychange',()=>{document.hidden?stop():start();});
+    start();
+  })();
+
+  // changelog 横向时间线：克隆一份实现无缝循环；rAF 驱动自动滚动，支持拖拽与滚轮
+  (function(){
+    const root=document.querySelector('.timeline');
+    const track=document.getElementById('tlTrack');
+    if(!root||!track)return;
+
+    Array.from(track.children).forEach(el=>{
+      const c=el.cloneNode(true);
+      c.classList.remove('reveal');           // 克隆组直接可见，避免停留在 opacity:0
+      c.setAttribute('aria-hidden','true');   // 屏幕阅读器只读一遍
+      c.querySelectorAll('a,button').forEach(x=>x.setAttribute('tabindex','-1'));
+      track.appendChild(c);
+    });
+
+    const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let half=track.getBoundingClientRect().width/2;
+    let offset=0;                 // 始终归一在 [-half, 0)，循环无缝
+    let last=performance.now();
+    let hovering=false;           // 仅鼠标悬停暂停（触屏不触发）
+    let lastInteract=0;           // 交互后延迟恢复自动滚动
+    let dragging=false,moved=false,suppressClick=false;
+    let dragStartX=0,dragStartOffset=0,velX=0,lastX=0,lastMoveT=0;
+    const SPEED=45;               // 自动滚动 px/s
+    const wrap=v=>((v%half)+half)%half-half;
+    const apply=()=>{track.style.transform='translate3d('+offset+'px,0,0)';};
+    apply();
+
+    window.addEventListener('resize',()=>{half=track.getBoundingClientRect().width/2;offset=wrap(offset);apply();});
+
+    // —— 拖拽（鼠标 / 触屏通吃，纵向滑动仍归页面）——
+    root.addEventListener('pointerdown',e=>{
+      if(e.button!==0)return;
+      dragging=true;moved=false;
+      dragStartX=e.clientX;dragStartOffset=offset;
+      velX=0;lastX=e.clientX;lastMoveT=performance.now();
+      if(root.setPointerCapture){try{root.setPointerCapture(e.pointerId);}catch(_){}}
+    });
+    root.addEventListener('pointermove',e=>{
+      if(!dragging)return;
+      const now=performance.now();
+      const dx=e.clientX-dragStartX;
+      if(!moved&&Math.abs(dx)>5){moved=true;root.classList.add('dragging');}
+      if(moved){
+        offset=wrap(dragStartOffset+dx);
+        const dt=Math.max(1,now-lastMoveT);
+        velX=0.8*velX+0.2*((e.clientX-lastX)/dt);   // 低通平滑，惯性更稳
+        lastX=e.clientX;lastMoveT=now;
+        lastInteract=now;
+        apply();
+      }
+    });
+    const endDrag=()=>{
+      if(!dragging)return;
+      dragging=false;root.classList.remove('dragging');
+      lastInteract=performance.now();
+      if(moved)suppressClick=true;   // 拖拽结束落在链接上时不触发跳转
+    };
+    root.addEventListener('pointerup',endDrag);
+    root.addEventListener('pointercancel',endDrag);
+    root.addEventListener('click',e=>{
+      if(suppressClick){e.preventDefault();e.stopPropagation();suppressClick=false;}
+    },true);
+
+    // —— 滚轮 / 触控板横滚 ——
+    root.addEventListener('wheel',e=>{
+      let d=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+      if(!d)return;
+      if(e.deltaMode===1)d*=16;      // Firefox 按行
+      e.preventDefault();
+      offset=wrap(offset-d);
+      velX=0;
+      lastInteract=performance.now();
+      apply();
+    },{passive:false});
+
+    root.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse')hovering=true;});
+    root.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse')hovering=false;});
+
+    // —— 主循环：自动滚动 + 松手惯性 ——
+    function frame(now){
+      const dt=Math.min(50,now-last);last=now;
+      if(!dragging){
+        if(Math.abs(velX)>0.02){                    // 惯性衰减
+          offset=wrap(offset+velX*dt);
+          velX*=Math.pow(0.94,dt/16.7);
+          lastInteract=now;
+          apply();
+        }else{
+          velX=0;
+          const idle=now-lastInteract>2200;
+          if(!reduce&&!hovering&&idle){
+            offset=wrap(offset-SPEED*dt/1000);
+            apply();
+          }
+        }
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  })();
 </script>
 </body>
 </html>
