@@ -7,3 +7,4 @@ src-tauri/gen/
 .workbuddy/
 repro/
 _env_probe.txt
+.wbapp_*.genie
