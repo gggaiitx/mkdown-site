@@ -53,6 +53,8 @@ const emit = defineEmits<{
   (e: 'htmlChanged', html: string): void;
   (e: 'cursor', pos: { line: number; col: number }): void;
   (e: 'toast', text: string): void;
+  /** http(s) 超链接：交由应用开 Web 标签（webview 内嵌浏览） */
+  (e: 'openLink', href: string): void;
 }>();
 
 const rootRef = ref<HTMLElement | null>(null);
@@ -839,10 +841,15 @@ function onAnchorClick(e: MouseEvent) {
   }
   if (/^(https?:\/\/|mailto:)/i.test(href)) {
     e.preventDefault();
-    if (isTauri) {
-      openUrl(href).catch(() => emit('toast', t('engine.openUrlFail', { url: href })));
+    if (href.startsWith('mailto:')) {
+      // 邮件协议走系统处理（Web 标签无法承载）
+      if (isTauri) {
+        openUrl(href).catch(() => emit('toast', t('engine.openUrlFail', { url: href })));
+      } else {
+        window.open(href, '_blank', 'noopener,noreferrer');
+      }
     } else {
-      window.open(href, '_blank', 'noopener,noreferrer');
+      emit('openLink', href);
     }
     return;
   }

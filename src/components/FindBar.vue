@@ -2,13 +2,14 @@
 import { computed, ref, watch, nextTick, onMounted } from 'vue';
 import { useTabsStore } from '../stores/tabsStore';
 import { useI18n } from '../i18n';
+import { htmlPlainText } from '../utils/htmlText';
 
 const tabs = useTabsStore();
 const { t } = useI18n();
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'goto', line: number, kw?: string, caseSensitive?: boolean): void;
+  (e: 'goto', line: number, kw?: string, caseSensitive?: boolean, matchIndex?: number): void;
   (e: 'find', keyword: string, caseSensitive: boolean): void;
 }>();
 
@@ -28,10 +29,12 @@ const matches = computed<Match[]>(() => {
   const tab = tabs.activeTab;
   const kw = keyword.value;
   if (!tab || kw.length === 0) return [];
-  const hay = caseSensitive.value ? tab.content : tab.content.toLowerCase();
+  const isMh = tab.kind === 'mh';
+  const src = isMh ? htmlPlainText(tab.content) : tab.content;
+  const hay = caseSensitive.value ? src : src.toLowerCase();
   const needle = caseSensitive.value ? kw : kw.toLowerCase();
   const out: Match[] = [];
-  const lines = tab.content.split('\n');
+  const lines = src.split('\n');
   const hayLines = hay.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = hayLines[i];
@@ -53,13 +56,14 @@ function clampIndex(): void {
   if (current.value >= n) current.value = n > 0 ? n - 1 : 0;
 }
 
-/** 跳到当前命中：上抛行号+关键词由宿主直调引擎（定位 + 维持高亮，否则 goto 会清掉 find 刚画的高亮） */
+/** 跳到当前命中：上抛行号+关键词由宿主直调引擎（定位 + 维持高亮，否则 goto 会清掉 find 刚画的高亮）；
+ *  mh 额外透传 matchIndex（第 4 参），宿主路由到富文本引擎 scrollToMatch 定位当前命中 */
 function gotoMatch(idx: number): void {
   clampIndex();
   const m = matches.value[idx];
   const tab = tabs.activeTab;
   if (!m || !tab) return;
-  emit('goto', m.line, keyword.value, caseSensitive.value);
+  emit('goto', m.line, keyword.value, caseSensitive.value, tab.kind === 'mh' ? idx : undefined);
   tabs.updateTab(tab.id, { cursorLine: m.line });
 }
 

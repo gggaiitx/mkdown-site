@@ -7,6 +7,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { openInSystem, probeTextFile } from '../api/fileApi';
 import { modKey } from '../utils/keyHint';
+import { htmlPlainText } from '../utils/htmlText';
 import type { SearchHit } from '../api/types';
 import { fileKind } from '../utils/fileKind';
 import { useI18n } from '../i18n';
@@ -21,7 +22,7 @@ const props = defineProps<{ mode: 'file' | 'global' }>();
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'update:mode', m: 'file' | 'global'): void;
-  (e: 'goto', line: number, kw?: string, caseSensitive?: boolean): void;
+  (e: 'goto', line: number, kw?: string, caseSensitive?: boolean, matchIndex?: number): void;
   (e: 'find', keyword: string, caseSensitive: boolean): void;
 }>();
 
@@ -45,16 +46,20 @@ interface Match {
   text: string;
 }
 
-/** 对当前文档内容做行级匹配（复用 tab.content，与编辑器内容实时同步） */
+/** 对当前文档内容做行级匹配（复用 tab.content，与编辑器内容实时同步）；
+ *  mh（富文本）标签的 content 是 HTML 源码，按源码匹配会命中标签属性——
+ *  改用去标签纯文本（口径 = 富文本引擎 TreeWalker 文本节点 join，见 utils/htmlText.ts） */
 const fileMatches = computed<Match[]>(() => {
   if (props.mode !== 'file') return [];
   const tab = tabs.activeTab;
   const kw = keyword.value;
   if (!tab || kw.length === 0) return [];
-  const hay = caseSensitive.value ? tab.content : tab.content.toLowerCase();
+  const isMh = tab.kind === 'mh';
+  const src = isMh ? htmlPlainText(tab.content) : tab.content;
+  const hay = caseSensitive.value ? src : src.toLowerCase();
   const needle = caseSensitive.value ? kw : kw.toLowerCase();
   const out: Match[] = [];
-  const lines = tab.content.split('\n');
+  const lines = src.split('\n');
   const hayLines = hay.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = hayLines[i];
@@ -77,13 +82,14 @@ function clampFileCur(): void {
   if (fileCur.value >= n) fileCur.value = n > 0 ? n - 1 : 0;
 }
 
-/** 跳到当前命中：上抛行号+关键词由宿主直调引擎（定位 + 维持高亮） */
+/** 跳到当前命中：上抛行号+关键词由宿主直调引擎（定位 + 维持高亮）；
+ *  mh 额外透传 matchIndex（第 4 参），宿主路由到富文本引擎 scrollToMatch 定位当前命中 */
 function gotoFile(idx: number): void {
   clampFileCur();
   const m = fileMatches.value[idx];
   const tab = tabs.activeTab;
   if (!m || !tab) return;
-  emit('goto', m.line, keyword.value, caseSensitive.value);
+  emit('goto', m.line, keyword.value, caseSensitive.value, tab.kind === 'mh' ? idx : undefined);
   tabs.updateTab(tab.id, { cursorLine: m.line });
 }
 

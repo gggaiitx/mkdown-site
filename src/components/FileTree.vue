@@ -17,6 +17,8 @@ const { t } = useI18n();
 
 const emit = defineEmits<{
   (e: 'open-file', path: string): void;
+  /** 双击：系统默认程序类文件由此打开 */
+  (e: 'open-file-dbl', path: string): void;
   /** 新建文件成功后以其父视图默认打开并进入编辑模式 */
   (e: 'open-file-edit', path: string): void;
   (e: 'hide'): void;
@@ -462,6 +464,7 @@ watch(filteredTree, (nodes) => {
           :node="node"
           :depth="0"
           @open-file="(p: string) => emit('open-file', p)"
+          @open-file-dbl="(p: string) => emit('open-file-dbl', p)"
           @ctx="(ev, n) => onContextMenu(ev, n)"
         />
         <div v-if="!filteredTree || filteredTree.length === 0" class="empty">{{ t('filetree.noMatch') }}</div>
@@ -474,6 +477,7 @@ watch(filteredTree, (nodes) => {
           :node="node"
           :depth="0"
           @open-file="(p: string) => emit('open-file', p)"
+          @open-file-dbl="(p: string) => emit('open-file-dbl', p)"
           @ctx="(ev, n) => onContextMenu(ev, n)"
         />
       </template>

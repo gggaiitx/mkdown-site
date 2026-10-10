@@ -24,6 +24,8 @@ const props = defineProps<{ node: WorkspaceNode; depth: number }>();
 
 const emit = defineEmits<{
   (e: 'open-file', path: string): void;
+  /** 双击：系统默认程序类文件由此打开（单击不动作，防误触外部程序） */
+  (e: 'open-file-dbl', path: string): void;
   (e: 'ctx', ev: MouseEvent, node: WorkspaceNode): void;
 }>();
 
@@ -78,6 +80,7 @@ const hint = isDir ? '' : KIND_HINT[kind];
       :data-path="node.path"
       :data-tip="`${node.name} · ${hint}`"
       @click="ws.select(node.path); emit('open-file', node.path)"
+      @dblclick="emit('open-file-dbl', node.path)"
       @contextmenu="emit('ctx', $event, node)"
     >
       <component
@@ -95,6 +98,7 @@ const hint = isDir ? '' : KIND_HINT[kind];
         :node="child"
         :depth="depth + 1"
         @open-file="(p: string) => emit('open-file', p)"
+        @open-file-dbl="(p: string) => emit('open-file-dbl', p)"
         @ctx="(ev, n) => emit('ctx', ev, n)"
       />
     </template>

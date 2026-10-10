@@ -29,3 +29,6 @@
 - macOS：Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需右键「打开」绕过 Gatekeeper）。
 
 其他获取方式见 [官网下载页](https://mkdown.opensites.net)。
+
+
+

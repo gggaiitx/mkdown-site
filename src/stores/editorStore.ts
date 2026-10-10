@@ -34,8 +34,24 @@ export function extractOutline(content: string): OutlineItem[] {
   return items;
 }
 
-export const useEditorStore = defineStore('editor', {
-  state: () => ({
+/** 从富文本 HTML（.mh / wangEditor）提取标题大纲 */
+export function extractHtmlOutline(html: string): OutlineItem[] {
+  const items: OutlineItem[] = [];
+  if (!html) return items;
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach((el) => {
+      const text = (el.textContent ?? '').trim();
+      if (!text) return;
+      items.push({ index: items.length, text, level: Number(el.tagName.slice(1)), line: items.length + 1 });
+    });
+  } catch {
+    /* 解析失败返回空大纲，不致命 */
+  }
+  return items;
+}
+
+export const useEditorStore = defineStore('editor', {  state: () => ({
     mode: 'split' as EditorMode,
     outline: [] as OutlineItem[],
     cursorLine: 1,
@@ -60,6 +76,16 @@ export const useEditorStore = defineStore('editor', {
       this.wordCount = countChars(content);
       // 与编辑器（CodeMirror）口径一致：空文档也是 1 行（编辑区显示一个可定位的空行）
       this.lineCount = content.split('\n').length;
+    },
+    /** 富文本（.mh）口径：HTML 内提取大纲 + 纯文本字数（无行概念，行数保持 1） */
+    syncFromHtml(html: string) {
+      this.outline = extractHtmlOutline(html);
+      const text = html
+        .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&[a-z#0-9]+;/gi, ' ');
+      this.wordCount = countChars(text.replace(/\s+/g, ''));
+      this.lineCount = 1;
     },
     setCursor(line: number, col: number) {
       this.cursorLine = line;

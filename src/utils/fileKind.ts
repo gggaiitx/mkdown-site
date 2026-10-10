@@ -22,6 +22,8 @@ const EXT_KIND: Record<string, FileKind> = {
   md: 'md',
   markdown: 'md',
   mdx: 'md',
+  // 富文本（wangEditor 原生 HTML）：视觉上沿用 md 图标（非代码语言，不进 codeLanguage.ts）
+  mh: 'md',
 
   txt: 'text',
   text: 'text',

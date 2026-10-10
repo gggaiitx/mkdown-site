@@ -282,3 +282,22 @@ body.mk-col-dragging iframe {
 /* 打印（导出 PDF）样式已迁移：md-editor-v3 官方 ExportPDF 组件（@vavt/v3-extension）
    自带 ExportPDF.css 的 @media print 规则，只打印引擎内嵌的 #export-pdf-preview。
    此处不再保留旧的整窗打印规则，避免两套 @media print 互相覆盖。 */
+
+/* ---- mh 查找高亮：CSS Custom Highlight API（WangEditorEngine 注册 mk-find / mk-find-cur） ---- */
+/* Range 高亮不触碰 Slate 托管 DOM，编辑/阅读两态通用；当前命中用强化色区分 */
+::highlight(mk-find) {
+  background-color: rgba(255, 196, 0, 0.55);
+  color: #1a1a1a;
+}
+.workbench.dark ::highlight(mk-find) {
+  background-color: rgba(184, 115, 0, 0.6);
+  color: #fff;
+}
+::highlight(mk-find-cur) {
+  background-color: rgba(255, 128, 0, 0.8);
+  color: #fff;
+  text-decoration: underline;
+}
+.workbench.dark ::highlight(mk-find-cur) {
+  background-color: rgba(230, 100, 0, 0.85);
+}

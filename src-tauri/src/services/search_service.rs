@@ -25,7 +25,7 @@ const EXCLUDED_DIRS: &[&str] = &[".git", "node_modules"];
 /// 集合与 fs_service::TEXT_EXTS、codeLanguage.ts loaders 对齐——新增可检索代码类型时三处同步。
 const TEXT_EXTS: &[&str] = &[
     // —— 基础文本 / 标记 ——
-    "md", "markdown", "mdx", "txt", "text", "log", "csv", "tsv",
+    "md", "markdown", "mdx", "mh", "txt", "text", "log", "csv", "tsv",
     "json", "jsonc", "json5", "ndjson", "geojson", "jsonld",
     "yaml", "yml", "toml",
     "ini", "cfg", "conf", "properties", "env", "config", "cnf", "inf",

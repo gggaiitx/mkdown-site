@@ -352,3 +352,36 @@ pub async fn open_url(url: String) -> AppResult<()> {
 pub fn take_pending_open_args(state: State<'_, AppState>) -> Vec<String> {
     state.take_pending_open()
 }
+
+/// 应用内独立 WebView 窗口打开 URL（文档内超链接专用）。
+/// 真 WebView2 实例，不受目标站 X-Frame-Options/CSP 限制（iframe 内嵌方案被大量网站拒绝）。
+/// 新窗口仅加载远程页面：远程 origin 默认无任何应用 API 权限，与主窗口能力天然隔离。
+#[tauri::command]
+pub async fn open_web_window(app: tauri::AppHandle, url: String) -> AppResult<()> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    let lower = url.to_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err(AppError::InvalidArg(format!(
+            "仅支持 http/https 链接: {url}"
+        )));
+    }
+    let parsed: tauri::Url = url
+        .parse()
+        .map_err(|e| AppError::InvalidArg(format!("URL 解析失败: {e}")))?;
+    let host = parsed.host_str().unwrap_or("web").to_string();
+    // label 全局唯一（时间戳毫秒 + host），重复点击同一链接各开一窗，互不干扰
+    let label = format!(
+        "web-{}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0),
+        host.replace(['.', ':'], "-")
+    );
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
+        .title(&host)
+        .inner_size(1200.0, 800.0)
+        .build()
+        .map_err(|e| AppError::Io(format!("创建 Web 窗口失败: {e}")))?;
+    Ok(())
+}

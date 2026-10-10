@@ -9,6 +9,9 @@ export default {
       openUrlFail: '浏览器打开失败：{url}',
       noJumpLink: '应用内不跳转该链接：{href}',
       exportPreviewMissing: '导出预览体未就绪（export-pdf-preview 缺失）',
+      createdMh: '已新建 .mh 富文本文档',
+      pageFullscreen: '全屏（F11）',
+      exitPageFullscreen: '退出全屏（F11）',
     },
   },
   en: {
@@ -18,6 +21,9 @@ export default {
       openUrlFail: 'Failed to open in browser: {url}',
       noJumpLink: 'This link is not opened in-app: {href}',
       exportPreviewMissing: 'Export preview is not ready (export-pdf-preview missing)',
+      createdMh: 'New .mh rich text document created',
+      pageFullscreen: 'Fullscreen (F11)',
+      exitPageFullscreen: 'Exit fullscreen (F11)',
     },
   },
 };

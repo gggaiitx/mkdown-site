@@ -95,6 +95,10 @@ fn default_read_layout() -> String {
     "medium".into()
 }
 
+fn default_editor_engine() -> String {
+    "markdown".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
@@ -117,6 +121,9 @@ pub struct AppSettings {
     pub word_wrap: bool,
     /// 编辑器顶部功能栏显隐（false = 隐藏，正文区上移）
     pub show_toolbar: bool,
+    /// 新建文件默认格式："markdown"（默认）| "wangeditor"（新建 .mh）
+    #[serde(default = "default_editor_engine")]
+    pub editor_engine: String,
 }
 
 impl Default for AppSettings {
@@ -136,6 +143,7 @@ impl Default for AppSettings {
             scroll_sync: true,
             word_wrap: true,
             show_toolbar: true,
+            editor_engine: default_editor_engine(),
         }
     }
 }

@@ -256,6 +256,17 @@ onBeforeUnmount(onDragEnd);
           <template v-else-if="active === 'editor'">
             <div class="sec-title">{{ t('settings.sectionEditor') }}</div>
             <div class="row">
+              <label>{{ t('settings.editorEngine') }}</label>
+              <select
+                :title="t('settings.editorEngineHint')"
+                :value="settings.settings.editorEngine"
+                @change="patch({ editorEngine: ($event.target as HTMLSelectElement).value as AppSettings['editorEngine'] })"
+              >
+                <option value="markdown">{{ t('settings.engineMarkdown') }}</option>
+                <option value="wangeditor">{{ t('settings.engineWangeditor') }}</option>
+              </select>
+            </div>
+            <div class="row">
               <label>{{ t('settings.autoSave') }}</label>
               <label class="switch" :title="t('settings.autoSaveHint')">
                 <input

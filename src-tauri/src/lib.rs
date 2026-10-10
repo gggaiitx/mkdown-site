@@ -100,6 +100,7 @@ pub fn run() -> tauri::Result<()> {
             commands::file_cmd::probe_preview_kind,
             commands::file_cmd::open_in_system,
             commands::file_cmd::open_url,
+            commands::file_cmd::open_web_window,
             commands::file_cmd::reveal_in_explorer,
             commands::file_cmd::take_pending_open_args,
             // 工作区

@@ -1,7 +1,7 @@
 {
   "name": "mkdown",
   "private": true,
-  "version": "0.5.2",
+  "version": "0.5.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -31,6 +31,8 @@
     "@lezer/highlight": "^1.2.5",
     "@lucide/vue": "^1.17.0",
     "@tauri-apps/api": "^2",
+    "@wangeditor/editor": "^5.1.23",
+    "@wangeditor/editor-for-vue": "^5.1.12",
     "codemirror": "^6.0.2",
     "docx-preview": "^0.4.1",
     "katex": "^0.18.5",

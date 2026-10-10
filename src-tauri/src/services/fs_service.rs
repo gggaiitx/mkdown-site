@@ -116,6 +116,8 @@ pub fn mtime_from_meta(meta: &fs::Metadata) -> i64 {
 const TEXT_EXTS: &[&str] = &[
     // —— 基础文本 / 标记 ——
     "md", "markdown", "mdx",
+    // 富文本（wangEditor 原生 HTML，.mh 文件族，2026-10-10 加）
+    "mh",
     "txt", "text", "log", "csv", "tsv",
     "gitignore",
     // —— 配置 / 数据交换 ——

@@ -27,6 +27,8 @@ defineProps<{
   sidebarHidden: boolean;
   /** 激活标签为代码类：分栏/阅读模式按钮禁用（代码引擎只有编辑态） */
   codeTab?: boolean;
+  /** 激活标签为富文本（.mh）：仅分栏按钮禁用（双形态 edit/read，阅读态带大纲） */
+  noSplit?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -216,8 +218,8 @@ function closeWindow() {
         :key="m.key"
         class="tb-btn tb-btn--icon"
         :class="{ 'tb-btn--active': mode === m.key }"
-        :disabled="codeTab && m.key !== 'edit'"
-        :data-tip="codeTab && m.key !== 'edit' ? undefined : `${m.label} (${m.hint})`"
+        :disabled="(codeTab && m.key !== 'edit') || (noSplit && m.key === 'split')"
+        :data-tip="(codeTab && m.key !== 'edit') || (noSplit && m.key === 'split') ? undefined : `${m.label} (${m.hint})`"
         @click="emit('set-mode', m.key)"
       >
         <component :is="m.icon" class="icon" />

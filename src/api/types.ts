@@ -72,6 +72,9 @@ export type ThemeKind = 'light' | 'dark';
 export type EditorMode = 'edit' | 'split' | 'read';
 export type ReadLayout = 'narrow' | 'medium' | 'wide';
 
+/** 编辑内核（语义=新建文件默认格式）：markdown→.md / wangeditor→.mh（唯一定义处） */
+export type EditorKernel = 'markdown' | 'wangeditor';
+
 export interface AppSettings {
   theme: ThemeKind;
   fontSize: number;
@@ -90,6 +93,8 @@ export interface AppSettings {
   wordWrap: boolean;
   /** 编辑器顶部功能栏（格式工具条）显隐：false = 隐藏，正文区上移 */
   showToolbar: boolean;
+  /** 新建文件默认格式：markdown→.md（默认）/ wangeditor→.mh；不影响已打开文件 */
+  editorEngine: EditorKernel;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -107,4 +112,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   scrollSync: true,
   wordWrap: true,
   showToolbar: true,
+  editorEngine: 'markdown',
 };

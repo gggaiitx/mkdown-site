@@ -7,11 +7,13 @@ const nextId = () => `tab-${++uid}`;
 
 /**
  * 标签内容种类：
- * - md / text / html / svg：文本类，进编辑器（html/svg 在分栏/阅读态由对应 Frame 接管渲染）
+ * - md：Markdown，进 MdEditorV3Engine
+ * - mh：富文本（wangEditor 原生 HTML，.mh 文件族）
+ * - text / html / svg：文本类，进编辑器（html/svg 在分栏/阅读态由对应 Frame 接管渲染）
  * - code：代码类文本，由 CodeEditorEngine（纯 CodeMirror 6）接管，恒编辑态
  * - docx / xlsx / image：预览类，只读，由对应预览组件渲染，禁止任何保存路径
  */
-export type TabKind = 'md' | 'text' | 'code' | 'html' | 'svg' | 'docx' | 'xlsx' | 'image';
+export type TabKind = 'md' | 'mh' | 'text' | 'code' | 'html' | 'svg' | 'docx' | 'xlsx' | 'image';
 
 /** 预览类标签（只读，无编辑/保存语义） */
 export type PreviewKind = 'docx' | 'xlsx' | 'image';
@@ -29,6 +31,7 @@ function textKindOf(path: string): TabKind {
   if (ext === 'html' || ext === 'htm') return 'html';
   if (ext === 'svg') return 'svg';
   if (ext === 'md' || ext === 'markdown' || ext === 'mdx') return 'md';
+  if (ext === 'mh') return 'mh';
   return 'code';
 }
 
@@ -67,6 +70,11 @@ export const useTabsStore = defineStore('tabs', {
     },
   },
   actions: {
+    /** 记录当前标签的视图模式（各标签模式态相互独立，切换标签时由 Workbench 恢复） */
+    setActiveMode(m: EditorMode): void {
+      const tab = this.activeTab;
+      if (tab) tab.mode = m;
+    },
     openFile(file: FileContent, mode: EditorMode): DocumentTab {
       const existing = this.tabs.find((t) => t.path === file.path);
       if (existing) {
@@ -125,26 +133,28 @@ export const useTabsStore = defineStore('tabs', {
       this.activeId = tab.id;
       return tab;
     },
-    /** 会话恢复专用：直接注入构造好的标签（启动时 tabs 为空，不做去重；id 由 store 重新生成） */
-    addRestored(tab: Omit<DocumentTab, 'id'>): DocumentTab {
+    /** 会话恢复专用：直接注入构造好的标签（启动时 tabs 为空，不做去重；id 由 store 重新生成） */    addRestored(tab: Omit<DocumentTab, 'id'>): DocumentTab {
       const restored: DocumentTab = { ...tab, id: nextId() };
       this.tabs.push(restored);
       return restored;
     },
-    newUntitled(templateContent: string, mode: EditorMode): DocumentTab {
+    /** 新建未保存文档：kind 由调用方按 settings.editorEngine 决定（markdown→md / wangeditor→mh）；
+     *  mh 为富文本，Markdown 模板内容不适用，恒以空文档起步 */
+    newUntitled(templateContent: string, mode: EditorMode, kind: 'md' | 'mh' = 'md'): DocumentTab {
+      const content = kind === 'mh' ? '' : templateContent;
       const tab: DocumentTab = {
         id: nextId(),
         path: null,
-        title: '未命名.md',
-        content: templateContent,
-        savedContent: templateContent,
-        isDirty: templateContent.length > 0,
+        title: kind === 'mh' ? '未命名.mh' : '未命名.md',
+        content,
+        savedContent: content,
+        isDirty: content.length > 0,
         encoding: 'utf-8',
         hadBom: false,
         isUtf8: true,
         mode,
         cursorLine: 1,
-        kind: 'md',
+        kind,
       };
       this.tabs.push(tab);
       this.activeId = tab.id;

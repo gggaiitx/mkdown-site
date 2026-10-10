@@ -36,3 +36,6 @@ export const revealInExplorer = (path: string) => call<void>('reveal_in_explorer
 
 /** 用系统默认浏览器打开 http/https/mailto 链接（预览区外链） */
 export const openUrl = (url: string) => call<void>('open_url', { url });
+
+/** 应用内独立 WebView 窗口打开 URL（文档内超链接；不受目标站反 iframe 限制） */
+export const openWebWindow = (url: string) => call<void>('open_web_window', { url });
