@@ -1,17 +1,18 @@
-# 码克 - MarkDown 桌面编辑与阅读器 
+# 码克 - MkDown 本地优先的多引擎文档编辑器
 
-> 本地优先的 Markdown 编辑与阅读器 · Rust + Tauri 2.x 外壳 · Vue 3 + Vite + TypeScript + Pinia 前端 · md-editor-v3 v7 编辑内核
+> 本地优先的多引擎文档编辑器 · Rust + Tauri 2.x 外壳 · Vue 3 + Vite + TypeScript + Pinia 前端 · 三编辑内核（Markdown 实时预览 / Markhtml 富文本 / 代码编辑）
 >
 > 纯本地、离线优先、中文原生。文档、图片、配置全部落在本机磁盘，不上云、不登录、不联网。
 
-**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.5.3）或[官网下载页](https://mkdown.opensites.net)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
+**下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.5.3）或[官网下载页](https://mkdown.shenco.wang)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
 
 ## 技术栈
 
 | 层 | 选型 |
 | --- | --- |
 | 外壳 | Rust + Tauri 2.x（Windows 优先，WebView2；macOS 走 CI 云端构建） |
-| 编辑内核 | md-editor-v3 v7（CodeMirror 6 内核，经 `IMarkdownEngine` 适配层隔离，仅处理 Markdown） |
+| Markdown 编辑内核 | md-editor-v3 v7（CodeMirror 6 内核，经 `IMarkdownEngine` 适配层隔离，处理 `.md/.markdown/.mdx`） |
+| 富文本编辑内核 | wangEditor v5（经 `IMarkdownEngine` 适配层隔离，处理 `.mh` 富文本所见即所得，原生 HTML 零转换存储） |
 | 代码编辑引擎 | CodeMirror 6 自建（`CodeEditorEngine.vue`，经 `adapters` 适配层与 Markdown 内核并列，处理全部非 Markdown 文本 / 源码） |
 | 前端 | Vue 3 + Vite 7 + TypeScript 5 + Pinia 3 |
 | 富媒体预览 | docx-preview（Word）+ SheetJS `sheet_to_html`（Excel）+ 原生 `<img>` / `iframe` |
@@ -21,13 +22,24 @@
 ## 功能总览
 
 ### 编辑与阅读（Markdown 文本）
-- **编辑 / 分屏 / 阅读** 三模式切换（分栏实时预览、滚动同步、沉浸阅读态）
+- **编辑 / 分屏 / 阅读** 三模式切换（分栏实时预览、滚动同步、沉浸阅读态）；`.mh` 富文本为**编辑 / 阅读**双形态（所见即所得下分栏镜像无信息增量，故不提供分栏）
 - **多标签页**，脏标记 ●，切换 / 关闭 / 退出均有未保存确认
 - **大纲面板**：随内容实时更新，点击跳转（编辑态 CodeMirror 定位 / 阅读态锚点滚动）；左缘拖拽调宽（160–460px），拖到最右隐藏、拖动右缘边线复原
 - **会话快照**：重启后自动恢复上次的标签页与光标位置，未保存内容恢复后仍标记为未保存（不替用户写盘）
 - **模板库**：新建文档可套用「笔记 / 方案骨架」；**自动保存**（可开关，停顿后原子落盘）
 - **图表与公式**：Mermaid 流程图 + KaTeX 公式（内核按需懒加载）
 - **预览主题**：内置 default / github / vuepress / mk-cute / smart-blue / cyanosis 六主题，另含自建 **win** 主题（Windows 11 Fluent 风：系统蓝强调、Segoe UI 字体栈、卡片式代码块、可隐藏 mac 红绿灯）；打印 PDF 与预览同主题
+
+### 富文本编辑引擎（Markhtml `.mh`）
+
+新增独立富文本格式 `.mh`，由 **wangEditor v5** 内核以原生 HTML 直接读写，**零转换损耗**（不引入 markdown-it / turndown，保真度 100%），与 Markdown 内核经 `src/adapters/` 适配层隔离、互不耦合：
+
+- **所见即所得**：工具栏（加粗 / 标题 / 列表 / 表格 / 引用 / 链接 / 图片等）实时排版，编辑即最终版式。
+- **编辑 / 阅读双形态**：编辑态所见即所得，阅读态纯只读呈现；点击文档内链接在应用内 WebView 打开（不导航整窗）。
+- **图片粘贴落盘**：与 Markdown 同款，截图粘贴自动存 `assets/` 并保留相对路径。
+- **暗色适配**：wangEditor 颜色体系全部消费 `--w-e-*` CSS 变量，暗色只需整体覆写变量（含弹层、表格、引用块、内联 code）。
+- **文档内查找**：基于 CSS Custom Highlight API，编辑 / 阅读两态通用，不触碰编辑器托管 DOM。
+- **编辑内核设置**：「富文本（Markhtml）」可切换新建文件默认格式（`.mh`）；`.md` 始终由 Markdown 内核打开，永不被触碰。
 
 ### 代码编辑引擎（非 Markdown 文本）
 
@@ -107,7 +119,7 @@ src-tauri/src/
   error.rs         # AppError：稳定错误码 {code, message} IPC 契约
   models.rs        # serde 结构体（camelCase 输出，与 src/api/types.ts 手工同步）
 src/
-  adapters/        # ★ IMarkdownEngine 契约 + MdEditorV3Engine（Markdown）+ CodeEditorEngine（非 Markdown 代码引擎）；业务层唯一 import 入口
+  adapters/        # ★ IMarkdownEngine 契约 + MdEditorV3Engine（Markdown）+ WangEditorEngine（.mh 富文本）+ CodeEditorEngine（非 Markdown 代码引擎）；业务层唯一 import 入口
   api/             # invoke 封装 + 类型化命令 API
   stores/          # Pinia：workspace / tabs / editor / settings / search
   components/      # Toolbar / FileTree / TabBar / FloatTip / preview(Docx/Sheet/Image/Html) / ...
@@ -118,7 +130,7 @@ vendor/            # schemars 依赖补丁（勿删）
 
 ## 架构约束（重要）
 
-1. **双编辑内核、经适配层隔离**：Markdown 走 `src/adapters/MdEditorV3Engine.vue`（md-editor-v3 v7），非 Markdown 文本走 `src/adapters/CodeEditorEngine.vue`（自建 CodeMirror 6）；业务层一律经 `src/adapters/` 入口，禁止直接 import 任一方（换 / 加内核成本≈改一个文件）。
+1. **三编辑内核、经适配层隔离**：Markdown 走 `src/adapters/MdEditorV3Engine.vue`（md-editor-v3 v7），富文本 `.mh` 走 `src/adapters/WangEditorEngine.vue`（wangEditor v5），非 Markdown 文本走 `src/adapters/CodeEditorEngine.vue`（自建 CodeMirror 6）；业务层一律经 `src/adapters/` 入口，禁止直接 import 任一方（换 / 加内核成本≈改一个文件）。
 2. **前端不直接碰文件系统**——所有 IO 走 Rust command；前端只透传路径字符串。
 3. **文件打开分流判定在 Rust 侧**（`probe_text_file` + `probe_preview_kind`），前端不做扩展名猜测。
 4. **预览本地资源必须走 `convertFileSrc`（asset://）**，打开工作区时由 `allow_asset_dir` 运行时动态授权。
@@ -126,7 +138,7 @@ vendor/            # schemars 依赖补丁（勿删）
 
 ## 已知边界
 
-- 所见即所得模式、文档元数据（标签 / 收藏）、Word 导出、全文替换、版本历史未实现（见 `docs/PRD.md` P2）。
+- 文档元数据（标签 / 收藏）、Word 导出、全文替换、版本历史未实现（见 `docs/PRD.md` P2）。
 - 预览标签内 Ctrl+F 查找高亮不可用（无编辑器实例）；docx 内嵌 wmf/emf 图片渲染占位。
 - 单实例、文件监视（notify）为架构预留，未启用。
 - md-editor chunk 约 980KB（gzip 344KB）。
