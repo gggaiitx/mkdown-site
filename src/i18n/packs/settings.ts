@@ -74,7 +74,7 @@ export default {
       scBeautify: '美化 Markdown',
       // 关于
       brandName: '码克',
-      brandTagline: '本地 Markdown 编辑与阅读器 · 离线优先 · 数据不出本机',
+      brandTagline: '多引擎文档编辑器 · 本地优先 · 数据不出本机',
       githubRepo: 'GitHub 项目地址',
       openInBrowser: '在系统浏览器中打开',
       updateCheck: '更新检测',
@@ -89,7 +89,7 @@ export default {
       updateAvailable: '发现新版本 v{latest}',
       updateError: '检查失败（网络原因），可前往发布页手动查看',
       updateNotChecked: '尚未检测',
-      techStack: 'Tauri 2 · Vue 3 · md-editor-v3 内核 · Mermaid / KaTeX 本地渲染',
+      techStack: 'Tauri 2 · Vue 3 · 三引擎：md-editor-v3 / Markhtml(wangEditor) / CodeMirror 6 · Mermaid / KaTeX 本地渲染',
     },
   },
   en: {
@@ -157,7 +157,7 @@ export default {
       scImagePlaceholder: 'Insert image placeholder',
       scBeautify: 'Beautify Markdown',
       brandName: 'MkDown',
-      brandTagline: 'Local Markdown editor & reader · Offline-first · Data stays on this machine',
+      brandTagline: 'Multi-engine document editor · Local-first · Data stays on this machine',
       githubRepo: 'GitHub repository',
       openInBrowser: 'Open in system browser',
       updateCheck: 'Update check',
@@ -172,7 +172,7 @@ export default {
       updateAvailable: 'New version v{latest} available',
       updateError: 'Check failed (network issue). Visit the release page to check manually',
       updateNotChecked: 'Not checked yet',
-      techStack: 'Tauri 2 · Vue 3 · md-editor-v3 core · Mermaid / KaTeX local rendering',
+      techStack: 'Tauri 2 · Vue 3 · Three engines: md-editor-v3 / Markhtml (wangEditor) / CodeMirror 6 · Mermaid / KaTeX local rendering',
     },
   },
 };

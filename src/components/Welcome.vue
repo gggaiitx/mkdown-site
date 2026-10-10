@@ -42,6 +42,7 @@ function fmtTime(ms: number) {
       </svg>
       <h1>{{ t('welcome.title') }}</h1>
       <p class="sub">{{ t('welcome.subtitle') }}</p>
+      <p class="engines">{{ t('welcome.enginesLine') }}</p>
     </div>
 
     <div class="cols">
@@ -92,6 +93,7 @@ function fmtTime(ms: number) {
 }
 h1 { margin: 0; font-size: 26px; color: var(--mk-fg); letter-spacing: 2px; }
 .sub { margin: 8px 0 0; font-size: 13px; color: var(--mk-fg-muted); }
+.engines { margin: 6px 0 0; font-size: 12px; color: var(--mk-fg-muted); opacity: 0.85; letter-spacing: 0.5px; }
 .cols { display: flex; gap: 48px; align-items: flex-start; }
 .col { min-width: 220px; }
 /* 最近打开列：限宽防止超长文件名把整列撑开（截断由 .r-name 省略号负责） */
