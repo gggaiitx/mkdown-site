@@ -6,6 +6,8 @@
 
 **下载安装**：前往 [Releases](https://github.com/gggaiitx/mkdown-site/releases)（当前 v0.5.4）或[官网下载页](https://mkdown.shenco.wang)获取安装包——Windows 为 NSIS 安装包（自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据）；macOS 提供 Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper，见 Release 说明）。
 
+![](https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/editor-split.png)
+
 ## 技术栈
 
 | 层 | 选型 |
