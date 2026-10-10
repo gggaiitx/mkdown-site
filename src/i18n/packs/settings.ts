@@ -76,6 +76,7 @@ export default {
       brandName: '码克',
       brandTagline: '多引擎文档编辑器 · 本地优先 · 数据不出本机',
       githubRepo: 'GitHub 项目地址',
+      website: '官方网站',
       openInBrowser: '在系统浏览器中打开',
       updateCheck: '更新检测',
       checkUpdate: '检查更新',
@@ -89,7 +90,6 @@ export default {
       updateAvailable: '发现新版本 v{latest}',
       updateError: '检查失败（网络原因），可前往发布页手动查看',
       updateNotChecked: '尚未检测',
-      techStack: 'Tauri 2 · Vue 3 · 三引擎：md-editor-v3 / Markhtml(wangEditor) / CodeMirror 6 · Mermaid / KaTeX 本地渲染',
     },
   },
   en: {
@@ -159,6 +159,7 @@ export default {
       brandName: 'MkDown',
       brandTagline: 'Multi-engine document editor · Local-first · Data stays on this machine',
       githubRepo: 'GitHub repository',
+      website: 'Official website',
       openInBrowser: 'Open in system browser',
       updateCheck: 'Update check',
       checkUpdate: 'Check for updates',
@@ -172,7 +173,6 @@ export default {
       updateAvailable: 'New version v{latest} available',
       updateError: 'Check failed (network issue). Visit the release page to check manually',
       updateNotChecked: 'Not checked yet',
-      techStack: 'Tauri 2 · Vue 3 · Three engines: md-editor-v3 / Markhtml (wangEditor) / CodeMirror 6 · Mermaid / KaTeX local rendering',
     },
   },
 };

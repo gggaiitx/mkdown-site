@@ -19,6 +19,11 @@ const GITHUB_URL = 'https://github.com/gggaiitx/mkdown-site';
 function openGithub() {
   void openUrl(GITHUB_URL).catch(() => undefined);
 }
+/** 官网 */
+const SITE_URL = 'https://mkdown.shenco.wang';
+function openSite() {
+  void openUrl(SITE_URL).catch(() => undefined);
+}
 
 // ---- 更新检测（与顶栏更新按钮共用同一 composable；状态为模块级单例，
 //      此处的下载/安装与顶栏是同一条链路：进度实时反映在顶栏进度环上，
@@ -355,6 +360,13 @@ onBeforeUnmount(onDragEnd);
                 </button>
               </div>
               <div class="grow">
+                <span class="grow-label">{{ t('settings.website') }}</span>
+                <button class="link-btn" :title="t('settings.openInBrowser')" @click="openSite">
+                  <span>mkdown.shenco.wang</span>
+                  <ExternalLink :size="12" class="ext" />
+                </button>
+              </div>
+              <div class="grow">
                 <div class="grow-left">
                   <span class="grow-label">{{ t('settings.updateCheck') }}</span>
                   <!-- 结果内联在标签后：未检测/检测中不显示（按钮文案已表达检测中） -->
@@ -391,8 +403,6 @@ onBeforeUnmount(onDragEnd);
                 </div>
               </div>
             </div>
-
-            <div class="about-foot">{{ t('settings.techStack') }}</div>
           </template>
         </div>
       </div>
@@ -597,8 +607,4 @@ kbd {
 }
 .update-status.available { color: var(--mk-ok); }
 .update-status.error { color: var(--mk-warn); }
-.about-foot {
-  margin-top: 12px;
-  font-size: 11px; color: var(--mk-fg-muted); letter-spacing: 0.3px;
-}
 </style>
