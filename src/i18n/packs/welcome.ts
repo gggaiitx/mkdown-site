@@ -5,8 +5,8 @@ export default {
   zh: {
     welcome: {
       title: '码克',
-      subtitle: '多引擎文档编辑器 · 本地优先 · 数据不出本机',
-      enginesLine: 'Markdown 实时预览 · Markhtml 富文本 · 代码编辑',
+      subtitle: '本地优先的多引擎文档编辑器 · 数据不出本机',
+      enginesLine: 'Markdown 专业编辑与阅读 · Markhtml 富文本所见即所得 · Markcode 代码与文本编辑器',
       start: '开始',
       openWorkspace: '打开工作区',
       openFile: '打开文件',
@@ -18,8 +18,8 @@ export default {
   en: {
     welcome: {
       title: 'MkDown',
-      subtitle: 'Multi-engine document editor · Local-first · Data stays on your device',
-      enginesLine: 'Markdown preview · Markhtml rich text · Code editing',
+      subtitle: 'Local-first multi-engine document editor · Data stays on your device',
+      enginesLine: 'Professional Markdown editing & reading · Markhtml WYSIWYG rich text · Markcode code & text editor',
       start: 'Start',
       openWorkspace: 'Open Workspace',
       openFile: 'Open File',

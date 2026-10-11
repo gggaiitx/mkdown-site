@@ -427,14 +427,44 @@ const loaders: Record<string, LangLoader> = {
   dtd: legacy('dtd', 'dtd'),
 };
 
-/** 取扩展名对应的语言扩展；无映射或加载失败返回空数组（纯文本兜底） */
-export async function buildLanguageExtensions(ext: string): Promise<Extension[]> {
-  const loader = loaders[ext.toLowerCase()];
+// ── 按文件名映射（无扩展名 / 特殊全名文件）：键 = 完整文件名小写 ──
+// 背景扩展名表无法覆盖这批：Cargo.lock 的扩展名是 "lock"、Dockerfile/CMakeLists.txt
+// 是约定俗成的全名、dotfile 的 extension() 为 None。命中优先于扩展名表。
+// 语法上无对应模式的（Makefile/.gitignore/.dockerignore）刻意不收——宁缺毋滥，避免错色。
+const fileNameLoaders: Record<string, LangLoader> = {
+  'cargo.lock': legacy('toml', 'toml'), // Cargo.lock = TOML
+  'cmakelists.txt': legacy('cmake', 'cmake'),
+  dockerfile: legacy('dockerfile', 'dockerFile'),
+  containerfile: legacy('dockerfile', 'dockerFile'),
+  '.gitmodules': legacy('properties', 'properties'), // ini 风格键值
+  '.gitconfig': legacy('properties', 'properties'),
+  '.editorconfig': legacy('properties', 'properties'),
+  '.npmrc': legacy('properties', 'properties'),
+  '.babelrc': jsonLoader,
+  '.prettierrc': jsonLoader,
+  gemfile: legacy('ruby', 'ruby'),
+  rakefile: legacy('ruby', 'ruby'),
+  vagrantfile: legacy('ruby', 'ruby'),
+  brewfile: legacy('ruby', 'ruby'),
+  jenkinsfile: legacy('groovy', 'groovy'),
+};
+
+/**
+ * 取文件名（或裸扩展名）对应的语言扩展；无映射或加载失败返回空数组（纯文本兜底）。
+ * 查找顺序：文件名全名表（cargo.lock、Dockerfile、.editorconfig…）→ 扩展名表
+ * （从 name 取最后一段点后缀；dotfile 的前导点不算扩展名分隔）。
+ * 调用方传完整文件名（CodeEditorEngine 传 path 的最后一段）或裸扩展名均可。
+ */
+export async function buildLanguageExtensions(name: string): Promise<Extension[]> {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf('.');
+  const ext = dot > 0 && dot < lower.length - 1 ? lower.slice(dot + 1) : '';
+  const loader = fileNameLoaders[lower] ?? (ext ? loaders[ext] : undefined);
   if (!loader) return [];
   try {
     return await loader();
   } catch (err) {
-    console.warn(`[codeLanguage] 语言包加载失败: .${ext}`, err);
+    console.warn(`[codeLanguage] 语言包加载失败: ${name}`, err);
     return [];
   }
 }

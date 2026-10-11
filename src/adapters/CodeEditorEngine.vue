@@ -34,10 +34,11 @@ let view: EditorView | null = null;
 const themeComp = new Compartment();
 const langComp = new Compartment();
 
+/** 语言查找键：取路径最后一段完整文件名（codeLanguage 先查文件名表再查扩展名表，
+ *  Cargo.lock / Dockerfile / .editorconfig 等特殊全名才能命中） */
 function extOf(p: string | null): string {
   if (!p) return '';
-  const dot = p.toLowerCase().lastIndexOf('.');
-  return dot > 0 ? p.slice(dot + 1) : '';
+  return p.split(/[\\/]/).pop() ?? '';
 }
 
 /** 光标位置 → 状态栏 L:C 口径（与 MdEditorV3Engine 的 emit 一致） */

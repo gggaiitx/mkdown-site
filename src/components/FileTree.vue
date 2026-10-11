@@ -298,15 +298,32 @@ function toggleAll(): void {
 // ---- 刷新动效：点击时图标旋转，转多久跟实际刷新耗时走 ----// 保底 600ms（= 动画一整圈周期）：本地目录刷新极快（几十 ms），不补足会"刚转就停"看不见动效；
 // 补足后快速刷新恰好转满一圈自然复位，无急停跳变。请求中防重入。
 const refreshing = ref(false);
+/** 刷新完成动效：图标转满一圈后整树轻淡入一次（tree-fx 类驱动 CSS ft-refresh-in），
+ *  作为「新内容就位」的完成确认；类挂上 FX_MS 后移除，下次刷新可重触发 */
+const treeFx = ref(false);
+const FX_MS = 360; // 与 CSS ft-refresh-in 周期一致
+let fxTimer = 0;
 async function onRefresh() {
   if (refreshing.value) return;
   refreshing.value = true;
+  window.clearTimeout(fxTimer); // 上一次的清除 timer 可能未跑完，先清避免竞态
   const start = performance.now();
+  let ok = false;
   try {
     await ws.refresh();
+    ok = true;
   } finally {
     const remain = Math.max(0, 600 - (performance.now() - start));
-    window.setTimeout(() => { refreshing.value = false; }, remain);
+    window.setTimeout(() => {
+      refreshing.value = false;
+      if (!ok) return; // 刷新失败：只复位图标，不播「就位」动效（错误提示走 store toast）
+      // 先确保类已移除再经一帧挂回：同一元素上 class 无变化不会重启动画
+      treeFx.value = false;
+      void nextTick(() => {
+        treeFx.value = true;
+        fxTimer = window.setTimeout(() => { treeFx.value = false; }, FX_MS);
+      });
+    }, remain);
   }
 }
 
@@ -382,7 +399,7 @@ watch(filteredTree, (nodes) => {
 </script>
 
 <template>
-  <aside ref="rootEl" class="explorer" :class="{ dragging }" :style="{ width: `${width}px` }">
+  <aside ref="rootEl" class="explorer" :class="{ dragging, 'tree-fx': treeFx }" :style="{ width: `${width}px` }">
     <!-- 右缘拖拽手柄（拖到最左可隐藏）；原生 title 提示（全高细条会让 data-tip 气泡垂直定位跑飞，见 v0.3.1 反馈） -->
     <div
       class="resizer"
@@ -666,6 +683,23 @@ watch(filteredTree, (nodes) => {
 @keyframes ft-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+/* 刷新完成动效：图标转满一圈后整树轻淡入 + 3px 上浮就位（360ms，与 script FX_MS 一致）。
+   起步 opacity 0.25 而非 0，避免内容闪黑；只动 opacity/transform 不触发重排。
+   覆盖 .empty：空目录刷新同样有完成反馈。失败路径不挂类，不播动效 */
+.explorer.tree-fx .tree,
+.explorer.tree-fx .empty {
+  animation: ft-refresh-in 0.36s ease-out both;
+}
+@keyframes ft-refresh-in {
+  from { opacity: 0.25; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .explorer.tree-fx .tree,
+  .explorer.tree-fx .empty {
+    animation: none;
+  }
 }
 /* 过滤开关激活态：淡底色 + 主题色描边，明确"当前开着" */
 .tool.on {

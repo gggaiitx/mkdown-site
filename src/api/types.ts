@@ -89,6 +89,8 @@ export interface AppSettings {
   previewTheme: string;
   /** 内容版式（编辑/分栏/阅读通用）：窄 760 / 中 1020（默认）/ 宽 1320 */
   readLayout: ReadLayout;
+  /** 顶栏「编辑 / 分栏 / 阅读」三按钮组位置：center 顶栏水平居中（默认）/ left 跟随左侧功能区 */
+  modeBarPosition: 'center' | 'left';
   scrollSync: boolean;
   wordWrap: boolean;
   /** 编辑器顶部功能栏（格式工具条）显隐：false = 隐藏，正文区上移 */
@@ -109,6 +111,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: 'zh-CN',
   previewTheme: 'default',
   readLayout: 'medium',
+  modeBarPosition: 'center',
   scrollSync: true,
   wordWrap: true,
   showToolbar: true,

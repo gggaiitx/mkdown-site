@@ -26,6 +26,8 @@ const EXCLUDED_DIRS: &[&str] = &[".git", "node_modules"];
 const TEXT_EXTS: &[&str] = &[
     // —— 基础文本 / 标记 ——
     "md", "markdown", "mdx", "mh", "txt", "text", "log", "csv", "tsv",
+    // lockfile（Cargo.lock 等 TOML 文本，与 fs_service::TEXT_EXTS 同步 2026-10-11）
+    "lock",
     "json", "jsonc", "json5", "ndjson", "geojson", "jsonld",
     "yaml", "yml", "toml",
     "ini", "cfg", "conf", "properties", "env", "config", "cnf", "inf",

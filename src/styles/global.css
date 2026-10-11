@@ -161,6 +161,14 @@ body.mk-col-dragging iframe {
   min-height: 0;
   background: var(--mk-bg);
 }
+/* 标签右键「刷新」完成后的内容区淡入反馈（0.35→1，480ms 内复位） */
+.workbench .editor-area.area-reloading {
+  animation: area-reload-flash 0.45s ease;
+}
+@keyframes area-reload-flash {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
 
 /* ---- 工作区隐藏后的左缘复原边线（拖动向右展开，交互同大纲面板） ---- */
 .workbench .ws-restore {

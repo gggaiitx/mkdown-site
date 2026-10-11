@@ -120,6 +120,8 @@ const TEXT_EXTS: &[&str] = &[
     "mh",
     "txt", "text", "log", "csv", "tsv",
     "gitignore",
+    // lockfile（Cargo.lock/poetry.lock/pubspec.lock 等均为 TOML 文本；二进制 .lock 罕见且有 8MB 闸门兜底）
+    "lock",
     // —— 配置 / 数据交换 ——
     "json", "jsonc", "json5", "ndjson", "geojson", "jsonld",
     "yml", "yaml", "toml",
@@ -238,8 +240,9 @@ const BINARY_EXTS: &[&str] = &[
     "drawio",
 ];
 
-/// 无扩展名但确实是文本的常见文件名
-const TEXT_NAMES: [&str; 7] = [
+/// 无扩展名（含点开头 dotfile）但确实是文本的常见文件名（全小写匹配）。
+/// 白名单命中零 IO——新增常见 dotfile 时在此补，别依赖嗅探（文件树全量判定会读盘）。
+const TEXT_NAMES: [&str; 15] = [
     "makefile",
     "dockerfile",
     "license",
@@ -247,6 +250,15 @@ const TEXT_NAMES: [&str; 7] = [
     "changelog",
     "authors",
     "copying",
+    // dotfiles / 无扩展名构建文件（2026-10-11 补：免嗅探读盘，着色由前端按文件名映射）
+    ".gitignore",
+    ".gitattributes",
+    ".gitmodules",
+    ".editorconfig",
+    ".npmrc",
+    "gemfile",
+    "rakefile",
+    "jenkinsfile",
 ];
 
 /// 嗅探读取上限：判定"是不是文本"只需开头一小段

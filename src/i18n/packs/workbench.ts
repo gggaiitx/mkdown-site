@@ -13,6 +13,8 @@ export default {
       clickToClose: '点击关闭',
       toast: {
         noDoc: '没有打开的文档',
+        docLinkNoBase: '当前文档尚未保存，无法解析文档链接',
+        docLinkMiss: '链接目标不存在：{path}',
         previewReadonlyBeautify: '预览标签为只读，不支持美化',
         codeNoBeautify: '当前文件不支持 Markdown 美化',
         codeNoExport: '当前文件不支持导出与打印',
@@ -77,6 +79,8 @@ export default {
       clickToClose: 'Click to close',
       toast: {
         noDoc: 'No document open',
+        docLinkNoBase: 'Save the current file first to resolve document links',
+        docLinkMiss: 'Linked file not found: {path}',
         previewReadonlyBeautify: 'Preview tabs are read-only and cannot be beautified',
         codeNoBeautify: 'This file does not support Markdown beautification',
         codeNoExport: 'This file does not support export or printing',

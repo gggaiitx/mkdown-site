@@ -37,6 +37,8 @@ const EXT_KIND: Record<string, FileKind> = {
   yml: 'code',
   yaml: 'code',
   toml: 'code',
+  // lockfile（Cargo.lock/poetry.lock 等均为 TOML 文本，2026-10-11 补）
+  lock: 'code',
   ini: 'code',
   cfg: 'code',
   conf: 'code',

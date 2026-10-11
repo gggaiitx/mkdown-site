@@ -55,6 +55,8 @@ const emit = defineEmits<{
   (e: 'toast', text: string): void;
   /** http(s) 超链接：交由应用开 Web 标签（webview 内嵌浏览） */
   (e: 'openLink', href: string): void;
+  /** 文件路径链接（docs/PRD.md 等）：交由应用按当前文档目录解析后打开 */
+  (e: 'openDoc', href: string): void;
 }>();
 
 const rootRef = ref<HTMLElement | null>(null);
@@ -819,7 +821,8 @@ function onImgError(e: Event) {
 }
 // ---- 预览区链接拦截（捕获阶段，编辑/分栏/阅读三态全覆盖） ----
 // 不拦截时 WebView 会直接导航：相对链接（如 2026-08-03.md）被当主机名解析失败，
-// 应用 UI 被顶掉且无法返回。规则：外链走系统浏览器、文内锚点平滑滚动、其余禁止。
+// 应用 UI 被顶掉且无法返回。规则：外链走系统浏览器、文内锚点平滑滚动、
+// 文件路径链接上抛 openDoc（应用按当前文档目录解析后打开）、其余协议禁止。
 const isTauri = typeof (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== 'undefined';
 
 function onAnchorClick(e: MouseEvent) {
@@ -853,8 +856,15 @@ function onAnchorClick(e: MouseEvent) {
     }
     return;
   }
-  // 相对路径（.md 等）与其他协议：一律禁止，防止整窗被导航
+  // 文件路径链接（相对/绝对，无 URL scheme；Windows 盘符 C:\ 经 normalizeLink 编码成
+  // C:%5C…，形似 scheme，单字母冒号前缀先排除再判协议）：原样上抛
+  // （decode/剥锚点/拼接交业务层，与图片 toAssetUrl 分工一致）。
   e.preventDefault();
+  if (/^[a-zA-Z]:/.test(href) || !/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+    emit('openDoc', href);
+    return;
+  }
+  // 其余未识别协议（ftp:/tel: 等）：一律禁止，防止整窗被导航
   emit('toast', t('engine.noJumpLink', { href }));
 }
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 顶栏 = 标题栏 + 工具栏（对齐 DBX AppToolbar）：无品牌块，左侧功能按钮，右侧窗口控制 */
-import { onBeforeUnmount, onMounted, ref, computed, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, computed, watch, nextTick } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   FolderOpen, Folder, FilePlus2, Save, SaveAll,
@@ -18,7 +18,7 @@ import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { flushSessionSnapshot } from '../utils/sessionSnapshot';
 import AppDialog from './AppDialog.vue';
 
-defineProps<{
+const props = defineProps<{
   mode: EditorMode;
   theme: ThemeKind;
   hasActive: boolean;
@@ -29,6 +29,12 @@ defineProps<{
   codeTab?: boolean;
   /** 激活标签为富文本（.mh）：仅分栏按钮禁用（双形态 edit/read，阅读态带大纲） */
   noSplit?: boolean;
+  /** 激活标签可导出 HTML（仅 Markdown）：false 时按钮灰掉 */
+  exportable?: boolean;
+  /** 激活标签可打印 PDF（md 内核 ExportPDF / mh 富文本导出）：false 时按钮灰掉 */
+  printable?: boolean;
+  /** 顶栏模式切换三按钮组位置（设置-外观「模式位置」）：center 顶栏居中（默认）/ left 跟随左侧功能区 */
+  modeBarPosition?: 'center' | 'left';
 }>();
 
 const emit = defineEmits<{
@@ -146,6 +152,92 @@ const modes = computed<{ key: EditorMode; label: string; hint: string; icon: unk
   { key: 'read', label: t('toolbar.modeRead'), hint: altHint('R'), icon: BookOpen },
 ]);
 
+// ---- 模式切换组「居中」档的动态吸附 ----
+// 窗宽缩小到居中组与左侧功能区贴近时，直接吸附回左侧（跟随功能流，等同靠左档），
+// 而非悬在中间与左侧按钮重叠。判定纯几何：50% 位置的组左缘 ≥ 左侧功能区右缘 + 最小间距。
+// 左侧功能区宽度随按钮收纳分级（container query）动态变化，故用 ResizeObserver 实时重算，
+// 不用固定窗宽断点——收纳成图标后左侧变窄，同一组可能重新获得居中空间。
+const modeSegRef = ref<HTMLElement | null>(null);
+const tbMainRef = ref<HTMLElement | null>(null);
+/** true = 居中组吸附到左侧（此时不加 .centered 类，回归流内布局） */
+const segSnapped = ref(false);
+/** 模式组是否处于流内布局：靠左档恒在流内；居中档吸附后回归流内。
+ *  同时驱动两处视图：.mode-seg 是否加 centered 类、第二根分隔线显隐
+ *  （模式组飞走后左组末尾的孤线默认隐藏，吸附/靠左时才作为分隔显示） */
+const segInFlow = computed(() => props.modeBarPosition === 'left' || segSnapped.value);
+/** true = 居中悬空的模式组右缘已贴近右侧功能区（搜索按钮组），需在其间显示分隔线。
+ *  显示区间：模式组与搜索的实距 < RIGHT_DIVIDER_MAX（开始贴近）且 ≥ SEG_MIN_GAP
+ *  （间隙仍容得下线+两侧呼吸距——再压线会贴到阅读图标，直接隐藏） */
+const segNearRight = ref(false);
+/** 居中组与两侧功能区的最小呼吸间距（左吸附阈值 / 右线隐藏下限） */
+const SEG_MIN_GAP = 12;
+/** 右分隔线显示的间距上界：间隙小于此值视为「贴近」，线在间隙中点出现 */
+const RIGHT_DIVIDER_MAX = 26;
+let segRO: ResizeObserver | null = null;
+
+function updateSegSnap() {
+  const seg = modeSegRef.value;
+  const main = tbMainRef.value;
+  if (!seg || !main) {
+    segSnapped.value = false;
+    segNearRight.value = false;
+    return;
+  }
+  // 左侧功能区右缘 = mode-seg 在流内的前一个兄弟（第二根 divider）右缘；
+  // seg 脱流与否都不影响它前面的元素布局，任意定位态下测量均有效
+  const prev = seg.previousElementSibling as HTMLElement | null;
+  if (!prev) {
+    segSnapped.value = false;
+    segNearRight.value = false;
+    return;
+  }
+  const mainLeft = main.getBoundingClientRect().left;
+  const leftEdge = prev.getBoundingClientRect().right - mainLeft;
+  const segHalf = seg.offsetWidth / 2;
+  segSnapped.value = main.clientWidth / 2 - segHalf < leftEdge + SEG_MIN_GAP;
+  // 右侧判定：模式组右缘与搜索按钮左缘的实距 gap。spacer/搜索位置由 flex 决定，
+  // 不受模式组定位与右分隔线（absolute 不占流）影响，判定无反馈回路。
+  // 线位置 = 间隙中点：压缩时同步移动、与阅读/搜索两侧恒等距（≥gap/2 ≥ 6px），
+  // 不会钉死在搜索侧而随压缩贴到阅读图标上；gap < SEG_MIN_GAP 时线隐藏。
+  const spacer = (seg.nextElementSibling as HTMLElement | null)?.nextElementSibling as HTMLElement | null;
+  const search = spacer?.nextElementSibling as HTMLElement | null;
+  if (search) {
+    const segRight = seg.getBoundingClientRect().right;
+    const gap = search.getBoundingClientRect().left - segRight;
+    segNearRight.value = gap < RIGHT_DIVIDER_MAX && gap >= SEG_MIN_GAP;
+    if (segNearRight.value) {
+      const mid = (segRight + search.getBoundingClientRect().left) / 2 - mainLeft - 0.5;
+      main.style.setProperty('--mk-right-div-x', `${mid.toFixed(1)}px`);
+    }
+  } else {
+    segNearRight.value = false;
+  }
+}
+
+// 重算信号：① tb-main 宽度（窗口/侧栏变化必然传导至此）② 左组末按钮（宽度随
+// 字体/语言加载变化——tb-main 总宽不变时 RO 不会触发，靠它补齐重算时机）
+// ③ window resize 事件（RO 的冗余兜底，任何环境下 resize 必触发重算）
+watch(modeSegRef, (el) => {
+  segRO?.disconnect();
+  segRO = null;
+  if (!el || !tbMainRef.value) return;
+  segRO = new ResizeObserver(() => updateSegSnap());
+  segRO.observe(tbMainRef.value);
+  // prev = 第二根 divider（seg 的流内前驱），再往前是「另存为」按钮
+  const lastLeftBtn = el.previousElementSibling?.previousElementSibling;
+  if (lastLeftBtn) segRO.observe(lastLeftBtn);
+  // 初次量测延后两帧：挂载首帧 flex 分配/字体回退可能未稳定，避免误判吸附
+  void nextTick(() => {
+    updateSegSnap();
+    requestAnimationFrame(() => requestAnimationFrame(updateSegSnap));
+  });
+});
+// 设置里切换居中/靠左时重算（tb-main 宽度不变，RO 不触发）
+watch(
+  () => props.modeBarPosition,
+  () => void nextTick(updateSegSnap),
+);
+
 // ---- 窗口控制（decorations=false，本栏即标题栏） ----
 // macOS：走 tauri.macos.conf.json 的原生红绿灯（titleBarStyle Overlay，左上角），
 // 隐藏右侧自绘三键并预留左上空间；Windows/Linux 维持自绘三键不变
@@ -154,14 +246,23 @@ const win = getCurrentWindow();
 const isMaximized = ref(false);
 let unlistenResized: (() => void) | null = null;
 
-onMounted(async () => {
-  isMaximized.value = await win.isMaximized();
-  unlistenResized = await win.onResized(async () => {
+onMounted(() => {
+  // DOM 监听必须先于 Tauri 异步链注册：await 链若中断（invoke 失败等）不能连累吸附重算失效
+  window.addEventListener('resize', updateSegSnap);
+  // 中文字体就绪后左组按钮宽度会变（fallback 字体 → 正式字体），补一次吸附重算
+  void document.fonts?.ready.then(() => updateSegSnap());
+  void (async () => {
     isMaximized.value = await win.isMaximized();
-  });
+    unlistenResized = await win.onResized(async () => {
+      isMaximized.value = await win.isMaximized();
+    });
+  })();
 });
 onBeforeUnmount(() => {
   unlistenResized?.();
+  window.removeEventListener('resize', updateSegSnap);
+  segRO?.disconnect();
+  segRO = null;
 });
 function minimize() { void win.minimize(); }
 function toggleMaximize() { void win.toggleMaximize(); }
@@ -176,7 +277,7 @@ function closeWindow() {
     <!-- macOS 原生红绿灯占位（titleBarStyle Overlay 绘制在左上，此区域仅留白+可拖拽） -->
     <div v-if="isMac" class="traffic-pad" data-tauri-drag-region />
     <!-- 左侧功能区：deep 拖动区（子树内空白处可拖动/双击最大化，按钮自动阻断），为右侧窗口控制让位 -->
-    <div class="tb-main" data-tauri-drag-region="deep">
+    <div ref="tbMainRef" class="tb-main" data-tauri-drag-region="deep">
     <!-- 侧边栏隐藏时提供恢复入口 -->
     <button
       v-if="sidebarHidden"
@@ -210,9 +311,15 @@ function closeWindow() {
       <span class="label">{{ t('toolbar.saveAs') }}</span>
     </button>
 
-    <div class="divider" />
+    <div class="divider" :class="{ 'divider-hide': !segInFlow }" />
 
-    <div class="mode-seg" role="group" :aria-label="t('toolbar.viewMode')">
+    <div
+      ref="modeSegRef"
+      class="mode-seg"
+      :class="{ centered: !segInFlow }"
+      role="group"
+      :aria-label="t('toolbar.viewMode')"
+    >
       <button
         v-for="m in modes"
         :key="m.key"
@@ -227,6 +334,15 @@ function closeWindow() {
       </button>
     </div>
 
+    <!-- 右组分隔线：绝对定位钉在搜索按钮左侧（x 由 updateSegSnap 写入 CSS 变量），
+         仅当居中模式组右缘贴近右侧功能区时显示，作为「模式组 ↔ 搜索」的分隔。
+         absolute 不占 flex 流——流内插入只会落在左组末尾（模式组已脱流），无法到达两者中间；
+         且显隐/移位不扰动布局，右侧判定（读 spacer 右缘）无反馈回路 -->
+    <div
+      class="divider right-divider"
+      :class="{ 'divider-show': !segInFlow && segNearRight }"
+    />
+
     <div class="flex-spacer" data-tauri-drag-region />
 
     <button class="tb-btn tb-btn--icon" :class="{ 'tb-btn--active': searchActive }" @click="emit('search')" :data-tip="t('toolbar.searchTip')">
@@ -234,10 +350,10 @@ function closeWindow() {
       <span v-if="searchActive" class="active-dot" />
     </button>
 
-    <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('export-html')" :data-tip="t('toolbar.exportHtml')">
+    <button class="tb-btn tb-btn--icon" :disabled="!hasActive || !exportable" @click="emit('export-html')" :data-tip="t('toolbar.exportHtml')">
       <FileCode2 class="icon" />
     </button>
-    <button class="tb-btn tb-btn--icon" :disabled="!hasActive" @click="emit('print-pdf')" :data-tip="t('toolbar.printPdf')">
+    <button class="tb-btn tb-btn--icon" :disabled="!hasActive || !printable" @click="emit('print-pdf')" :data-tip="t('toolbar.printPdf')">
       <Printer class="icon" />
     </button>
 
@@ -368,6 +484,8 @@ function closeWindow() {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
+  /* 模式切换组「居中」档的定位基准（见 .mode-seg.centered） */
+  position: relative;
 }
 .divider {
   width: 1px; height: 18px;
@@ -375,6 +493,22 @@ function closeWindow() {
   margin: 0 6px;
   flex: none;
 }
+/* 模式组居中（未吸附）时：左组末尾这条分隔线跟随模式组飞走成孤线，默认隐藏；
+   吸附回左侧（或靠左档）后恢复显示，作为「另存为 ↔ 模式组」的分隔。
+   ★必须用 visibility（保留占位）：display:none 会把 updateSegSnap 依赖的
+   divider 几何归零（leftEdge → 负值），吸附判定闭环卡死永不触发 */
+.divider.divider-hide { visibility: hidden; }
+/* 右组分隔线：absolute 钉在搜索按钮左侧，x 坐标由 updateSegSnap 按搜索按钮
+   实时位置写入 --mk-right-div-x（tb-main 为定位基准）；margin 归零避免偏移 */
+.divider.right-divider {
+  position: absolute;
+  left: var(--mk-right-div-x, -100px);
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  visibility: hidden;
+}
+.divider.right-divider.divider-show { visibility: visible; }
 .flex-spacer { flex: 1; height: 100%; }
 
 .tb-btn {
@@ -458,6 +592,16 @@ function closeWindow() {
 }
 
 .mode-seg { display: inline-flex; gap: 2px; flex: none; }
+/* 模式位置=居中（设置-外观「模式位置」，默认）：三按钮组脱离左侧功能流，
+   绝对定位于顶栏水平中心（tb-main 与 toolbar 垂直同心，top 50% 即垂直居中）。
+   按钮自身阻断拖拽，原空位由 flex-spacer 的拖拽区承接 */
+.mode-seg.centered {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+}
 .font-seg { display: inline-flex; gap: 2px; flex: none; }
 
 /* 窗口控制：方角、宽热区，关闭悬停红（Windows 惯例）
@@ -484,6 +628,9 @@ function closeWindow() {
 @container (max-width: 720px) {
   .tb-github, .tb-font-type { display: none; }
   .divider { margin: 0 4px; }
+  /* 兜底：居中档主判定是组件内动态吸附（贴近左侧功能区即回落，见 updateSegSnap），
+     此处固定断点仅在 RO 异常时保证居中组不悬空 */
+  .mode-seg.centered { position: static; transform: none; }
 }
 @container (max-width: 600px) {
   .toolbar, .tb-main { gap: 1px; }

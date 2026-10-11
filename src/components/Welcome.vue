@@ -24,23 +24,32 @@ const recent = computed(() =>
 );
 
 function fmtTime(ms: number) {
-  return new Date(ms).toLocaleString('zh-CN', { hour12: false });
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  // 非当年补年份，避免跨年记录歧义；当年用短格式省宽度
+  if (d.getFullYear() === new Date().getFullYear()) {
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${hm}`;
+  }
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 </script>
 
 <template>
   <div class="welcome">
     <div class="hero">
-      <svg class="logo" viewBox="0 0 102 102" aria-hidden="true">
-        <rect width="102" height="102" rx="24" fill="#E6F1FB" />
-        <path
-          d="M27 72 L27 32 L42 50 L57 32 L57 72"
-          fill="none" stroke="#0C447C" stroke-width="7"
-          stroke-linecap="round" stroke-linejoin="round"
-        />
-        <rect x="63" y="60" width="11" height="14" rx="2.5" fill="#378ADD" />
-      </svg>
-      <h1>{{ t('welcome.title') }}</h1>
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 102 102" aria-hidden="true">
+          <rect width="102" height="102" rx="24" fill="#E6F1FB" />
+          <path
+            d="M27 72 L27 32 L42 50 L57 32 L57 72"
+            fill="none" stroke="#0C447C" stroke-width="7"
+            stroke-linecap="round" stroke-linejoin="round"
+          />
+          <rect x="63" y="60" width="11" height="14" rx="2.5" fill="#378ADD" />
+        </svg>
+        <h1>{{ t('welcome.title') }}</h1>
+      </div>
       <p class="sub">{{ t('welcome.subtitle') }}</p>
       <p class="engines">{{ t('welcome.enginesLine') }}</p>
     </div>
@@ -80,21 +89,36 @@ function fmtTime(ms: number) {
   height: 100%;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  gap: 28px;
+  gap: 34px;
   background: var(--mk-bg);
   overflow-y: auto;
 }
 .hero { text-align: center; }
-.logo {
-  display: inline-block;
-  width: 56px; height: 56px;
-  border-radius: 14px;
-  margin-bottom: 10px;
+/* 品牌行：logo 与「码克」横向并排、垂直居中（2026-10-11 飞总指定）。
+   logo 36px ≈ h1 28px 字号的 1.3 倍——与标题 cap 高度同量级，不再头重脚轻 */
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
 }
-h1 { margin: 0; font-size: 26px; color: var(--mk-fg); letter-spacing: 2px; }
-.sub { margin: 8px 0 0; font-size: 13px; color: var(--mk-fg-muted); }
+.logo {
+  flex: none;
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  /* 品牌色相柔和投影：亮暗两态均成立（暗底下近不可见，徽章本身仍是亮色块） */
+  box-shadow: 0 2px 10px rgba(12, 68, 124, 0.20), 0 1px 2px rgba(12, 68, 124, 0.16);
+}
+h1 {
+  margin: 0; font-size: 28px; font-weight: 700;
+  color: var(--mk-fg); letter-spacing: 4px;
+  /* letter-spacing 会在末字右侧多出一份字距，负 margin 视觉回正（否则标题相对 logo/整行偏右） */
+  margin-right: -4px;
+}
+.sub { margin: 14px 0 0; font-size: 13px; color: var(--mk-fg-muted); }
 .engines { margin: 6px 0 0; font-size: 12px; color: var(--mk-fg-muted); opacity: 0.85; letter-spacing: 0.5px; }
-.cols { display: flex; gap: 48px; align-items: flex-start; }
+/* 窄窗两列自动换行（宽屏仍并排；recent-col 自带 max-width 42vw 防撑宽） */
+.cols { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px 48px; align-items: flex-start; }
 .col { min-width: 220px; }
 /* 最近打开列：限宽防止超长文件名把整列撑开（截断由 .r-name 省略号负责） */
 .recent-col { width: 560px; max-width: 42vw; }

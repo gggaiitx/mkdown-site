@@ -40,6 +40,7 @@ import { useEditorStore } from '../stores/editorStore';
 import { useSearchStore } from '../stores/searchStore';
 
 import {
+  getFileMeta,
   openInSystem,
   openUrl,
   openWebWindow,
@@ -73,6 +74,16 @@ const mdEngineRef = ref<EngineHandle | null>(null);
 const wangEngineRef = ref<EngineHandle | null>(null);
 /** 标签栏组件引用：F2 重命名当前文档经 TabBar.renameActive() 走同一对话框链路 */
 const tabBarRef = ref<InstanceType<typeof TabBar> | null>(null);
+
+/** 内容区刷新动效：标签右键「刷新」重读完成后短促淡入（先摘 class 再挂回以重启动画） */
+const reloadFlash = ref(false);
+function flashReloadArea() {
+  reloadFlash.value = false;
+  void nextTick(() => {
+    reloadFlash.value = true;
+    setTimeout(() => (reloadFlash.value = false), 480);
+  });
+}
 /** 目录树组件引用：Shift+F 按名称过滤经 FileTree.openFilter() 打开并聚焦 */
 const fileTreeRef = ref<InstanceType<typeof FileTree> | null>(null);
 const activeDocPath = computed(() => tabs.activeTab?.path ?? null);
@@ -267,6 +278,14 @@ const isMarkupTab = computed(() => {
   const k = tabs.activeTab?.kind;
   return k === 'html' || k === 'svg';
 });
+/** 激活标签是否可导出 HTML：仅 Markdown 有 previewHtml 渲染来源（其余标签点了只弹提示，直接禁用） */
+const canExportHtml = computed(() => tabs.activeTab?.kind === 'md');
+/** 激活标签是否可打印 PDF：md 走内核 ExportPDF，mh 富文本引擎自带导出；代码/标记/预览类无打印宿主 */
+const canPrintPdf = computed(() => {
+  const k = tabs.activeTab?.kind;
+  return k === 'md' || k === 'mh';
+});
+
 /** 代码类标签：只支持编辑态（无分栏/阅读），由 CodeEditorEngine 接管 */
 const isCodeTab = computed(() => tabs.activeTab?.kind === 'code');
 /** 富文本标签（.mh）：由 WangEditorEngine 接管，三模式全支持 */
@@ -409,6 +428,49 @@ async function openFileByDialog() {
   }
 }
 
+// ---------- 预览区文档互链（[PRD](docs/PRD.md)） ----------
+/** 以 baseDir 为基准合并相对段（. / .. / 混合斜杠），产出 Windows 绝对路径 */
+function resolveJoin(baseDir: string, rel: string): string {
+  const parts = baseDir.replace(/[\\/]+$/, '').split(/[\\/]/);
+  for (const seg of rel.split(/[\\/]+/)) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join('\\');
+}
+
+/** 预览区文件路径链接：按当前文档目录解析成绝对路径，走统一打开分流。
+ *  存在性先经 get_file_meta 校验（顺带过权限闸门），避免不存在的路径被
+ *  routeByType 误交系统默认程序。锚点/查询串仅剥除（跨文档锚点定位不做）。 */
+async function onOpenDoc(href: string) {
+  const tab = tabs.activeTab;
+  const baseDir = tab?.path ? tab.path.replace(/[\\/][^\\/]*$/, '') : null;
+  if (!baseDir) {
+    editor.showToast(t('workbench.toast.docLinkNoBase'), 'error');
+    return;
+  }
+  let raw = href;
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    /* 含裸 % 等非法编码时保留原样 */
+  }
+  raw = raw.split('#')[0].split('?')[0];
+  if (!raw) return;
+  const abs =
+    /^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith('\\\\') || raw.startsWith('/')
+      ? raw
+      : resolveJoin(baseDir, raw);
+  try {
+    await getFileMeta(abs);
+  } catch {
+    editor.showToast(t('workbench.toast.docLinkMiss', { path: abs }), 'error');
+    return;
+  }
+  await openFilePath(abs);
+}
+
 function rememberRecent(path: string) {
   const rest = settings.settings.recentFiles.filter((r) => r.path !== path);
   void settings.update({
@@ -417,11 +479,16 @@ function rememberRecent(path: string) {
 }
 
 function newFromTemplate(tpl: MdTemplate) {
-  // 编辑内核=富文本：新建文件走 .mh（wangEditor），Markdown 模板内容不适用，恒空白起步
+  // 编辑内核=富文本：新建 .mh（wangEditor），带出模板 HTML 骨架（contentHtml，双形态见 markdownTemplate.ts）；
+  // 空白文档无 HTML 骨架，维持空白起步。其他模板 Markdown 骨架不适用，走 contentHtml。
   if (settings.settings.editorEngine === 'wangeditor') {
-    tabs.newUntitled('', 'edit', 'mh');
+    const html = tpl.contentHtml ?? '';
+    tabs.newUntitled('', 'edit', 'mh', html);
     editor.setMode('edit');
-    editor.showToast(t('engine.createdMh'), 'success');
+    editor.showToast(
+      html ? t('workbench.toast.createdFromTpl', { name: tpl.name }) : t('engine.createdMh'),
+      'success',
+    );
     return;
   }
   // 空白文档默认直接进编辑模式；其他模板沿用偏好里的默认视图
@@ -1063,6 +1130,9 @@ watch(() => editor.mode, (m) => {
       :sidebar-hidden="!sidebarVisible"
       :code-tab="isCodeTab"
       :no-split="isMhTab"
+      :exportable="canExportHtml"
+      :printable="canPrintPdf"
+      :mode-bar-position="settings.settings.modeBarPosition"
       @toggle-sidebar="sidebarVisible = !sidebarVisible"
       @open-file="openFileByDialog"
       @open-workspace="openWorkspace"
@@ -1100,12 +1170,13 @@ watch(() => editor.mode, (m) => {
         @mousedown="onWsRestoreStart"
       ><i class="ws-restore-line" /></div>
       <div class="center">
-        <TabBar ref="tabBarRef" @close="requestCloseTab" @close-batch="requestCloseBatch" />
-        <div class="editor-area" v-if="tabs.activeTab">
-          <!-- 预览类标签（docx/xlsx/图片）：只读预览，不进编辑器 -->
-          <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :path="tabs.activeTab.path ?? ''" />
-          <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :path="tabs.activeTab.path ?? ''" />
-          <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :path="tabs.activeTab.path ?? ''" />
+        <TabBar ref="tabBarRef" @close="requestCloseTab" @close-batch="requestCloseBatch" @reloaded="flashReloadArea" />
+        <div class="editor-area" :class="{ 'area-reloading': reloadFlash }" v-if="tabs.activeTab">
+          <!-- 预览类标签（docx/xlsx/图片）：只读预览，不进编辑器。
+               :key=reloadSeq：右键「刷新」bump 后重挂，重新经 asset:// 自取字节 -->
+          <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
+          <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
+          <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
           <!-- 文本类标签：md/text/svg 由 md 引擎接管；html 与 code 由代码引擎接管源码侧。
                html/svg 三模式：edit=代码编辑器，split=代码编辑器+Frame，read=Frame
                （编辑器恒挂载不卸载，html-mode 布局类控显隐，:first-child 规则命中编辑器） -->
@@ -1146,6 +1217,7 @@ watch(() => editor.mode, (m) => {
               @html-changed="(h: string) => (editor.previewHtml = h)"
               @toast="(t: string) => editor.showToast(t, 'error')"
               @open-link="onOpenLink"
+              @open-doc="onOpenDoc"
             />
             <WangEditorEngine
               v-if="wangEverMounted"

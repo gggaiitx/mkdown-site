@@ -233,6 +233,13 @@ onBeforeUnmount(onDragEnd);
               </select>
             </div>
             <div class="row">
+              <label>{{ t('settings.modeBarPos') }}</label>
+              <select :value="settings.settings.modeBarPosition" @change="patch({ modeBarPosition: ($event.target as HTMLSelectElement).value as AppSettings['modeBarPosition'] })">
+                <option value="center">{{ t('settings.posCenter') }}</option>
+                <option value="left">{{ t('settings.posLeft') }}</option>
+              </select>
+            </div>
+            <div class="row">
               <label>{{ t('settings.layout') }}</label>
               <select :value="settings.settings.readLayout" @change="patch({ readLayout: ($event.target as HTMLSelectElement).value as AppSettings['readLayout'] })">
                 <option value="narrow">{{ t('settings.layoutNarrow') }}</option>

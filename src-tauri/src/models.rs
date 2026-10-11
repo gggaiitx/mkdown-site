@@ -95,6 +95,10 @@ fn default_read_layout() -> String {
     "medium".into()
 }
 
+fn default_mode_bar_position() -> String {
+    "center".into()
+}
+
 fn default_editor_engine() -> String {
     "markdown".into()
 }
@@ -117,6 +121,9 @@ pub struct AppSettings {
     /// 内容版式（编辑/分栏/阅读通用）："narrow" | "medium" | "wide"（默认 medium）
     #[serde(default = "default_read_layout")]
     pub read_layout: String,
+    /// 顶栏模式切换三按钮组位置："center"（默认）| "left"
+    #[serde(default = "default_mode_bar_position")]
+    pub mode_bar_position: String,
     pub scroll_sync: bool,
     pub word_wrap: bool,
     /// 编辑器顶部功能栏显隐（false = 隐藏，正文区上移）
@@ -140,6 +147,7 @@ impl Default for AppSettings {
             language: "zh-CN".into(),
             preview_theme: "default".into(),
             read_layout: default_read_layout(),
+            mode_bar_position: default_mode_bar_position(),
             scroll_sync: true,
             word_wrap: true,
             show_toolbar: true,

@@ -51,6 +51,8 @@ export interface DocumentTab {
   cursorLine: number;
   /** 内容种类（决定右侧内容区用哪个组件渲染） */
   kind: TabKind;
+  /** 预览类标签的刷新序号：bump 后预览组件经 :key 重挂、重新自取字节 */
+  reloadSeq?: number;
 }
 
 export const useTabsStore = defineStore('tabs', {
@@ -139,9 +141,9 @@ export const useTabsStore = defineStore('tabs', {
       return restored;
     },
     /** 新建未保存文档：kind 由调用方按 settings.editorEngine 决定（markdown→md / wangeditor→mh）；
-     *  mh 为富文本，Markdown 模板内容不适用，恒以空文档起步 */
-    newUntitled(templateContent: string, mode: EditorMode, kind: 'md' | 'mh' = 'md'): DocumentTab {
-      const content = kind === 'mh' ? '' : templateContent;
+     *  md 用 templateContent（Markdown 骨架），mh 用 mhContent（HTML 骨架，缺省空白起步） */
+    newUntitled(templateContent: string, mode: EditorMode, kind: 'md' | 'mh' = 'md', mhContent = ''): DocumentTab {
+      const content = kind === 'mh' ? mhContent : templateContent;
       const tab: DocumentTab = {
         id: nextId(),
         path: null,
@@ -162,6 +164,18 @@ export const useTabsStore = defineStore('tabs', {
     },
     activate(id: string) {
       this.activeId = id;
+    },
+    /** 拖拽换序：将 dragId 标签移动到 targetId 之前/之后（不改变激活状态） */
+    moveTab(dragId: string, targetId: string, place: 'before' | 'after'): void {
+      const from = this.tabs.findIndex((t) => t.id === dragId);
+      if (from < 0 || dragId === targetId) return;
+      const [moved] = this.tabs.splice(from, 1);
+      const to = this.tabs.findIndex((t) => t.id === targetId);
+      if (to < 0) {
+        this.tabs.splice(from, 0, moved); // 目标丢失（并发关闭）：放回原位
+        return;
+      }
+      this.tabs.splice(place === 'after' ? to + 1 : to, 0, moved);
     },
     /** 关闭标签；脏页由调用方先行确认（confirmFn 返回 false 则中止） */
     async closeTab(id: string, confirmFn: () => Promise<boolean> | boolean) {
@@ -210,6 +224,27 @@ export const useTabsStore = defineStore('tabs', {
       if (!tab) return;
       tab.savedContent = content;
       tab.isDirty = false;
+    },
+    /** 刷新标签（重读磁盘，丢弃未保存修改——脏页由调用方先行确认）。
+     *  文本类：read_file 覆盖 content/savedContent，编辑器经 modelValue 外部变更链路回写；
+     *  预览类（docx/xlsx/image，无文本语义）：bump reloadSeq 触发预览组件重挂。
+     *  读盘失败（文件被删/权限不足）原样抛错，由调用方 toast。 */
+    async reloadTab(id: string): Promise<void> {
+      const tab = this.tabs.find((t) => t.id === id);
+      if (!tab?.path) return;
+      if (isPreviewKind(tab.kind)) {
+        tab.reloadSeq = (tab.reloadSeq ?? 0) + 1;
+        return;
+      }
+      const file = await readFile(tab.path);
+      Object.assign(tab, {
+        content: file.content,
+        savedContent: file.content,
+        isDirty: false,
+        encoding: file.encoding,
+        hadBom: file.hadBom,
+        isUtf8: file.isUtf8,
+      });
     },
     updateTab(id: string, patch: Partial<DocumentTab>) {
       const tab = this.tabs.find((t) => t.id === id);
