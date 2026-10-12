@@ -29,7 +29,7 @@ const findField = StateField.define<FindState>({
   },
 });
 
-const MARK_CAP = 2000; // 与 FindBar/全局搜索同量级的上限兜底
+const MARK_CAP = 2000; // 与全局搜索同量级的上限兜底
 const markDeco = Decoration.mark({ class: 'mk-cm-find' });
 
 function buildDecorations(view: EditorView): DecorationSet {

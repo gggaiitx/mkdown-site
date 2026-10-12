@@ -31,6 +31,9 @@ const emit = defineEmits<{
 const rootRef = ref<HTMLElement | null>(null);
 let view: EditorView | null = null;
 
+/** 语言加载请求序号（P1-3）：快速切文件时旧 loader 后返回不得 reconfigure，防语言包错配 */
+let langSeq = 0;
+
 const themeComp = new Compartment();
 const langComp = new Compartment();
 
@@ -50,7 +53,9 @@ function emitCursor(): void {
 }
 
 async function loadLanguage(ext: string): Promise<void> {
+  const mySeq = ++langSeq;
   const extensions = await buildLanguageExtensions(ext);
+  if (mySeq !== langSeq) return; // 过期请求（已切走）：直接丢弃，不 reconfigure
   view?.dispatch({ effects: langComp.reconfigure(extensions) });
 }
 

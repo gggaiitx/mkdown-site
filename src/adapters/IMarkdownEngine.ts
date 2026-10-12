@@ -42,15 +42,5 @@ export interface MarkdownEngineHandle {
   exportPdf(): Promise<void>;
 }
 
-/** 保存管线统一契约（可选实现）：md→Markdown 文本、mh→HTML（DEV §3.3） */
-export interface SaveableEngineHandle {
-  /** 返回应落盘文本：md-editor-v3→Markdown；wangEditor→getHtml()（.mh） */
-  getSaveContent(): string;
-  /** 返回当前视图 HTML（PDF/预览复用） */
-  getViewHtml(): string;
-}
-
-/** 引擎组件对外暴露的方法（defineExpose 契约）：通用必选 + Markdown/保存方法可选 */
-export type EngineHandle = CommonEngineHandle
-  & Partial<MarkdownEngineHandle>
-  & Partial<SaveableEngineHandle>;
+/** 引擎组件对外暴露的方法（defineExpose 契约）：通用必选 + Markdown 方法可选 */
+export type EngineHandle = CommonEngineHandle & Partial<MarkdownEngineHandle>;

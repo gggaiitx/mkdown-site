@@ -13,6 +13,8 @@
  *   mllike → {oCaml,fSharp,sml} | sql → {standardSQL,mySQL,pgSQL,sqlite,msSQL,...} |
  *   stex → {stex,stexMath} | vbscript → {vbScript,vbScriptASP} | webidl → webIDL |
  *   xquery → xQuery | ttcn-cfg → ttcnCfg | haxe → {haxe,hxml} | gas → {gas,gasArm}
+ * 另：asn1 模块导出为**工厂函数**（conf 参数全可选，传 {} 走内置默认关键词表），
+ *   jinja2 / z80 导出名 === 文件名。
  */
 import { StreamLanguage } from '@codemirror/language';
 import type { Extension } from '@codemirror/state';
@@ -35,7 +37,7 @@ function legacy(mod: string, name: string): LangLoader {
   return legacyLoaders[`${mod}:${name}`] ?? (async () => []);
 }
 
-// ── legacy 模块字面量加载器（104 个去重模块；由 gen 脚本生成，手工增改见上表注释）──
+// ── legacy 模块字面量加载器（107 个去重模块；由 gen 脚本生成，手工增改见上表注释）──
 const L_javascript_jsonld: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/javascript')) as Record<string, unknown>).jsonld)];
 const L_xml_xml: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/xml')) as Record<string, unknown>).xml)];
 const L_stylus_stylus: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/stylus')) as Record<string, unknown>).stylus)];
@@ -118,6 +120,7 @@ const L_eiffel_eiffel: LangLoader = async () => [defineLegacy(((await import('@c
 const L_haxe_haxe: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/haxe')) as Record<string, unknown>).haxe)];
 const L_haxe_hxml: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/haxe')) as Record<string, unknown>).hxml)];
 const L_http_http: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/http')) as Record<string, unknown>).http)];
+const L_jinja2_jinja2: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/jinja2')) as Record<string, unknown>).jinja2)];
 const L_livescript_liveScript: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/livescript')) as Record<string, unknown>).liveScript)];
 const L_mathematica_mathematica: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mathematica')) as Record<string, unknown>).mathematica)];
 const L_mbox_mbox: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/mbox')) as Record<string, unknown>).mbox)];
@@ -134,7 +137,14 @@ const L_ttcn_ttcn: LangLoader = async () => [defineLegacy(((await import('@codem
 const L_ttcn_cfg_ttcnCfg: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/ttcn-cfg')) as Record<string, unknown>).ttcnCfg)];
 const L_wast_wast: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/wast')) as Record<string, unknown>).wast)];
 const L_yacas_yacas: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/yacas')) as Record<string, unknown>).yacas)];
+const L_z80_z80: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/z80')) as Record<string, unknown>).z80)];
 const L_apl_apl: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/apl')) as Record<string, unknown>).apl)];
+// asn1 导出为工厂函数：conf 参数全可选，传 {} 走默认关键词表（实测 asn1.js 源码）
+const L_asn1_asn1: LangLoader = async () => {
+  const mod = (await import('@codemirror/legacy-modes/mode/asn1')) as Record<string, unknown>;
+  const factory = mod.asn1 as (conf: Record<string, unknown>) => unknown;
+  return [defineLegacy(factory({}))];
+};
 const L_asciiarmor_asciiArmor: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/asciiarmor')) as Record<string, unknown>).asciiArmor)];
 const L_asterisk_asterisk: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/asterisk')) as Record<string, unknown>).asterisk)];
 const L_brainfuck_brainfuck: LangLoader = async () => [defineLegacy(((await import('@codemirror/legacy-modes/mode/brainfuck')) as Record<string, unknown>).brainfuck)];
@@ -224,6 +234,7 @@ const legacyLoaders: Record<string, LangLoader> = {
   'haxe:haxe': L_haxe_haxe,
   'haxe:hxml': L_haxe_hxml,
   'http:http': L_http_http,
+  'jinja2:jinja2': L_jinja2_jinja2,
   'livescript:liveScript': L_livescript_liveScript,
   'mathematica:mathematica': L_mathematica_mathematica,
   'mbox:mbox': L_mbox_mbox,
@@ -240,7 +251,9 @@ const legacyLoaders: Record<string, LangLoader> = {
   'ttcn-cfg:ttcnCfg': L_ttcn_cfg_ttcnCfg,
   'wast:wast': L_wast_wast,
   'yacas:yacas': L_yacas_yacas,
+  'z80:z80': L_z80_z80,
   'apl:apl': L_apl_apl,
+  'asn1:asn1': L_asn1_asn1,
   'asciiarmor:asciiArmor': L_asciiarmor_asciiArmor,
   'asterisk:asterisk': L_asterisk_asterisk,
   'brainfuck:brainfuck': L_brainfuck_brainfuck,

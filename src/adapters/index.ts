@@ -12,7 +12,6 @@ export type {
   EngineHandle,
   CommonEngineHandle,
   MarkdownEngineHandle,
-  SaveableEngineHandle,
   OutlineItem,
   EditorMode,
   ThemeKind,

@@ -3,7 +3,8 @@
  * 直接按源码匹配会命中标签属性且计数/行号全错——DOMParser 去标签取纯文本。
  *
  * textContent 拼接口径 = WangEditorEngine 查找高亮的 TreeWalker 文本节点 join
- * （两侧行为一致），实体（&nbsp; 等）也同步解码。FindBar 与 SearchHub 共用。
+ * （两侧行为一致），实体（&nbsp; 等）也同步解码。全局搜索（SearchHub）与
+ * 编辑器内查找高亮共用。
  */
 export function htmlPlainText(html: string): string {
   try {

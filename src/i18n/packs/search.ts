@@ -1,5 +1,5 @@
 /**
- * 搜索面板（SearchHub / SearchPanel 共用模块级文案）。
+ * 搜索面板（SearchHub）模块级文案。
  */
 export default {
   zh: {

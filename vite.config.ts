@@ -15,9 +15,13 @@ export default defineConfig({
     include: ['@tauri-apps/api', '@tauri-apps/api/app', '@tauri-apps/api/window', '@tauri-apps/api/core'],
   },
   build: {
-    target: 'chrome105',
+    // chrome105 → chrome120（P2-15）：Tauri 2 的 WebView2 evergreen 远高于 105，
+    // 原锚定过低白放弃 ES 新特性优化；120 与 Tauri 2 最低 WebView2 要求对齐
+    target: 'chrome120',
     minify: 'esbuild',
-    sourcemap: false,
+    // false → 'hidden'（P2-26）：产出 .map 供归档排障，但不带 sourceMappingURL 注释，
+    // 线上环境不会公开加载源图
+    sourcemap: 'hidden',
     rollupOptions: {
       output: {
         manualChunks: {

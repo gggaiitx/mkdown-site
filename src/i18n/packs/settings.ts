@@ -12,6 +12,8 @@ export default {
       title: '设置',
       close: '关闭',
       dragHint: '按住标题栏可拖动',
+      // 持久化
+      persistFailed: '设置保存失败，本次更改可能在退出后丢失',
       // 分区
       sectionAppearance: '外观',
       sectionEditor: '编辑器',
@@ -103,6 +105,8 @@ export default {
       title: 'Settings',
       close: 'Close',
       dragHint: 'Drag by the title bar',
+      // Persistence
+      persistFailed: 'Failed to save settings; these changes may be lost after exiting',
       sectionAppearance: 'Appearance',
       sectionEditor: 'Editor',
       sectionShortcuts: 'Shortcuts',

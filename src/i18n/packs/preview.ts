@@ -7,6 +7,7 @@ export default {
     preview: {
       loading: '加载中…',
       loadFail: '预览失败：{msg}',
+      tooLarge: '文件过大（超过 32MB），无法预览',
       parsingDocx: '正在解析 Word 文档…',
       parsingSheet: '正在解析表格…',
       docxFailHint: '可点击右上角按钮用系统默认程序打开',
@@ -29,6 +30,7 @@ export default {
     preview: {
       loading: 'Loading…',
       loadFail: 'Preview failed: {msg}',
+      tooLarge: 'File too large (over 32MB) to preview',
       parsingDocx: 'Parsing Word document…',
       parsingSheet: 'Parsing spreadsheet…',
       docxFailHint: 'Click the button at the top right to open with the system default app',

@@ -24,6 +24,7 @@ import { savePastedImage } from '../api/imageApi';
 import type { EditorMode, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
 import { useI18n } from '../i18n';
+import { modKey } from '../utils/keyHint';
 
 const props = defineProps<{
   /** .mh 原始 HTML（磁盘口径：相对路径）；未保存新建为空串 */
@@ -57,10 +58,18 @@ const mountKey = ref(0);
 const exportHostVisible = ref(false);
 const exportEditorRef = shallowRef<IDomEditor | null>(null);
 
-/** 编辑器内容（v-model 口径，已是 wangEditor 归一化 HTML） */
-const valueHtml = ref(props.modelValue || '<p><br></p>');
-/** 最近一次由本组件 emit 的内容：外部 watch 回写时跳过，防止光标跳回文档头 */
-let lastEmitted = valueHtml.value;
+/**
+ * 编辑器内容（v-model 口径 = 显示态：图片为 asset:// URL）。
+ * 初始值由磁盘态 props.modelValue 经 htmlToDisplay 转换（P0-2 口径统一）。
+ */
+const valueHtml = ref(htmlToDisplay(props.modelValue) || '<p><br></p>');
+/**
+ * 最近一次由本组件 emit 的内容（磁盘态口径 = 父级持有的 modelValue 值）：
+ * 外部 watch 回写时跳过，防止光标跳回文档头。
+ * 与 valueHtml（显示态）刻意保持不同口径——含本地图片时二者必不相等，
+ * 混用会导致父级每次回写都被误判为"外部变更"而全量重置编辑器（P0-2）。
+ */
+let lastEmitted = props.modelValue || '<p><br></p>';
 
 // ---------- 相对路径 ↔ asset:// ----------
 
@@ -84,11 +93,13 @@ function htmlToDisplay(html: string): string {
     `${attr}=${q}${relToAsset(rel)}${q}`);
 }
 
-/** asset://（本目录内）→ 磁盘 HTML（相对路径），随 assets 目录分发（同 Workbench.deAssetify 口径） */
+/** asset://（本目录内）→ 磁盘 HTML（相对路径），随 assets 目录分发（同 Workbench.deAssetify 口径）。
+ *  前缀同时兼容两种 convertFileSrc 形态（P2-13）：Windows/WebView2 的
+ *  https?://asset.localhost/ 与 macOS/Linux 的 asset://localhost/ */
 function htmlToDisk(html: string): string {
   const dir = docDir();
   if (!dir) return html;
-  return html.replace(/https?:\/\/asset\.localhost\/([^"'\s)>]+)/g, (_m, enc) => {
+  return html.replace(/(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\/([^"'\s)>]+)/g, (_m, enc) => {
     try {
       const abs = decodeURIComponent(enc).replace(/\//g, '\\');
       if (abs.toLowerCase().startsWith(dir.toLowerCase())) {
@@ -146,7 +157,7 @@ function fileToBase64(file: File): Promise<string> {
 
 async function customUpload(file: File, insertFn: (url: string, alt: string, href: string) => void): Promise<void> {
   if (!props.docPath) {
-    emit('toast', t('engine.saveImgFirst', { mod: 'Ctrl' }));
+    emit('toast', t('engine.saveImgFirst', { mod: modKey() }));
     return;
   }
   try {
@@ -196,13 +207,15 @@ watch(
   },
 );
 
-// 外部内容替换（切文件/会话恢复）：仅在与当前内容不同时回写
+// 外部内容替换（切文件/会话恢复）：仅在与当前内容不同时回写。
+// lastEmitted 恒为磁盘态（父级持有值），故父级回写不会被误判为外部变更（P0-2）
 watch(
   () => props.modelValue,
   (v) => {
     const disk = v || '<p><br></p>';
     if (disk === lastEmitted) return;
-    valueHtml.value = disk;
+    // valueHtml 与 setHtml 均走显示态口径（htmlToDisplay），回写分支同样转换（P0-2）
+    valueHtml.value = htmlToDisplay(disk);
     lastEmitted = disk;
     editorRef.value?.setHtml(htmlToDisplay(disk));
   },
@@ -210,8 +223,9 @@ watch(
 
 function onChange(): void {
   const html = editorRef.value?.getHtml() ?? '';
+  // valueHtml 收显示态（v-model 口径，图片 asset://）；lastEmitted 收磁盘态（实际 emit 的值）（P0-2）
   valueHtml.value = html;
-  lastEmitted = html;
+  lastEmitted = htmlToDisk(html);
   emit('update:modelValue', htmlToDisk(html));
   emitOutlineSoon();
   // 查找态存活时随内容编辑刷新高亮 Range（Slate 渲染会复用/重建文本节点，旧 Range 失效）
@@ -227,6 +241,7 @@ function onCreated(editor: IDomEditor): void {
 
 function onExportCreated(editor: IDomEditor): void {
   exportEditorRef.value = editor;
+  // valueHtml 恒为显示态口径（P0-2）：导出宿主直接消费即可正确渲染 asset:// 图片
   editor.setHtml(valueHtml.value);
 }
 
@@ -324,7 +339,7 @@ function insert(text: string): void {
 /** 高亮注册名：全部命中 / 当前命中 */
 const HL_ALL = 'mk-find';
 const HL_CUR = 'mk-find-cur';
-/** 与 FindBar 同量级的命中上限兜底 */
+/** 与全局搜索同量级的命中上限兜底 */
 const FIND_LIMIT = 2000;
 
 /** Highlight API 兼容类型（lib.dom 未覆盖时的运行时兜底，缺失则静默不高亮） */
@@ -374,14 +389,20 @@ function collectRanges(root: HTMLElement, kw: string, cs: boolean): Range[] {
   }
   const hay = (cs ? parts.map((p) => p.text).join('') : parts.map((p) => p.text).join('').toLowerCase());
   let from = 0;
+  // parts 按 offset 有序、命中位置 at/end 随匹配单调递增：推进指针定位所在节点，
+  // 替代每命中一次对 parts 的 findIndex 全扫（P2-17）
+  let pi = 0;
   while (out.length < FIND_LIMIT) {
     const at = hay.indexOf(needle, from);
     if (at < 0) break;
     const end = at + needle.length;
     // 起点所在文本节点：第一个覆盖 at 的分段；终点：第一个覆盖 end 的分段
-    const si = parts.findIndex((p) => at < p.start + p.text.length);
-    const ei = parts.findIndex((p) => end <= p.start + p.text.length);
-    if (si < 0 || ei < 0) break;
+    while (pi < parts.length && at >= parts[pi].start + parts[pi].text.length) pi++;
+    if (pi >= parts.length) break;
+    const si = pi;
+    let ei = si;
+    while (ei < parts.length && end > parts[ei].start + parts[ei].text.length) ei++;
+    if (ei >= parts.length) break;
     const r = document.createRange();
     r.setStart(parts[si].node, at - parts[si].start);
     r.setEnd(parts[ei].node, end - parts[ei].start);
@@ -431,7 +452,7 @@ function clearHighlight(): void {
   reg.delete(HL_CUR);
 }
 
-/** 滚动到第 index 个命中并标记为当前命中（FindBar mh 路由调用） */
+/** 滚动到第 index 个命中并标记为当前命中（宿主 mh 查找路由调用，matchIndex 透传） */
 function scrollToMatch(index: number): void {
   if (!findState || findState.ranges.length === 0) return;
   const i = Math.min(Math.max(index, 0), findState.ranges.length - 1);
@@ -472,8 +493,6 @@ defineExpose({
   clearHighlight,
   exportPdf,
   togglePageFullscreen,
-  getSaveContent: () => htmlToDisk(editorRef.value?.getHtml() ?? valueHtml.value),
-  getViewHtml: () => editorRef.value?.getHtml() ?? valueHtml.value,
 });
 
 onBeforeUnmount(() => {

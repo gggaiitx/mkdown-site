@@ -17,6 +17,7 @@ import '../styles/win-theme.css';
 import { savePastedImage } from '../api/imageApi';
 import { openUrl } from '../api/fileApi';
 import { modKey } from '../utils/keyHint';
+import { extractOutline } from '../utils/outline';
 import type { EditorMode, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
 import { setCurrentDocDir, setupMdRenderer } from './mdRendererConfig';
@@ -152,31 +153,7 @@ const toolbars: ToolbarNames[] = [
   'revoke', 'next', 'save', '=', 'pageFullscreen',
 ];
 
-// ---- 大纲提取（跳过代码块内的 # 行） ----
-function extractOutline(content: string): OutlineItem[] {
-  const items: OutlineItem[] = [];
-  let inCode = false;
-  let index = 0;
-  content.split('\n').forEach((raw, i) => {
-    const line = raw.trimEnd();
-    if (/^(```|~~~)/.test(line.trim())) {
-      inCode = !inCode;
-      return;
-    }
-    if (inCode) return;
-    const m = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (m) {
-      items.push({
-        index: index++,
-        text: m[2].replace(/#+\s*$/, '').trim(),
-        level: m[1].length,
-        line: i + 1,
-      });
-    }
-  });
-  return items;
-}
-
+// ---- 大纲提取（跳过代码块内的 # 行；唯一实现在 utils/outline.ts，P2-20 去重）----
 let outlineTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
   () => props.modelValue,
@@ -467,11 +444,62 @@ watch(
   },
 );
 
-/** 打印 PDF：同步最新内容 → 等渲染 → window.print。三态通用。 */
+/** 导出宿主渲染完成等待者（exportPdf 挂起中；on-html-changed 或轮询兜底唤醒） */
+let exportRenderWake: (() => void) | null = null;
+
+/** 导出宿主 MdPreview 的 on-html-changed：量行高 + 唤醒打印等待（P2-34 事件路径） */
+function onExportPreviewRendered(): void {
+  measureEditLineHeight();
+  const wake = exportRenderWake;
+  exportRenderWake = null;
+  wake?.();
+}
+
+/**
+ * 等导出宿主渲染完成（P2-34）：on-html-changed 事件优先；
+ * 内容未变（无事件触发）时轮询兜底——#export-pdf-preview 文本长度两帧稳定
+ * 且已过最少 500ms（对齐内核 renderDelay）判就绪。mermaid/图片等异步资源的
+ * 继续加载仍由打印对话框弹出前的空档兜底（同原固定等待口径）。
+ */
+function waitExportPreviewReady(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => {
+      exportRenderWake = null;
+      resolve();
+    };
+    exportRenderWake = done;
+    const startedAt = performance.now();
+    const host = document.getElementById('export-pdf-preview');
+    let lastLen = host?.textContent?.length ?? -1;
+    let missFrames = 0; // 宿主缺失计数：防无限 rAF 空转（缺失由调用方 exportPreviewMissing 报错）
+    const tick = (): void => {
+      if (!exportRenderWake) return; // 已被 on-html-changed 唤醒
+      const el = document.getElementById('export-pdf-preview');
+      const len = el?.textContent?.length ?? -1;
+      if (len < 0) {
+        if (++missFrames > 30) {
+          done();
+          return;
+        }
+      } else {
+        missFrames = 0;
+      }
+      const stable = len >= 0 && len === lastLen;
+      lastLen = len;
+      if (stable && performance.now() - startedAt >= 500) {
+        done();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+/** 打印 PDF：同步最新内容 → 等渲染（事件优先、轮询兜底）→ window.print。三态通用。 */
 async function exportPdf(): Promise<void> {
   exportContent.value = props.modelValue;
-  // renderDelay 500ms + 余量；mermaid/图片等异步资源的继续加载由打印对话框弹出前的空档兜底
-  await new Promise((resolve) => setTimeout(resolve, 650));
+  await waitExportPreviewReady();
   if (!document.getElementById('export-pdf-preview')) {
     throw new Error(t('engine.exportPreviewMissing'));
   }
@@ -930,6 +958,16 @@ onBeforeUnmount(() => {
     clearTimeout(resyncTimer);
     resyncTimer = null;
   }
+  // 大纲防抖与导出内容同步定时器（P1-11）：漏清会导致卸载后旧定时器仍
+  // emit('outline') 覆盖新文档大纲 / 改写已切走文档的 exportContent
+  if (outlineTimer) {
+    clearTimeout(outlineTimer);
+    outlineTimer = null;
+  }
+  if (exportSyncTimer) {
+    clearTimeout(exportSyncTimer);
+    exportSyncTimer = null;
+  }
 });
 </script>
 
@@ -989,7 +1027,7 @@ onBeforeUnmount(() => {
           theme="light"
           :preview-theme="previewTheme"
           :language="language"
-          @on-html-changed="measureEditLineHeight"
+          @on-html-changed="onExportPreviewRendered"
         />
       </div>
     </Teleport>
