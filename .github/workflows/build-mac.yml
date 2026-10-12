@@ -2,7 +2,11 @@
 # 前提：仓库托管到 GitHub 后，push 或手动触发（Actions 页 Run workflow）。
 # 产物：.app 打包的 .dmg（Apple Silicon + Intel 双架构），在 Actions 运行页 Artifacts 下载。
 # 说明：Tauri 的 macOS 包只能在 macOS 上编译（Xcode 链路），本机 Windows 无法交叉编译，
-#       故借用 GitHub 免费的 macos-14 运行器。
+#       故借用 GitHub 免费的 macos-14 运行器（macos-13 已退役，勿改回）。
+#       签名/公证：当前 dmg **未做 Apple 代码签名与公证**（需 Apple Developer 凭证，
+#       属发布流程后续项，不在 CI 伪造签名）。未公证产物首次打开会被 Gatekeeper
+#       拦截，用户需右键打开或 `xattr -cr`；应用内自动更新侧的应对见
+#       src-tauri/src/commands/update_cmd.rs 的 macOS 分支注释。
 
 name: build-mac
 
@@ -46,6 +50,18 @@ jobs:
 
       - name: 安装前端依赖
         run: npm ci
+
+      # —— 依赖审计（P2-5，报告级：只警告不阻断）——
+      # 与 build-windows 同口径；待依赖整改后收紧为阻断门禁。
+      - name: 依赖审计（npm，报告级）
+        run: npm audit --audit-level=high || echo "::warning::npm audit findings (report-only)"
+
+      - name: 依赖审计（cargo，报告级）
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: src-tauri
+        continue-on-error: true
 
       - name: 构建（dmg）
         run: |

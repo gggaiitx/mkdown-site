@@ -1,3 +1,12 @@
+//! 应用内更新：检查 → 下载 → 静默安装重启。
+//!
+//! **安全边界与已知限制（P2-3，风险记录在案）**：
+//! 安装包**无签名校验、无完整性校验（哈希/大小均不验）**，传输层仅依赖
+//! 「HTTPS + GitHub 官方域名白名单（github.com / objects.githubusercontent.com）」
+//! 双重约束。这意味着能控制 GitHub Release 资产、或对该白名单域名持有有效
+//! 证书实施中间人的攻击者，可投放任意安装包并被本模块直接执行。
+//! 后续工作：发布流水线引入 minisign 签名、应用内下载后验签再执行；
+//! 该项落地前，以上风险以本文档明示，不再静默。
 use serde::Serialize;
 use tauri::Emitter;
 
@@ -25,6 +34,75 @@ const RELEASES_API: &str =
     "https://api.github.com/repos/gggaiitx/mkdown-site/releases/latest";
 const RELEASES_PAGE: &str = "https://github.com/gggaiitx/mkdown-site/releases";
 
+/// HTTP 非 2xx 按状态码分类（P2-11）：4xx = 地址/参数问题（InvalidArg），
+/// 5xx = 服务端故障（Io）。旧代码一律映射 InvalidArg，服务端抖动被误报成参数错误。
+fn http_status_error(what: &str, status: reqwest::StatusCode) -> AppError {
+    if status.is_client_error() {
+        AppError::InvalidArg(format!("{what} 返回状态 {status}"))
+    } else {
+        AppError::Io(format!("{what} 返回状态 {status}"))
+    }
+}
+
+/// 下载 URL 白名单校验（P0-1/P1-4）：仅 https 协议 + GitHub 官方域名。
+/// host 取 `://` 与下一个 `/` 之间（端口/用户信息形态白名单域不存在，自然被拒）。
+/// 按**域边界**匹配而非裸后缀：`evilgithub.com` 也以 `github.com` 结尾，
+/// 裸 `ends_with` 会放行，故要求 host 等于白名单域本身、或以 `.` + 白名单域结尾。
+/// 手写字符串解析，不引 url crate：判定只需要协议与 host 两段。
+fn validate_download_url(url: &str) -> AppResult<()> {
+    const ALLOWED_HOSTS: [&str; 2] = ["github.com", "objects.githubusercontent.com"];
+
+    // scheme 大小写不敏感（RFC 3986），先归一再判协议
+    if !url[..url.len().min(8)].eq_ignore_ascii_case("https://") {
+        return Err(AppError::InvalidArg(format!(
+            "下载地址仅支持 https 协议: {url}"
+        )));
+    }
+    let rest = &url["https://".len()..];
+    let host = rest.split('/').next().unwrap_or("").to_ascii_lowercase();
+    let allowed = ALLOWED_HOSTS.iter().any(|d| {
+        host == *d
+            || (host.len() > d.len()
+                && host.ends_with(d)
+                && host.as_bytes()[host.len() - d.len() - 1] == b'.')
+    });
+    if !allowed {
+        return Err(AppError::InvalidArg(format!(
+            "下载地址不在允许的 GitHub 域名白名单内: {url}"
+        )));
+    }
+    Ok(())
+}
+
+/// 下载安装包的固定文件名（按平台区分）：Windows=NSIS exe / macOS=dmg。
+/// download_update 写、apply_update 认，两侧共用同一函数，避免路径口径漂移。
+fn update_installer_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "mkdown-update.dmg"
+    } else {
+        "mkdown-update-setup.exe"
+    }
+}
+
+/// 本次下载的固定目标路径（apply_update 的合法入参有且仅有这一个）
+fn expected_installer_path() -> std::path::PathBuf {
+    std::env::temp_dir().join(update_installer_name())
+}
+
+/// 路径等价判定：Windows 大小写不敏感且 `/`/`\` 两种分隔符并存，归一后比较；
+/// Unix 语义下精确比较。
+fn same_installer_path(got: &std::path::Path, expected: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        let norm = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/").to_lowercase();
+        norm(got) == norm(expected)
+    }
+    #[cfg(not(windows))]
+    {
+        got == expected
+    }
+}
+
 /// 查询 GitHub 仓库最新 Release。
 ///
 /// webview 的 CSP 仅放行 ipc:/asset:，前端无法直连 api.github.com，
@@ -45,10 +123,7 @@ pub async fn check_update() -> AppResult<UpdateInfo> {
         .map_err(|e| AppError::Io(format!("检查更新失败: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::InvalidArg(format!(
-            "GitHub 返回状态 {}",
-            resp.status()
-        )));
+        return Err(http_status_error("GitHub", resp.status()));
     }
 
     let json: serde_json::Value = resp
@@ -105,6 +180,10 @@ pub async fn check_update() -> AppResult<UpdateInfo> {
 /// 下载体量约数 MB，整体放入内存后一次性落盘，逻辑简单且避免引入异步文件写依赖。
 #[tauri::command]
 pub async fn download_update(download_url: String, app: tauri::AppHandle) -> AppResult<String> {
+    // 供应链前置校验：仅放行 https 的 GitHub 官方域名（P0-1/P1-4）。
+    // 必须在发起请求前完成，避免把用户流量带向任意主机。
+    validate_download_url(&download_url)?;
+
     let client = reqwest::Client::builder()
         .user_agent("mkdown-updater")
         .build()
@@ -116,15 +195,15 @@ pub async fn download_update(download_url: String, app: tauri::AppHandle) -> App
         .await
         .map_err(|e| AppError::Io(format!("开始下载失败: {e}")))?;
     if !resp.status().is_success() {
-        return Err(AppError::InvalidArg(format!(
-            "下载地址返回状态 {}",
-            resp.status()
-        )));
+        return Err(http_status_error("下载地址", resp.status()));
     }
 
     let total = resp.content_length().unwrap_or(0);
     let mut stream = resp.bytes_stream();
-    let mut data: Vec<u8> = Vec::with_capacity(total as usize);
+    // 不信任 Content-Length 预分配：异常/恶意响应头（如声明数 GB）可致
+    // 分配失败直接 abort（capacity overflow，release 下同样致命），
+    // 改 Vec::new() 渐进 extend，由实际流量决定增长（P1-4）。
+    let mut data: Vec<u8> = Vec::new();
     let mut downloaded: u64 = 0;
 
     use futures_util::StreamExt;
@@ -140,12 +219,7 @@ pub async fn download_update(download_url: String, app: tauri::AppHandle) -> App
     }
 
     // 临时文件名按平台区分（Windows=NSIS exe / macOS=dmg），apply_update 依赖该产物类型
-    let file_name = if cfg!(target_os = "macos") {
-        "mkdown-update.dmg"
-    } else {
-        "mkdown-update-setup.exe"
-    };
-    let tmp = std::env::temp_dir().join(file_name);
+    let tmp = expected_installer_path();
     std::fs::write(&tmp, &data).map_err(AppError::from)?;
     Ok(tmp.to_string_lossy().to_string())
 }
@@ -154,6 +228,16 @@ pub async fn download_update(download_url: String, app: tauri::AppHandle) -> App
 /// 两个平台共用同一契约：先脱钩执行「安装 → 重启」脚本，再退出当前进程。
 #[tauri::command]
 pub fn apply_update(installer_path: String) -> AppResult<()> {
+    // ADR-01：前端不可借 IPC 触达任意路径。installer_path 必须恰好等于本次
+    // download_update 写出的固定临时路径，否则拒绝执行——否则"前端可控路径
+    // → 直接执行任意本地 exe"即成立（P0-1）。
+    let expected = expected_installer_path();
+    if !same_installer_path(std::path::Path::new(&installer_path), &expected) {
+        return Err(AppError::InvalidArg(format!(
+            "安装包路径不合法：仅允许应用内更新下载的 {}",
+            expected.display()
+        )));
+    }
     if !std::path::Path::new(&installer_path).exists() {
         return Err(AppError::InvalidArg(format!(
             "安装包不存在: {installer_path}"
@@ -271,4 +355,65 @@ fn apply_update_macos(installer_path: String) -> AppResult<()> {
 
     // 退出当前进程，控制权交给脚本完成替换与重启
     std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_url_whitelist_accepts_github_official_hosts() {
+        let ok = [
+            "https://github.com/gggaiitx/mkdown-site/releases/download/v0.5.5/Mkdown_0.5.5_x64-setup.exe",
+            "https://objects.githubusercontent.com/gh/gggaiitx/mkdown-site/x.exe",
+            "https://GITHUB.COM/x", // scheme/host 大小写不敏感
+        ];
+        for u in ok {
+            assert!(validate_download_url(u).is_ok(), "应放行: {u}");
+        }
+    }
+
+    #[test]
+    fn download_url_whitelist_rejects_non_github_and_plain_http() {
+        let bad = [
+            "http://github.com/x",           // 明文协议
+            "https://evil.com/github.com/x", // 路径伪装
+            "https://github.com.evil.com/x", // 后缀形似非本域
+            "https://evilgithub.com/x",      // 裸 ends_with 会误放的陷阱
+            "https://user@github.com/x",     // 用户信息形态
+            "ftp://github.com/x",
+            "github.com/x",
+            "",
+        ];
+        for u in bad {
+            assert!(validate_download_url(u).is_err(), "应拒绝: {u}");
+        }
+    }
+
+    #[test]
+    fn installer_path_must_equal_fixed_download_path() {
+        let expected = expected_installer_path();
+        assert!(same_installer_path(&expected, &expected));
+        assert!(!same_installer_path(
+            std::path::Path::new("/tmp/evil-setup.exe"),
+            &expected
+        ));
+        #[cfg(windows)]
+        {
+            // Windows：大小写与分隔符差异不拒（前端回传可能被规范化）
+            let weird = expected
+                .to_string_lossy()
+                .to_lowercase()
+                .replace('/', "\\");
+            assert!(same_installer_path(std::path::Path::new(&weird), &expected));
+        }
+    }
+
+    #[test]
+    fn http_status_error_classifies_4xx_and_5xx() {
+        let e4 = http_status_error("下载地址", reqwest::StatusCode::NOT_FOUND);
+        assert!(matches!(e4, AppError::InvalidArg(_)));
+        let e5 = http_status_error("下载地址", reqwest::StatusCode::BAD_GATEWAY);
+        assert!(matches!(e5, AppError::Io(_)));
+    }
 }

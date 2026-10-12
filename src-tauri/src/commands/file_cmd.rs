@@ -10,7 +10,8 @@ use crate::services::fs_service;
 use crate::state::AppState;
 
 /// 把阻塞型文件 IO 挪出 async runtime，避免网络盘/大目录操作把整个 runtime 拖住。
-async fn spawn_io<T: Send + 'static>(
+/// pub(crate)：settings/session 等命令的同步 IO 同样经此入 blocking 池（P1-5）。
+pub(crate) async fn spawn_io<T: Send + 'static>(
     f: impl FnOnce() -> AppResult<T> + Send + 'static,
 ) -> AppResult<T> {
     spawn_blocking(f)
@@ -29,7 +30,8 @@ async fn spawn_dialog<T: Send + 'static>(
 
 /// 用户经对话框显式选中的位置即视为授权：把目标所在目录加入白名单，
 /// 后续读写不必重复授权（ADR-01 所说的"用户显式意图"授权点）。
-fn grant_picked(state: &State<'_, AppState>, picked: &std::path::Path) {
+/// pub(crate)：export_html 等导出路径保存后同样需要补登记（P2-9）。
+pub(crate) fn grant_picked(state: &State<'_, AppState>, picked: &std::path::Path) {
     if let Some(dir) = picked.parent() {
         state.grant_root(dir);
     }
@@ -40,19 +42,25 @@ pub async fn read_file(path: String, state: State<'_, AppState>) -> AppResult<Fi
     let p = PathBuf::from(&path);
     state.ensure_allowed(&p)?;
     spawn_io(move || {
+        use std::io::Read;
         if !p.is_file() {
             return Err(AppError::NotFound(format!("文件不存在: {path}")));
         }
-        let meta = fs::metadata(&p)?;
-        // 与 is_text_file 同一闸门：超限文件不该被整读进编辑器（ADR-02 降级策略）
-        if meta.len() > fs_service::MAX_TEXT_BYTES {
+        // 与 is_text_file 同一闸门：超限文件不该被整读进编辑器（ADR-02 降级策略）。
+        // 实现用「限量读」而非「metadata 检查 + 全量 read」：后者是 check-then-read
+        // 竞态，活跃追加的日志文件在两步之间增长即可越过闸门被整读进内存（P1-6）。
+        // 多读 1 字节用于区分「恰好等于上限」与「超出上限」。
+        let f = fs::File::open(&p)?;
+        let mut buf = Vec::new();
+        f.take(fs_service::MAX_TEXT_BYTES + 1).read_to_end(&mut buf)?;
+        if buf.len() as u64 > fs_service::MAX_TEXT_BYTES {
             return Err(AppError::Unsupported(format!(
-                "文件过大（{} 字节，上限 {} 字节）：请用系统默认程序打开",
-                meta.len(),
+                "文件过大（超过 {} 字节）：请用系统默认程序打开",
                 fs_service::MAX_TEXT_BYTES
             )));
         }
-        let det = fs_service::read_text(&p)?;
+        let det = fs_service::detect_text(&buf);
+        let meta = fs::metadata(&p)?;
         Ok(FileContent {
             path,
             content: det.content,

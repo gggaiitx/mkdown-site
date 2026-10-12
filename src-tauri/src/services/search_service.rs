@@ -189,7 +189,10 @@ where
                 {
                     return WalkState::Continue;
                 }
-                if !path.is_file() {
+                // entry.file_type() 取遍历时点的目录项类型（symlink_metadata 语义，
+                // 不跟随符号链接）；path.is_file()/metadata() 会跟随，授权目录内
+                // 预置指向白名单外的 symlink 即可越权回传内容（P2-1）
+                if !entry.file_type().is_some_and(|ft| ft.is_file()) {
                     return WalkState::Continue;
                 }
                 // 类型过滤：二进制资源（dll/png/class…）不进入检索
@@ -253,7 +256,8 @@ pub fn warm(root: &str) -> AppResult<usize> {
                 {
                     return WalkState::Continue;
                 }
-                if !path.is_file() {
+                // 同 search()：不跟随符号链接判定文件类型（P2-1）
+                if !entry.file_type().is_some_and(|ft| ft.is_file()) {
                     return WalkState::Continue;
                 }
                 // 只缓存办公文档：纯文本读取本身很快，缓存收益不足以抵消写盘成本
@@ -322,14 +326,21 @@ fn search_file<F: Fn(SearchHit)>(path: &Path, kind: FileKind, root: &Path, ctx: 
                     if stop.load(Ordering::Relaxed) {
                         return Ok(false);
                     }
-                    let line = line.trim_end_matches(['\r', '\n']);
-                    let Some(m) = matcher.find(line.as_bytes()).ok().flatten() else {
+                    // 与慢路径统一口径：列号与行文本都按 raw.trim() 后的行内容计，
+                    // 前导空白不计入列号（旧快路径含前导空白，与慢路径扣减口径不一致）
+                    let raw = line.trim_end_matches(['\r', '\n']);
+                    let Some(m) = matcher.find(raw.as_bytes()).ok().flatten() else {
                         return Ok(true);
                     };
-                    // 字节偏移 → 字符列（前端按字符定位）
-                    let cs = line[..m.start()].chars().count();
-                    let ce = line[..m.end()].chars().count();
-                    let hit = make_hit(&path_str, &rel, line_num as usize, line, cs, ce);
+                    // 前导空白被 trim 掉的字符数（列号需相应扣减）
+                    let lead = raw.len() - raw.trim_start().len();
+                    let lead_chars = raw[..lead].chars().count();
+                    // 字节偏移 → 字符列（前端按字符定位）。
+                    // 匹配可能落进行前导空白内部（\s+、.* 等正则），扣减必须
+                    // saturating_sub：否则 usize 下溢（debug panic / release 回绕）
+                    let cs = raw[..m.start()].chars().count().saturating_sub(lead_chars);
+                    let ce = raw[..m.end()].chars().count().saturating_sub(lead_chars);
+                    let hit = make_hit(&path_str, &rel, line_num as usize, raw.trim(), cs, ce);
                     record_hit(ctx.total, ctx.stop, ctx.max_results);
                     (ctx.emit)(hit);
                     if stop.load(Ordering::Relaxed) {
@@ -381,8 +392,16 @@ fn scan_text<F: Fn(SearchHit)>(text: &str, path_str: &str, rel: &str, ctx: &Scan
         // 前导空白被 trim 掉的字符数（列号需相应扣减）
         let lead_bytes = raw.len() - raw.trim_start().len();
         let lead = raw[..lead_bytes].chars().count();
-        let cs = text[line_start..m.start()].chars().count() - lead;
-        let ce = text[line_start..m.end()].chars().count() - lead;
+        // 匹配落进行前导空白内部时（\s+、.* 等正则）扣减会下溢，必须
+        // saturating_sub（P1-2：debug panic / release 列号回绕成巨值）
+        let cs = text[line_start..m.start()]
+            .chars()
+            .count()
+            .saturating_sub(lead);
+        let ce = text[line_start..m.end()]
+            .chars()
+            .count()
+            .saturating_sub(lead);
         let hit = make_hit(path_str, rel, line_no, line, cs, ce);
         record_hit(ctx.total, ctx.stop, ctx.max_results);
         (ctx.emit)(hit);
@@ -570,5 +589,57 @@ mod tests {
         assert!(hits
             .iter()
             .any(|h| h.rel_path.contains(".NET互联网审方技术文档")));
+    }
+
+    /// 快慢路径统一口径：列号按 raw.trim() 后的行内容计（前导空白不计列）。
+    /// 旧快路径含前导空白、慢路径扣减，两径对同一文件给出不同列号。
+    #[test]
+    fn column_is_trim_based_in_both_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        mkfile(dir.path(), "fast.md", "第一行\n    审方中心\n第三行");
+        // 慢路径（GBK 编码）：同样带前导空白（命中在第二行）
+        let (enc, _, _) = encoding_rs::GBK.encode("第一行\n    审方中心\n");
+        fs::write(dir.path().join("slow.md"), enc).unwrap();
+
+        let q = SearchQuery {
+            root: dir.path().to_string_lossy().into_owned(),
+            query: "审方中心".into(),
+            case_sensitive: false,
+            is_regex: false,
+            include_glob: Some("*.md".into()),
+            max_results: None,
+        };
+        let (n, hits) = run_search(&q);
+        assert_eq!(
+            n, 2,
+            "快慢路径都应命中: {:?}",
+            hits.iter().map(|h| h.rel_path.clone()).collect::<Vec<_>>()
+        );
+        for h in &hits {
+            assert_eq!(h.line, 2);
+            assert_eq!(h.column, 1, "{:?} 列号应为 trim 后口径", h.rel_path);
+            assert_eq!(h.line_text, "审方中心");
+        }
+    }
+
+    /// 回归 P1-2：正则匹配起点落在前导空白内部（`\s+`）时，
+    /// 旧代码 `chars().count() - lead` usize 下溢——debug 直接 panic，
+    /// release 列号回绕成巨值。现在应 clamp 到行首。
+    #[test]
+    fn match_inside_leading_whitespace_does_not_underflow() {
+        let dir = tempfile::tempdir().unwrap();
+        mkfile(dir.path(), "re.md", "    审方中心\n");
+        let q = SearchQuery {
+            root: dir.path().to_string_lossy().into_owned(),
+            query: r"\s+审方".into(),
+            case_sensitive: false,
+            is_regex: true,
+            include_glob: Some("*.md".into()),
+            max_results: None,
+        };
+        let (n, hits) = run_search(&q);
+        assert_eq!(n, 1);
+        assert_eq!(hits[0].column, 1, "匹配含前导空白时列号 clamp 到行首");
+        assert_eq!(hits[0].match_start, 0);
     }
 }

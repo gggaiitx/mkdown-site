@@ -24,12 +24,39 @@ fn is_skipped_file(name: &str) -> bool {
     name.starts_with("~$")
 }
 
+/// Windows 保留设备名（大小写不敏感，任意扩展名）：CON.txt 同样拒——
+/// 这类名字建得出来但普通程序打不开，资源管理器也会行为错乱。
+/// 覆盖经典名单 CON/PRN/AUX/NUL + COM1-9/LPT1-9（COM0/LPT0 现代 Windows 亦保留，
+/// 但历史行为不一，从紧只收清单内项，避免误伤正常命名）。
+const RESERVED_DEVICE_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
 fn validate_name(name: &str) -> AppResult<()> {
     if name.trim().is_empty() {
         return Err(AppError::InvalidArg("名称不能为空".into()));
     }
     if name.chars().any(|c| "\\/:*?\"<>|".contains(c)) {
         return Err(AppError::InvalidArg(format!("名称含非法字符: {name}")));
+    }
+    // 尾点/尾空格：Windows 创建时会静默剥掉，造成"建了却打不开/删不掉"的幽灵条目
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Err(AppError::InvalidArg(format!(
+            "名称不能以点或空格结尾: {name}"
+        )));
+    }
+    // 保留设备名：取首个 '.' 前的主名，大小写不敏感精确比对（任意扩展名都拒）。
+    // 不做 trim——"CON .txt" 在 Windows 并非设备名（尾剥离只作用于整段末尾），
+    // 精确比对与平台语义一致，也避免误伤 "COM1 备份" 这类正常命名。
+    let stem = name.split('.').next().unwrap_or("");
+    if RESERVED_DEVICE_NAMES
+        .iter()
+        .any(|r| stem.eq_ignore_ascii_case(r))
+    {
+        return Err(AppError::InvalidArg(format!(
+            "名称是 Windows 保留设备名，禁止使用: {name}"
+        )));
     }
     Ok(())
 }
@@ -292,6 +319,36 @@ mod tests {
             assert!(
                 create_entry(dir.path(), bad, NodeKind::File).is_err(),
                 "应拒绝: {bad}"
+            );
+        }
+    }
+
+    /// Windows 保留设备名（任意扩展名、大小写不敏感）与尾点/尾空格一律拒
+    #[test]
+    fn reserved_device_names_and_trailing_chars_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = [
+            "CON", "con.txt", "PRN.md", "aux", "NUL.log", "nul.",
+            "COM1", "com9.txt", "LPT1", "lpt9.doc",
+            "a.", "a ", "方案.", "方案 ",
+        ];
+        for b in bad {
+            assert!(
+                create_entry(dir.path(), b, NodeKind::File).is_err(),
+                "应拒绝: {b}"
+            );
+            // 重命名入口同样过 validate_name（目标不存在也会先拒非法名）
+            assert!(
+                rename_entry(&dir.path().join("whatever"), b).is_err(),
+                "重命名应拒绝: {b}"
+            );
+        }
+        // 形似但非保留名 / 序号超范围的必须放行
+        let ok = ["CONS.md", "com10.txt", "LPT10", "COM0", "a.b", "正常.md", "con sole.md"];
+        for g in ok {
+            assert!(
+                create_entry(dir.path(), g, NodeKind::File).is_ok(),
+                "应允许: {g}"
             );
         }
     }

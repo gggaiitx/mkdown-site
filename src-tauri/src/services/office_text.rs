@@ -17,66 +17,87 @@
 //!
 //! 约定：回调的每一项对应一条"可展示的行"。对 Office 文档而言行号 = 段落/单元格
 //! 序号（不是屏幕行），命中跳转按段落定位。
+//!
+//! 安全上限（P2-16）：除单部件 32MB 外，还有**累计解压总量**（256MB）、
+//! **总行数**与**抽取文本总长**三重上限。高压缩比恶意 zip（32MB 文件解出
+//! 数 GB）可撑爆内存，超限即中止抽取并返回 `Unsupported` 错误，由调用方
+//! 跳过该文件（search_cache 侧留痕）。
 
 use std::borrow::Cow;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 
+use crate::error::{AppError, AppResult};
+
 /// 单个 XML 部件的大小上限，防止异常包把内存打爆
 const MAX_PART_BYTES: usize = 32 * 1024 * 1024;
+/// 累计解压总量上限（各部件读取字节数之和）：单部件上限管不住部件数量，
+/// 恶意包可用成百上千个 32MB 部件把累计量推到 GB 级（P2-16）
+const MAX_TOTAL_DECOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+/// 总行数上限：行数爆炸同样撑爆下游（缓存落盘 / 检索扫描）
+const MAX_TOTAL_LINES: usize = 500_000;
+/// 抽取文本总长上限（字节）：与总行数双闸门，取先到者
+const MAX_TOTAL_TEXT_BYTES: usize = 16 * 1024 * 1024;
 
-/// 逐行回调。`visit` 返回 false 表示"够了，停止"。函数返回是否产出过至少一行。
-pub fn for_each_line(path: &Path, mut visit: impl FnMut(&str) -> bool) -> bool {
+/// 逐行回调。`visit` 返回 false 表示"够了，停止"。
+/// 函数返回是否产出过至少一行；超限返回 `Unsupported` 错误（调用方应中止）。
+pub fn for_each_line(path: &Path, mut visit: impl FnMut(&str) -> bool) -> AppResult<bool> {
     let Some(ext) = path.extension() else {
-        return false;
+        return Ok(false);
     };
     let ext = ext.to_string_lossy().to_lowercase();
     match ext.as_str() {
         "docx" | "xlsx" | "pptx" => for_each_ooxml_line(path, &ext, &mut visit),
         "doc" | "xls" | "ppt" => {
             let Ok(bytes) = fs::read(path) else {
-                return false;
+                return Ok(false);
             };
             if !is_ole(&bytes) {
-                return false; // 实为 RTF/HTML/docx 的"假 .doc"，不做误判
+                return Ok(false); // 实为 RTF/HTML/docx 的"假 .doc"，不做误判
             }
-            for_each_ole_line(&bytes, visit)
+            Ok(for_each_ole_line(&bytes, visit))
         }
-        _ => false,
+        _ => Ok(false),
     }
 }
 
 /// 一次性取回全部行。仅测试/调试使用（生产路径请用 [`for_each_line`]），
 /// 故不参与非测试构建，避免 dead_code 警告。
 #[cfg(test)]
-pub fn extract_lines(path: &Path) -> Option<Vec<String>> {
+pub fn extract_lines(path: &Path) -> AppResult<Option<Vec<String>>> {
     let mut out = Vec::new();
     let any = for_each_line(path, |line| {
         out.push(line.to_string());
         true
-    });
-    if any {
-        Some(out)
-    } else {
-        None
-    }
+    })?;
+    Ok(any.then_some(out))
 }
 
 /// 抽取整篇正文为单个字符串（行间以 `\n` 分隔）。供检索缓存落盘使用：
 /// 缓存只需存文本，行号由消费方按 `\n` 还原。
-pub fn extract_text(path: &Path) -> Option<String> {
+/// 行数/文本总长在上限内累积，超限返回 `Unsupported`（防恶意包撑爆内存，P2-16）。
+pub fn extract_text(path: &Path) -> AppResult<Option<String>> {
     let mut out = String::new();
+    let mut lines = 0usize;
+    let mut over_limit = false;
     let any = for_each_line(path, |line| {
         out.push_str(line);
         out.push('\n');
+        lines += 1;
+        if lines > MAX_TOTAL_LINES || out.len() > MAX_TOTAL_TEXT_BYTES {
+            over_limit = true; // 通知上层停止，错误在循环外统一抛出
+            return false;
+        }
         true
-    });
-    if any {
-        Some(out)
-    } else {
-        None
+    })?;
+    if over_limit {
+        return Err(AppError::Unsupported(format!(
+            "抽取文本超限（>{MAX_TOTAL_LINES} 行或 >{MAX_TOTAL_TEXT_BYTES} 字节），已中止: {}",
+            path.display()
+        )));
     }
+    Ok(any.then_some(out))
 }
 
 /// OLE 复合文档魔数 D0 CF 11 E0 A1 B1 1A E1
@@ -132,12 +153,12 @@ fn part_spec(name: &str, ext: &str) -> Option<&'static [&'static str]> {
     }
 }
 
-fn for_each_ooxml_line(path: &Path, ext: &str, visit: &mut impl FnMut(&str) -> bool) -> bool {
+fn for_each_ooxml_line(path: &Path, ext: &str, visit: &mut impl FnMut(&str) -> bool) -> AppResult<bool> {
     let Ok(file) = fs::File::open(path) else {
-        return false;
+        return Ok(false);
     };
     let Ok(mut zip) = zip::ZipArchive::new(file) else {
-        return false;
+        return Ok(false);
     };
     // 先收集名字再逐个读：借用检查不允许遍历时持有 zip 的可变借用
     let mut names: Vec<String> = (0..zip.len())
@@ -147,6 +168,9 @@ fn for_each_ooxml_line(path: &Path, ext: &str, visit: &mut impl FnMut(&str) -> b
 
     let mut emitted = false;
     let mut buf: Vec<u8> = Vec::new();
+    // 累计解压量：单部件最多贡献 MAX_PART_BYTES，部件数量不设限，
+    // 累计闸门防"千百个 32MB 部件"的高压缩比恶意包（P2-16）
+    let mut total_bytes: usize = 0;
     for name in names {
         let Some(break_tags) = part_spec(&name, ext) else {
             continue;
@@ -158,6 +182,13 @@ fn for_each_ooxml_line(path: &Path, ext: &str, visit: &mut impl FnMut(&str) -> b
         };
         if !read_ok {
             continue;
+        }
+        total_bytes += buf.len();
+        if total_bytes > MAX_TOTAL_DECOMPRESSED_BYTES {
+            return Err(AppError::Unsupported(format!(
+                "累计解压量超限（>{MAX_TOTAL_DECOMPRESSED_BYTES} 字节），已中止: {}",
+                path.display()
+            )));
         }
         // 合法 UTF-8 直接借用，省一次整包拷贝
         let xml: Cow<str> = match std::str::from_utf8(&buf) {
@@ -172,11 +203,11 @@ fn for_each_ooxml_line(path: &Path, ext: &str, visit: &mut impl FnMut(&str) -> b
             }
             emitted = true;
             if !visit(line) {
-                return emitted;
+                return Ok(emitted);
             }
         }
     }
-    emitted
+    Ok(emitted)
 }
 
 /// 极简 XML → 文本：遇到 `break_tags` 里的标签名换成换行，其余标签换成空格，
@@ -402,10 +433,69 @@ mod tests {
             std::io::Write::write_all(&mut zw, xml.as_bytes()).unwrap();
             zw.finish().unwrap();
         }
-        let lines = extract_lines(&path).unwrap();
+        let lines = extract_lines(&path).unwrap().unwrap();
         assert_eq!(
             lines,
             vec!["区域审方中心建设方案", "合理用药监测与药师审方干预"]
+        );
+    }
+
+    /// 高压缩比恶意包（P2-16）：9 个 33MB 全空部件，单部件均不超 32MB 读取上限，
+    /// 累计 288MB > 256MB 必须中止并报错。填充用空格：trim 后无正文产出，
+    /// 确保触发的是累计解压上限而非文本总量上限。
+    #[test]
+    fn ooxml_cumulative_decompressed_limit_aborts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bomb.docx");
+        {
+            let f = fs::File::create(&path).unwrap();
+            let mut zw = zip::ZipWriter::new(f);
+            let spaces = vec![b' '; 1024 * 1024];
+            for i in 0..9 {
+                zw.start_file(
+                    format!("word/header{i}.xml"),
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+                for _ in 0..33 {
+                    std::io::Write::write_all(&mut zw, &spaces).unwrap();
+                }
+            }
+            zw.finish().unwrap();
+        }
+        let err = extract_text(&path).unwrap_err();
+        assert!(
+            matches!(err, AppError::Unsupported(_)),
+            "累计解压超限应报 Unsupported: {err}"
+        );
+    }
+
+    /// 行数上限（P2-16）：单部件 60 万段落（XML 仅约 12MB，远低于部件上限），
+    /// 超过 50 万行必须中止并报错，防止行数爆炸撑爆下游缓存/扫描。
+    #[test]
+    fn ooxml_line_limit_aborts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("many.docx");
+        {
+            let f = fs::File::create(&path).unwrap();
+            let mut zw = zip::ZipWriter::new(f);
+            zw.start_file(
+                "word/document.xml",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            let mut xml = String::from("<w:document><w:body>");
+            for _ in 0..600_000 {
+                xml.push_str("<w:p><w:t>行</w:t></w:p>");
+            }
+            xml.push_str("</w:body></w:document>");
+            std::io::Write::write_all(&mut zw, xml.as_bytes()).unwrap();
+            zw.finish().unwrap();
+        }
+        let err = extract_text(&path).unwrap_err();
+        assert!(
+            matches!(err, AppError::Unsupported(_)),
+            "行数超限应报 Unsupported: {err}"
         );
     }
 }

@@ -11,7 +11,7 @@
 //! 相比「中文分词 + 倒排索引」方案：后者检索能到毫秒级，但要引入分词器、
 //! 索引增量更新与调校，成本高一个量级；缓存方案已把 47s 压到秒级，性价比更高。
 //!
-//! 一致性：缓存条目头部记录 `版本 mtime_ms size`，任一不符即失效重抽。
+//! 一致性：缓存条目头部记录 `版本 mtime_ms size 内容哈希`，任一不符即失效重抽。
 //! 并发：`WalkParallel` 多线程可能同时写同一 key，用「临时文件 + rename」保证原子。
 
 use std::fs;
@@ -22,10 +22,14 @@ use std::time::SystemTime;
 
 use crate::services::office_text;
 
-/// 缓存格式版本：结构变更即 +1，旧缓存自动失效
-const CACHE_VERSION: &str = "v1";
+/// 缓存格式版本：结构变更即 +1，旧缓存自动失效。
+/// v2：指纹增加内容哈希字段（v1 仅 mtime+size，同毫秒同大小的改写会误命中）。
+const CACHE_VERSION: &str = "v2";
 /// 缓存总容量上限，超出按 mtime 从旧到新淘汰
 const MAX_CACHE_BYTES: u64 = 800 * 1024 * 1024;
+/// 内容哈希的取样上限：文件前 8KB。抽取目标是 Office 正文 XML，
+/// 头部 8KB 已足以区分同 mtime+size 的原地改写，全量哈希成本过高。
+const FINGERPRINT_HASH_BYTES: u64 = 8 * 1024;
 
 static GC_DONE: AtomicBool = AtomicBool::new(false);
 
@@ -65,8 +69,13 @@ fn entry_path(path: &Path) -> Option<PathBuf> {
     cache_root().map(|r| r.join(format!("{:016x}", h.finish())))
 }
 
-/// 文件指纹：mtime（毫秒）+ 字节数，任一变化即视为内容可能变化
-fn fingerprint(path: &Path) -> Option<(u128, u64)> {
+/// 文件指纹：mtime（毫秒）+ 字节数 + 前 8KB 内容哈希。
+/// 前两者防常见变更；哈希兜底「同毫秒、同大小」的原地改写
+/// （快速保存工具/检查类写盘常在原位置改内容），这类变更 mtime+size
+/// 完全一致，旧指纹会误命中旧缓存（P2-8）。
+fn fingerprint(path: &Path) -> Option<(u128, u64, u64)> {
+    use std::io::Read;
+
     let md = fs::metadata(path).ok()?;
     let ms = md
         .modified()
@@ -74,15 +83,23 @@ fn fingerprint(path: &Path) -> Option<(u128, u64)> {
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
         .as_millis();
-    Some((ms, md.len()))
+    let mut hasher = DefaultHasher::new();
+    // 取样读失败（被占用等）时哈希为空输入的定值：与任何成功缓存都不相等，
+    // 结果只是缓存不命中重新抽取，不会误命中
+    if let Ok(f) = fs::File::open(path) {
+        let mut head = Vec::new();
+        let _ = f.take(FINGERPRINT_HASH_BYTES).read_to_end(&mut head);
+        hasher.write(&head);
+    }
+    Some((ms, md.len(), hasher.finish()))
 }
 
-fn header(fp: &(u128, u64)) -> String {
-    format!("{CACHE_VERSION} {} {}\n", fp.0, fp.1)
+fn header(fp: &(u128, u64, u64)) -> String {
+    format!("{CACHE_VERSION} {} {} {}\n", fp.0, fp.1, fp.2)
 }
 
 /// 校验头部并返回正文；版本/指纹任一不符返回 None
-fn payload_if_valid(cached: &str, fp: &(u128, u64)) -> Option<String> {
+fn payload_if_valid(cached: &str, fp: &(u128, u64, u64)) -> Option<String> {
     let (head, body) = cached.split_once('\n')?;
     let mut it = head.split(' ');
     if it.next()? != CACHE_VERSION {
@@ -90,14 +107,15 @@ fn payload_if_valid(cached: &str, fp: &(u128, u64)) -> Option<String> {
     }
     let ms: u128 = it.next()?.parse().ok()?;
     let size: u64 = it.next()?.parse().ok()?;
-    if (ms, size) != *fp {
+    let hash: u64 = it.next()?.parse().ok()?;
+    if (ms, size, hash) != *fp {
         return None;
     }
     Some(body.to_string())
 }
 
 /// 取办公文档正文：命中缓存直接返回，否则抽取并写回缓存。
-/// 返回 None 表示该文件无法抽取（损坏/加密/不支持），调用方静默跳过。
+/// 返回 None 表示该文件无法抽取（损坏/加密/不支持/超出抽取上限），调用方跳过。
 pub fn office_text(path: &Path) -> Option<String> {
     maybe_gc();
     let entry = entry_path(path)?;
@@ -107,7 +125,16 @@ pub fn office_text(path: &Path) -> Option<String> {
             return Some(text);
         }
     }
-    let text = office_text::extract_text(path)?;
+    // 抽取失败（损坏/超限）不写缓存：文件后续被修好或整改后应能重新抽取命中
+    let text = match office_text::extract_text(path) {
+        Ok(Some(t)) => t,
+        Ok(None) => return None,
+        Err(e) => {
+            // 超限类错误（如高压缩比恶意包触发累计解压上限）必须留痕，禁止静默吞掉
+            eprintln!("[mkdown][search-cache] 跳过 {}: {e}", path.display());
+            return None;
+        }
+    };
     if let Err(e) = write_entry(&entry, &fp, &text) {
         // 缓存写失败不影响本次检索结果，但必须留痕（禁止静默吞 Result）
         eprintln!("[mkdown][search-cache] 写缓存失败 {}: {e}", entry.display());
@@ -115,7 +142,7 @@ pub fn office_text(path: &Path) -> Option<String> {
     Some(text)
 }
 
-fn write_entry(entry: &Path, fp: &(u128, u64), text: &str) -> std::io::Result<()> {
+fn write_entry(entry: &Path, fp: &(u128, u64, u64), text: &str) -> std::io::Result<()> {
     if let Some(dir) = entry.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -208,5 +235,28 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(&path, b"changed").unwrap();
         assert!(office_text(&path).is_none(), "内容变更后旧缓存必须失效");
+    }
+
+    /// 回归 P2-8：同毫秒、同大小的原地改写，mtime+size 指纹完全一致——
+    /// 旧实现（仅 mtime+size）会误命中旧缓存。内容哈希必须识别这种变更。
+    #[test]
+    fn fingerprint_detects_same_size_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("same.docx");
+        fs::write(&path, b"AAAAAAAA").unwrap();
+        let t1 = fs::metadata(&path).unwrap().modified().unwrap();
+        let fp1 = fingerprint(&path).unwrap();
+        assert_eq!(fp1.1, 8);
+
+        // 原地改写成同长度内容，再把 mtime 改回与首次一致（模拟同毫秒写回）
+        fs::write(&path, b"BBBBBBBB").unwrap();
+        let f = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_modified(t1).unwrap();
+        drop(f);
+
+        let fp2 = fingerprint(&path).unwrap();
+        assert_eq!(fp1.0, fp2.0, "mtime 应被改回一致");
+        assert_eq!(fp1.1, fp2.1, "size 应一致");
+        assert_ne!(fp1.2, fp2.2, "同大小变更必须改内容哈希");
     }
 }

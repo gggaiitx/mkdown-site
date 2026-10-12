@@ -9,8 +9,34 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
+      # 本 job 只做仓库镜像、不构建产物；依赖审计在此属"顺带报告"，
+      # 与两个 build 工作流同口径（P2-5，报告级不阻断）。
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 依赖审计（npm，报告级）
+        run: npm audit --audit-level=high || echo "::warning::npm audit findings (report-only)"
+
+      - name: 依赖审计（cargo，报告级）
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: src-tauri
+        continue-on-error: true
+
       - name: Mirror GitHub -> Gitee
-        uses: wearerequired/git-mirror-action@master
+        # 供应链加固（P2-4）：第三方 action 必须 pin 到 commit SHA——tag/分支
+        # 均为可变引用，tag 可被改指向、分支随时滚动。SHA 对应 v1.3.1，
+        # 升级时先 `git ls-remote --tags` 核对再换（保留版本注释便于回溯）。
+        uses: wearerequired/git-mirror-action@6bbc55f2f0082bca533b72dc711f7d37154d40cc # v1.3.1
         with:
           source-repo: "https://github.com/gggaiitx/mkdown-site.git"
           # Gitee 私人令牌推送格式：https://<令牌>@gitee.com/<用户名>/<仓库>.git

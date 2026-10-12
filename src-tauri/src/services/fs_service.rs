@@ -22,53 +22,59 @@ const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 /// 3) 非法 UTF-8 时用 chardetng 猜测（GBK 等），转 UTF-8 供前端编辑。
 pub fn read_text(path: &Path) -> AppResult<DetectedText> {
     let bytes = fs::read(path)?;
+    Ok(detect_text(&bytes))
+}
 
+/// 编码探测核心（字节 → DetectedText）。与 `read_text` 分离，
+/// 供 `read_file` 的限量读路径复用：先 `take(MAX+1)` 限量读再探测，
+/// 避免「metadata 检查 + 全量 read」两步之间文件增长越过闸门（P1-6）。
+pub fn detect_text(bytes: &[u8]) -> DetectedText {
     if bytes.starts_with(&UTF8_BOM) {
         let (cow, _, _) = encoding_rs::UTF_8.decode(&bytes[UTF8_BOM.len()..]);
-        return Ok(DetectedText {
+        return DetectedText {
             content: cow.into_owned(),
             encoding: "utf-8-bom".into(),
             had_bom: true,
             is_utf8: true,
-        });
+        };
     }
     if bytes.starts_with(&[0xFF, 0xFE]) {
         let (cow, _, _) = encoding_rs::UTF_16LE.decode(&bytes[2..]);
-        return Ok(DetectedText {
+        return DetectedText {
             content: cow.into_owned(),
             encoding: "utf-16le".into(),
             had_bom: true,
             is_utf8: false,
-        });
+        };
     }
     if bytes.starts_with(&[0xFE, 0xFF]) {
         let (cow, _, _) = encoding_rs::UTF_16BE.decode(&bytes[2..]);
-        return Ok(DetectedText {
+        return DetectedText {
             content: cow.into_owned(),
             encoding: "utf-16be".into(),
             had_bom: true,
             is_utf8: false,
-        });
+        };
     }
 
-    match std::str::from_utf8(&bytes) {
-        Ok(s) => Ok(DetectedText {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => DetectedText {
             content: s.to_owned(),
             encoding: "utf-8".into(),
             had_bom: false,
             is_utf8: true,
-        }),
+        },
         Err(_) => {
             let mut det = chardetng::EncodingDetector::new();
-            det.feed(&bytes, true);
+            det.feed(bytes, true);
             let enc = det.guess(None, false);
-            let (cow, _, _) = enc.decode(&bytes);
-            Ok(DetectedText {
+            let (cow, _, _) = enc.decode(bytes);
+            DetectedText {
                 content: cow.into_owned(),
                 encoding: enc.name().to_string(),
                 had_bom: false,
                 is_utf8: false,
-            })
+            }
         }
     }
 }
