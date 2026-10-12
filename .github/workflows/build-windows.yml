@@ -40,6 +40,9 @@ jobs:
       # 现有 xlsx 存在公开 CVE，直接设门禁会挂 CI，故两步均配置为报告级；
       # 待依赖整改后去掉 continue-on-error / || echo 收紧为阻断门禁。
       - name: 依赖审计（npm，报告级）
+        # windows-latest 的 run 默认 shell 是 pwsh，其包装器结尾会 exit $LASTEXITCODE，
+        # `|| echo` 救不回 npm audit 的退出码 1（v0.5.6 首跑实测被拦）；显式 bash 使 || 语义生效。
+        shell: bash
         run: npm audit --audit-level=high || echo "::warning::npm audit findings (report-only)"
 
       - name: 依赖审计（cargo，报告级）
