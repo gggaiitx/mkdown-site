@@ -116,7 +116,7 @@
   /* ===== HERO ===== */
   .hero{position:relative;padding:76px 0 64px;overflow:hidden}
   .hero-center{display:flex;flex-direction:column;align-items:center;text-align:center}
-  .hero-copy{width:100%;max-width:820px;display:flex;flex-direction:column;align-items:center}
+  .hero-copy{width:100%;max-width:1010px;display:flex;flex-direction:column;align-items:center}
   .hero-title{margin-bottom:18px}
   .hero-title .sub{display:block;font-size:clamp(17px,1.9vw,23px);font-weight:600;color:#aeb9cf;letter-spacing:.5px;line-height:1.45;margin-bottom:10px}
   .hero-title .main{
@@ -125,7 +125,9 @@
     -webkit-background-clip:text;background-clip:text;color:transparent;
     filter:drop-shadow(0 8px 30px rgba(55,138,221,.32));
   }
-  .lead{font-size:17px;line-height:1.75;color:var(--muted);max-width:660px;margin:0 auto 26px}
+  /* 首屏描述：宽屏固定两行，第二行更宽（断行点由 .lead-br 控制，窄屏自动取消） */
+  .lead{font-size:16px;line-height:1.8;color:var(--muted);max-width:990px;margin:0 auto 26px}
+  .lead-br{display:inline}
   .hero-cta{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
   .hero-stats{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:24px 0 40px}
   .hero-stats span{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:999px;
@@ -377,6 +379,10 @@
   .mac-tip-note{margin:15px 0 0;padding-top:11px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;line-height:1.7;color:#8aa0c4}
   @media (hover:none){.mac-tip{display:block}}
 
+  /* 容器不足以容纳固定两行时，取消强制断行，交回自然换行 */
+  @media(max-width:1100px){
+    .lead-br{display:none}
+  }
   @media(max-width:920px){
     .nav-links{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:2px;
       background:rgba(10,13,20,.98);backdrop-filter:blur(14px);border-top:1px solid var(--border);border-bottom:1px solid var(--border);
@@ -454,7 +460,7 @@
         <span class="sub">为写作与技术文档而生的</span>
         <span class="main">多引擎文档编辑器</span>
       </h1>
-      <p class="lead">码克（MkDown）是一款基于 Tauri 2 与 Rust 打造的桌面级文档编辑与阅读器：Markdown 实时预览、Markhtml 富文本所见即所得、代码编辑三引擎合一。极速启动、多工作区、250+ 语言高亮，让文档创作回归纯粹。</p>
+      <p class="lead">码克（MkDown）是一款基于 Tauri 2 与 Rust 打造的桌面级文档编辑与阅读器：Markdown 实时预览、<br class="lead-br" />Markhtml 富文本所见即所得、Markcode 代码与文本编辑三引擎合一。极速启动、多工作区、250+ 语言高亮，让文档创作回归纯粹。</p>
       <div class="hero-cta">
         <a href="#download" class="btn btn-primary">立即下载</a>
         <a href="#features" class="btn btn-ghost">查看功能</a>
