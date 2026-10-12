@@ -16,7 +16,8 @@ import { useI18n } from '../i18n';
  * 统一搜索面板（SearchHub）：
  * - file 模式：当前文件内容查找（复用 tab.content 行级匹配，实时定位 + 高亮）
  * - global 模式：工作区全文检索（searchStore，Markdown/Office）
- * - 面板可拖动（标题栏按住拖移），Ctrl+Alt+F 在两模式间切换
+ * - 面板可拖动（标题栏 / 底栏空白区按住拖移）；模式切换走面板 UI（标题栏范围按钮 /
+ *   底栏切换按钮；Workbench 侧 Ctrl+F / Ctrl+P 开面板时已带入对应模式）
  */
 const props = defineProps<{ mode: 'file' | 'global' }>();
 const emit = defineEmits<{
@@ -48,16 +49,20 @@ interface Match {
 
 /** 对当前文档内容做行级匹配（复用 tab.content，与编辑器内容实时同步）；
  *  mh（富文本）标签的 content 是 HTML 源码，按源码匹配会命中标签属性——
- *  改用去标签纯文本（口径 = 富文本引擎 TreeWalker 文本节点 join，见 utils/htmlText.ts） */
+ *  改用去标签纯文本（口径 = 富文本引擎 TreeWalker 文本节点 join，见 utils/htmlText.ts）。
+ *  关键词经 matchKw/matchCase 防抖代入（150ms，P2-30）：超大文档每次按键全量
+ *  split+scan 会卡输入，防抖窗口内连续键入只算最后一次 */
+const matchKw = ref('');
+const matchCase = ref(false);
 const fileMatches = computed<Match[]>(() => {
   if (props.mode !== 'file') return [];
   const tab = tabs.activeTab;
-  const kw = keyword.value;
+  const kw = matchKw.value;
   if (!tab || kw.length === 0) return [];
   const isMh = tab.kind === 'mh';
   const src = isMh ? htmlPlainText(tab.content) : tab.content;
-  const hay = caseSensitive.value ? src : src.toLowerCase();
-  const needle = caseSensitive.value ? kw : kw.toLowerCase();
+  const hay = matchCase.value ? src : src.toLowerCase();
+  const needle = matchCase.value ? kw : kw.toLowerCase();
   const out: Match[] = [];
   const lines = src.split('\n');
   const hayLines = hay.split('\n');
@@ -74,6 +79,40 @@ const fileMatches = computed<Match[]>(() => {
   }
   return out;
 });
+
+/** 文件内匹配防抖调度（P2-30）：150ms 后代入当前关键词/大小写并重算列表，算完定位第一处。
+ *  高亮（emit find）仍即时——引擎侧便宜且用户预期即时反馈；贵的是全文档 split+scan */
+let matchTimer: ReturnType<typeof setTimeout> | null = null;
+/** 防抖代入后是否已定位过第一处（键入后立刻按 Enter/↑↓ 时先落位，避免拿旧列表序号起跳） */
+let matchLanded = false;
+function scheduleMatch(): void {
+  if (matchTimer) clearTimeout(matchTimer);
+  matchLanded = false;
+  matchTimer = setTimeout(() => {
+    matchTimer = null;
+    matchKw.value = keyword.value;
+    matchCase.value = caseSensitive.value;
+    matchLanded = true;
+    void nextTick(() => gotoFile(0)); // 列表重算后定位第一处
+  }, 150);
+}
+/** 立即代入当前关键词（Enter/↑↓ 导航前调用，避免拿旧匹配列表导航） */
+function flushMatch(): void {
+  if (matchTimer) {
+    clearTimeout(matchTimer);
+    matchTimer = null;
+  }
+  matchKw.value = keyword.value;
+  matchCase.value = caseSensitive.value;
+}
+/** 防抖窗口内的首次导航：先落位第一处（返回 true = 已消费本次导航） */
+function landIfPending(): boolean {
+  if (matchLanded) return false;
+  matchLanded = true;
+  fileCur.value = 0;
+  gotoFile(0);
+  return true;
+}
 
 const fileCur = ref(0); // 0-based 当前命中
 
@@ -106,12 +145,12 @@ function filePrev(): void {
   gotoFile(fileCur.value);
 }
 
-// 关键词/大小写变化（file 模式）：重置到第一处并立即定位 + 上抛高亮态
+// 关键词/大小写变化（file 模式）：重置到第一处并立即上抛高亮态；匹配列表防抖重算
 watch([keyword, caseSensitive], () => {
   if (props.mode !== 'file') return;
   fileCur.value = 0;
   emit('find', keyword.value, caseSensitive.value);
-  void nextTick(() => gotoFile(0));
+  scheduleMatch();
 });
 
 // ================= 全局搜索 =================
@@ -151,24 +190,28 @@ watch(
 
 const flatHits = computed(() => search.hits);
 
-const groups = computed(() => {
-  const map = new Map<string, SearchHit[]>();
+/** 分组命中 + 行文本切段预计算（P2-30）：切段原先在模板里每行调用 3 次，
+ *  改为建组时算一次随组带出（segs = [命中前, 命中, 命中后]） */
+interface GroupHit {
+  hit: SearchHit;
+  segs: [string, string, string];
+}
+const groups = computed<[string, GroupHit[]][]>(() => {
+  const map = new Map<string, GroupHit[]>();
   for (const h of search.hits) {
     const list = map.get(h.relPath) ?? [];
-    list.push(h);
+    list.push({
+      hit: h,
+      segs: [
+        h.lineText.slice(0, h.matchStart),
+        h.lineText.slice(h.matchStart, h.matchEnd),
+        h.lineText.slice(h.matchEnd),
+      ],
+    });
     map.set(h.relPath, list);
   }
   return Array.from(map.entries());
 });
-
-/** 文件行文本按命中区间切段渲染 <mark> */
-function hitSegs(h: SearchHit) {
-  return [
-    h.lineText.slice(0, h.matchStart),
-    h.lineText.slice(h.matchStart, h.matchEnd),
-    h.lineText.slice(h.matchEnd),
-  ];
-}
 
 /** 文件内查找：按关键词全部出现位置切段（区分大小写跟随当前开关） */
 function kwSegs(text: string): { t: string; hit: boolean }[] {
@@ -257,6 +300,10 @@ watch(
     if (old === 'file' && m !== 'file') emit('find', '', false);
     if (m === 'file' && keyword.value) {
       fileCur.value = 0;
+      // 模式切换是一次性动作：关键词立即代入（不走 150ms 防抖），保证回放定位准确
+      matchKw.value = keyword.value;
+      matchCase.value = caseSensitive.value;
+      matchLanded = true;
       emit('find', keyword.value, caseSensitive.value);
       void nextTick(() => gotoFile(0));
     }
@@ -275,6 +322,8 @@ watch(
 // ================= 键盘 =================
 function onEnter(e: KeyboardEvent): void {
   if (props.mode === 'file') {
+    flushMatch(); // 防抖窗口内按键：立即代入，避免旧列表导航
+    if (landIfPending()) return; // 键入后首次导航：落位第一处
     e.shiftKey ? filePrev() : fileNext();
   } else if (flatHits.value.length) {
     openSelected();
@@ -284,11 +333,23 @@ function onEnter(e: KeyboardEvent): void {
 }
 
 function onDown(): void {
-  props.mode === 'file' ? fileNext() : selNext();
+  if (props.mode === 'file') {
+    flushMatch();
+    if (landIfPending()) return;
+    fileNext();
+  } else {
+    selNext();
+  }
 }
 
 function onUp(): void {
-  props.mode === 'file' ? filePrev() : selPrev();
+  if (props.mode === 'file') {
+    flushMatch();
+    if (landIfPending()) return;
+    filePrev();
+  } else {
+    selPrev();
+  }
 }
 
 // ================= 拖动 =================
@@ -332,6 +393,7 @@ function dragEnd(): void {
 
 onBeforeUnmount(() => {
   window.clearTimeout(runTimer);
+  if (matchTimer) clearTimeout(matchTimer);
 });
 
 // 打开面板即聚焦输入框（全局模式可能有上次关键词，全选便于直接覆盖输入）
@@ -439,9 +501,9 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
         <p v-else-if="!keyword && !search.hits.length" class="hint center">{{ t('search.startTyping') }}</p>
         <p v-else-if="!search.hits.length" class="hint center">{{ t('search.noHits') }}</p>
         <div v-for="[relPath, hits] in groups" v-else :key="relPath" class="group">
-          <div class="file-name" :title="hits[0].path">{{ relPath }}</div>
+          <div class="file-name" :title="hits[0].hit.path">{{ relPath }}</div>
           <button
-            v-for="h in hits"
+            v-for="{ hit: h, segs } in hits"
             :key="`${h.path}:${h.line}:${h.column}`"
             class="hit"
             :class="{ sel: flatHits[selIdx] === h }"
@@ -449,7 +511,7 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
             @click="openHit(h)"
           >
             <span class="line-no">L{{ h.line }}</span>
-            <span class="line-text">{{ hitSegs(h)[0] }}<mark>{{ hitSegs(h)[1] }}</mark>{{ hitSegs(h)[2] }}</span>
+            <span class="line-text">{{ segs[0] }}<mark>{{ segs[1] }}</mark>{{ segs[2] }}</span>
           </button>
         </div>
       </template>

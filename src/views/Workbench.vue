@@ -3,7 +3,7 @@
  * 主工作台：三栏布局 + 保存流水线 + 快捷键 + 导出/打印。
  * 只依赖 adapters 契约与 stores，不直接 import md-editor-v3。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { listen } from '@tauri-apps/api/event';
 import { AlertCircle, CheckCircle2, Info } from '@lucide/vue';
@@ -18,8 +18,10 @@ import SettingsDialog from '../components/SettingsDialog.vue';
 import Welcome from '../components/Welcome.vue';
 import AppDialog from '../components/AppDialog.vue';
 import FloatTip from '../components/FloatTip.vue';
-import DocxPreview from '../components/preview/DocxPreview.vue';
-import SheetPreview from '../components/preview/SheetPreview.vue';
+// docx-preview / xlsx 体积大（合计约 1.6MB 未压缩）且仅在点开对应文件时才渲染：
+// 懒加载拆出首屏 chunk（P1-7），模板用法不变
+const DocxPreview = defineAsyncComponent(() => import('../components/preview/DocxPreview.vue'));
+const SheetPreview = defineAsyncComponent(() => import('../components/preview/SheetPreview.vue'));
 import ImagePreview from '../components/preview/ImagePreview.vue';
 import HtmlFrame from '../components/preview/HtmlFrame.vue';
 import SvgFrame from '../components/preview/SvgFrame.vue';
@@ -111,12 +113,17 @@ const sidebarVisible = ref(true);
 
 /** 轻提示展示层：去重合并 + 分级停留 + 上限 3 条，避免连发刷屏 */
 interface ToastItem {
+  /** 稳定自增 id：仅作 :key。去重合并时保持不变——若用 seq 做 key，
+   *  合并改写 seq 会改变 :key 使 TransitionGroup 销毁重建 DOM、重播进出场动画（P2-31） */
+  id: number;
+  /** 来源序号（editor.toast.seq）：仅用于 dismiss 查找与定时器归属 */
   seq: number;
   text: string;
   kind: 'info' | 'error' | 'success';
   count: number;
   timer: number;
 }
+let toastUid = 0;
 const MAX_TOASTS = 3;
 /** 错误要留时间读，成功一闪而过即可 */
 const TOAST_MS: Record<string, number> = { error: 5000, info: 2600, success: 2000 };
@@ -137,11 +144,11 @@ watch(
     if (dup) {
       clearTimeout(dup.timer);
       dup.count += 1;
-      dup.seq = seq;
+      dup.seq = seq; // 仅更新 dismiss 查找用的 seq，:key（id）不动，不重播动画
       dup.timer = window.setTimeout(() => dismissToast(seq), TOAST_MS[kind] ?? 2600);
       return;
     }
-    const item: ToastItem = { seq, text, kind, count: 1, timer: 0 };
+    const item: ToastItem = { id: ++toastUid, seq, text, kind, count: 1, timer: 0 };
     item.timer = window.setTimeout(() => dismissToast(seq), TOAST_MS[kind] ?? 2600);
     toasts.value.push(item);
     // 超出上限丢最旧的一条
@@ -314,16 +321,16 @@ watch(isCodeTab, (isCode) => {
 });
 /** 标签切换 → 恢复该标签自己的视图模式（各标签模式态相互独立：
  *  md 的阅读态不会带进 mh，反之亦然）。直接改 editor store，
- *  不走 Workbench.setMode（避免把标签级模式写进全局视图偏好，也不动 lastWorkMode） */
+ *  不走 Workbench.setMode（避免把标签级模式写进全局视图偏好） */
 watch(
   () => tabs.activeId,
   () => {
     const tab = tabs.activeTab;
     if (!tab || tabs.activeIsPreview || isCodeTab.value) return;
     const m = tab.mode;
-    if (m && m !== 'split' && editor.mode !== m) {
+    // 含 split：代码标签（强制 edit）切回 split 存储模式的 md 标签时不恢复（P2-27）
+    if (m && editor.mode !== m) {
       editor.setMode(m);
-      if (m !== 'read') lastWorkMode.value = m;
     }
   },
 );
@@ -557,6 +564,9 @@ async function saveActiveAs(): Promise<string | null> {
 }
 
 // 自动保存（P1-9）：内容停顿后落盘
+/** 本次编辑周期内已提示过写盘失败的 tab id：文件被锁/只读/被删时每次停顿都会失败，
+ *  不记重会每 1s 弹一次 toast 刷屏（P1-12）。内容再变化（新编辑周期）或保存成功后重置 */
+const autoSaveFailed = new Set<string>();
 const autoSaveTick = debounce(
   (id: string, content: string) => {
     const tab = tabs.tabs.find((t) => t.id === id);
@@ -566,9 +576,15 @@ const autoSaveTick = debounce(
       try {
         await writeFileAtomic(tab.path as string, content, tab.hadBom);
         tabs.markSaved(id, content);
+        autoSaveFailed.delete(id); // 保存成功：重置，下次失败可再次提示
         editor.showToast(t('workbench.toast.autoSaved', { name: baseName(tab.path as string) }), 'info');
-      } catch {
-        /* 静默失败，下次停顿重试 */
+      } catch (err) {
+        if (autoSaveFailed.has(id)) return; // 本编辑周期已提示过：静默等下次停顿重试
+        autoSaveFailed.add(id);
+        editor.showToast(
+          t('workbench.toast.autoSaveFailed', { msg: err instanceof Error ? err.message : String(err) }),
+          'error',
+        );
       }
     })();
   },
@@ -580,6 +596,7 @@ watch(
     const s = settings.settings;
     if (s.autoSave && tabs.activeTab) {
       autoSaveTick.cancel();
+      autoSaveFailed.delete(tabs.activeTab.id); // 新的编辑周期：失败提示可再次触发
       const { id, content } = tabs.activeTab;
       autoSaveTick(id, content);
     }
@@ -617,8 +634,15 @@ async function confirmCloseTab(discard: boolean) {
   }
   const tab = tabs.tabs.find((t) => t.id === id);
   if (tab?.isDirty && tab.path && tab.isUtf8) {
-    // 先尝试保存再关闭
-    await writeFileAtomic(tab.path, tab.content, tab.hadBom).catch(() => undefined);
+    // 先尝试保存再关闭；写盘失败（文件被锁/只读/被删）时提示并保留标签——
+    // 若静默吞错照常关闭，未保存内容随"关标签 + 标记干净 + 快照剔除"三通道丢失（P1-13）
+    try {
+      await writeFileAtomic(tab.path, tab.content, tab.hadBom);
+      tabs.markSaved(id, tab.content); // 仅在写盘成功后标记已保存
+    } catch (err) {
+      editor.showToast(t('workbench.toast.saveFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+      return; // 中止关闭：标签保留，用户可重试或另存
+    }
   }
   await tabs.closeTab(id, () => true);
 }
@@ -630,8 +654,14 @@ async function confirmCloseBatch(save: boolean) {
     for (const id of ids) {
       const tab = tabs.tabs.find((t) => t.id === id);
       if (tab?.isDirty && tab.path && tab.isUtf8) {
-        await writeFileAtomic(tab.path, tab.content, tab.hadBom).catch(() => undefined);
-        tabs.markSaved(id, tab.content);
+        // 任一变失败 → 提示并中止整批关闭（已落盘的标记已生效，未保存的标签保留）
+        try {
+          await writeFileAtomic(tab.path, tab.content, tab.hadBom);
+          tabs.markSaved(id, tab.content); // 仅在写盘成功后标记已保存
+        } catch (err) {
+          editor.showToast(t('workbench.toast.saveFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+          return;
+        }
       }
     }
   }
@@ -642,7 +672,7 @@ async function confirmCloseBatch(save: boolean) {
 function onCloseConfirm() {
   if (closeConfirm.value.tabId) void confirmCloseTab(true);
   else if (closeConfirm.value.batchIds) void confirmCloseBatch(true);
-  else void confirmCloseWindow('discard');
+  else void confirmCloseWindowSaveAll();
 }
 function onCloseCancel() {
   if (closeConfirm.value.tabId) void confirmCloseTab(false);
@@ -680,16 +710,11 @@ function onWsRestoreEnd() {
 }
 
 // ---------- 模式 / 主题 / 字号 ----------
-/** 阅读态的往返/回切目标：记住最近一个非阅读模式（read 不改写该记忆，否则会被 'read' 覆盖导致切不回来）。 */
-const lastWorkMode = ref<EditorMode>(
-  settings.settings.editorMode === 'read' ? 'split' : settings.settings.editorMode,
-);
 function setMode(m: EditorMode) {
   // 代码标签只支持编辑态：模式按钮已禁用，这里兜底拦截 Alt+E/W/R 快捷键
   if (isCodeTab.value && m !== 'edit') return;
   // 富文本（.mh）双形态：分栏禁用（编辑/阅读两态，阅读态带大纲）
   if (isMhTab.value && m === 'split') return;
-  if (m !== 'read') lastWorkMode.value = m;
   editor.setMode(m);
   // 模式态按标签独立：写回当前标签，切走再切回时恢复
   tabs.setActiveMode(m);
@@ -789,10 +814,13 @@ function wrapExportHtml(): string {
 </html>`;
 }
 
-/** 导出 HTML 时把 asset:// URL 还原为相对路径，保证 HTML 文件可随 assets 目录分发 */
+/** 导出 HTML 时把 asset:// URL 还原为相对路径，保证 HTML 文件可随 assets 目录分发。
+ *  前缀同时兼容两种 convertFileSrc 形态（P2-13）：Windows/WebView2 的
+ *  https?://asset.localhost/ 与 macOS/Linux 的 asset://localhost/
+ *  （与 WangEditorEngine.htmlToDisk 同一口径） */
 function deAssetify(html: string, docPath: string): string {
   const dir = docPath.replace(/[\\/][^\\/]*$/, '');
-  return html.replace(/https?:\/\/asset\.localhost\/([^"' )]+)/g, (_m, enc) => {
+  return html.replace(/(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\/([^"' )]+)/g, (_m, enc) => {
     try {
       const abs = decodeURIComponent(enc).replace(/\//g, '\\');
       if (abs.toLowerCase().startsWith(dir.toLowerCase())) {
@@ -1007,6 +1035,24 @@ async function confirmCloseWindow(action: 'discard' | 'cancel') {
   // 用户已明确放弃脏草稿：快照剔除脏页后再落盘，防止"已放弃的内容"重启后还魂
   await flushSessionSnapshot({ dropDirty: true });
   await getCurrentWebviewWindow().destroy();
+}
+
+/** 关窗口确认（对话框承诺"保存全部并退出"，P1-1）：先遍历全部可保存脏标签
+ *  （isDirty && path && isUtf8）落盘；任一变失败 → 提示并中止关闭（留在窗口，
+ *  标签与草稿俱在，用户可改用单标签保存/另存处理）；全部成功后再走丢弃路径关闭。 */
+async function confirmCloseWindowSaveAll() {
+  closeConfirm.value = { visible: false, tabId: null, batchIds: null };
+  for (const tab of tabs.tabs) {
+    if (!tab.isDirty || !tab.path || !tab.isUtf8) continue;
+    try {
+      await writeFileAtomic(tab.path, tab.content, tab.hadBom);
+      tabs.markSaved(tab.id, tab.content);
+    } catch (err) {
+      editor.showToast(t('workbench.toast.saveFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+      return; // 中止关闭：不调 confirmCloseWindow，草稿快照也不剔除
+    }
+  }
+  await confirmCloseWindow('discard');
 }
 
 // ---------- 拖拽文件到窗口打开（阅读模式） ----------
@@ -1319,8 +1365,8 @@ watch(() => editor.mode, (m) => {
     <!-- 轻提示 -->
     <Teleport to="body">
       <TransitionGroup name="toast" tag="div" class="toast-host">        <div
-          v-for="toast in toasts"
-          :key="toast.seq"
+        v-for="toast in toasts"
+        :key="toast.id"
           class="toast"
           :class="toast.kind"
           :title="t('workbench.clickToClose')"

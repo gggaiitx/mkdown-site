@@ -290,9 +290,27 @@ const allCollapsed = computed(() => ws.expanded.size <= 1);
 const toggleAllTip = computed(() =>
   allCollapsed.value ? t('filetree.expandAll') : t('filetree.collapseAll'),
 );
+/** 展开全部节点数上限（P2-19）：树上限 20000 节点，一键全展开会一次性渲染数千个
+ *  递归组件实例、明显卡顿。超阈值只提示不展开（完整虚拟滚动风险过大，本次不做）。
+ *  阈值集中此处可调。 */
+const EXPAND_ALL_MAX = 1000;
+/** 统计全树目录节点数（= 展开全部的待展开量） */
+function countDirs(node: WorkspaceNode | null): number {
+  if (!node || node.kind !== 'dir') return 0;
+  let n = 1;
+  for (const c of node.children ?? []) n += countDirs(c);
+  return n;
+}
 function toggleAll(): void {
-  if (allCollapsed.value) ws.expandAll();
-  else ws.collapseAll();
+  if (!allCollapsed.value) {
+    ws.collapseAll();
+    return;
+  }
+  if (countDirs(ws.tree) > EXPAND_ALL_MAX) {
+    useEditorStore().showToast(t('filetree.expandAllTooMany', { n: EXPAND_ALL_MAX }), 'info');
+    return;
+  }
+  ws.expandAll();
 }
 
 // ---- 刷新动效：点击时图标旋转，转多久跟实际刷新耗时走 ----// 保底 600ms（= 动画一整圈周期）：本地目录刷新极快（几十 ms），不补足会"刚转就停"看不见动效；
@@ -312,11 +330,14 @@ async function onRefresh() {
   try {
     await ws.refresh();
     ok = true;
+  } catch (err) {
+    // 刷新失败（目录被删/权限不足）：仅复位图标不够——用户对"没反应"无感知，补 toast（P2-28）
+    useEditorStore().showToast(t('filetree.refreshFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   } finally {
     const remain = Math.max(0, 600 - (performance.now() - start));
     window.setTimeout(() => {
       refreshing.value = false;
-      if (!ok) return; // 刷新失败：只复位图标，不播「就位」动效（错误提示走 store toast）
+      if (!ok) return; // 刷新失败：只复位图标，不播「就位」动效（错误已 toast）
       // 先确保类已移除再经一帧挂回：同一元素上 class 无变化不会重启动画
       treeFx.value = false;
       void nextTick(() => {

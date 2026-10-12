@@ -165,6 +165,9 @@ onBeforeUnmount(() => {
   stageRO?.disconnect();
   stageRO = null;
   if (roTimer) clearTimeout(roTimer);
+  // build 防抖 timer（300ms 自停）：卸载时清掉，避免回调写已卸载组件的 srcdoc（P2-23）
+  if (buildTimer) clearTimeout(buildTimer);
+  buildTimer = null;
 });
 </script>
 

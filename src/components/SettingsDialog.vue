@@ -7,6 +7,7 @@ import { useI18n } from '../i18n';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { openUrl } from '../api/fileApi';
 import { flushSessionSnapshot } from '../utils/sessionSnapshot';
+import { altKey, modKey, shiftKey } from '../utils/keyHint';
 import type { AppSettings } from '../api/types';
 
 const settings = useSettingsStore();
@@ -89,20 +90,22 @@ async function onSettingsUpdateClick() {
  * - 文件/视图/查找类：应用层 window 捕获统一处理；
  * - 格式类（编辑/分栏视图生效）：编辑器有焦点时内核 keymap 处理，焦点在外由应用层接管；
  * - Ctrl+K 是应用层绑定（内核链接键实为 Ctrl+L，对外统一为 Ctrl+K）。
+ * 修饰键文案走 keyHint 平台感知工具（P2-21）：Mac 显示 ⌘/⌥/⇧，Windows/Linux 显示 Ctrl/Alt/Shift。
  */
+const sc = (...parts: string[]): string => parts.join(' + ');
 const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
   {
     title: 'settings.scGroupFile',
     items: [
-      ['Ctrl + S', 'settings.scSave'],
-      ['Ctrl + N', 'settings.scNewDoc'],
-      ['Ctrl + O', 'settings.scOpenFile'],
-      ['Ctrl + W', 'settings.scCloseTab'],
-      ['Ctrl + Shift + W', 'settings.scCloseAllTabs'],
+      [sc(modKey(), 'S'), 'settings.scSave'],
+      [sc(modKey(), 'N'), 'settings.scNewDoc'],
+      [sc(modKey(), 'O'), 'settings.scOpenFile'],
+      [sc(modKey(), 'W'), 'settings.scCloseTab'],
+      [sc(modKey(), shiftKey(), 'W'), 'settings.scCloseAllTabs'],
       ['F2', 'settings.scRename'],
-      ['Alt + E', 'settings.scEditorOnly'],
-      ['Alt + W', 'settings.scSplit'],
-      ['Alt + R', 'settings.scReader'],
+      [sc(altKey(), 'E'), 'settings.scEditorOnly'],
+      [sc(altKey(), 'W'), 'settings.scSplit'],
+      [sc(altKey(), 'R'), 'settings.scReader'],
       ['F11', 'settings.scEditorFullscreen'],
       ['F1', 'settings.scTogglePanel'],
     ],
@@ -110,21 +113,21 @@ const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
   {
     title: 'settings.scGroupFind',
     items: [
-      ['Ctrl + F', 'settings.scFindInFile'],
-      ['Ctrl + P', 'settings.scSearchAll'],
-      ['Shift + F', 'settings.scFilterTree'],
+      [sc(modKey(), 'F'), 'settings.scFindInFile'],
+      [sc(modKey(), 'P'), 'settings.scSearchAll'],
+      [sc(shiftKey(), 'F'), 'settings.scFilterTree'],
     ],
   },
   {
     title: 'settings.scGroupFormat',
     items: [
-      ['Ctrl + B', 'settings.scBold'],
-      ['Ctrl + I', 'settings.scItalic'],
-      ['Ctrl + K', 'settings.scLink'],
-      ['Ctrl + 1~6', 'settings.scHeadings'],
-      ['Ctrl + Shift + C', 'settings.scCodeBlock'],
-      ['Ctrl + Shift + I', 'settings.scImagePlaceholder'],
-      ['Ctrl + Shift + F', 'settings.scBeautify'],
+      [sc(modKey(), 'B'), 'settings.scBold'],
+      [sc(modKey(), 'I'), 'settings.scItalic'],
+      [sc(modKey(), 'K'), 'settings.scLink'],
+      [sc(modKey(), '1~6'), 'settings.scHeadings'],
+      [sc(modKey(), shiftKey(), 'C'), 'settings.scCodeBlock'],
+      [sc(modKey(), shiftKey(), 'I'), 'settings.scImagePlaceholder'],
+      [sc(modKey(), shiftKey(), 'F'), 'settings.scBeautify'],
     ],
   },
 ];

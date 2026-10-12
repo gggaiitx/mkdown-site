@@ -3,11 +3,20 @@
  * xlsx/xlsm 预览：SheetJS（xlsx 包）解析 + sheet_to_html 只读渲染。
  * 多工作表用页签切换；选 sheet_to_html 而非 Univer 网格的理由：
  * 只读场景无需公式栏/选区/编辑能力，HTML 表零额外依赖且不受大表虚拟化复杂度拖累。
+ *
+ * 依赖安全说明（P1-7，npm audit 复核口径）：
+ * xlsx 0.18.5 有两个公开 CVE——CVE-2023-30533（原型污染）、CVE-2024-22363（ReDoS）。
+ * 当前缓解措施（本版落地）：
+ * ① 本组件经 Workbench defineAsyncComponent 懒加载，不进首屏 chunk；
+ * ② 32MB 大小上限（见下方 MAX 闸门）——不进解析器；
+ * ③ 解析对象仅限用户在本地点开的本地文件（无远程/分享内容入口）。
+ * 升级需 API 兼容实测（sheet_to_html/Univer 输出口径可能变化），社区维护分支
+ * （@stackline/xlsx 等）可靠性未经本项目验证，故本版保持 0.18.5 + 缓解，列为后续项。
  */
 import { onMounted, ref, watch } from 'vue';
 import * as XLSX from 'xlsx';
 
-import { readPreviewBytes } from './PreviewAssets';
+import { readPreviewBytes, tooLargeToPreview } from './PreviewAssets';
 import OpenSystemBtn from './OpenSystemBtn.vue';
 import { useI18n } from '../../i18n';
 
@@ -36,6 +45,12 @@ async function load() {
   wb = null;
   try {
     const buf = await readPreviewBytes(props.path);
+    // 大小上限（P1-7）：超限直接错误态，不进 XLSX.read（全量解压 + 解析）
+    if (tooLargeToPreview(buf)) {
+      errMsg.value = t('preview.tooLarge');
+      state.value = 'error';
+      return;
+    }
     wb = XLSX.read(buf, { type: 'array' });
     names.value = wb.SheetNames;
     active.value = wb.SheetNames[0] ?? '';

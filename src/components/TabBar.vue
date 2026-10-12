@@ -315,7 +315,13 @@ function closeMenu() {
   closeCtxMenu();
 }
 onMounted(() => document.addEventListener('click', closeMenu));
-onBeforeUnmount(() => document.removeEventListener('click', closeMenu));
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeMenu);
+  // 悬停弹出/自动关闭的延时定时器（220~260ms 自停）：卸载时清掉，
+  // 避免回调操作已卸载组件的响应式状态（P2-22）
+  clearHoverTimer();
+  clearOvCloseTimer();
+});
 
 function menuCopyName() {
   const tab = ctxIdx.value >= 0 ? tabs.tabs[ctxIdx.value] : null;

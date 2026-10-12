@@ -6,7 +6,7 @@
 import { onMounted, ref, watch } from 'vue';
 import { renderAsync } from 'docx-preview';
 
-import { readPreviewBytes } from './PreviewAssets';
+import { readPreviewBytes, tooLargeToPreview } from './PreviewAssets';
 import OpenSystemBtn from './OpenSystemBtn.vue';
 import { useI18n } from '../../i18n';
 
@@ -25,6 +25,12 @@ async function load() {
   el.innerHTML = '';
   try {
     const buf = await readPreviewBytes(props.path);
+    // 大小上限（P1-7）：超限直接错误态，不进 renderAsync（全量解压 + 解析）
+    if (tooLargeToPreview(buf)) {
+      errMsg.value = t('preview.tooLarge');
+      state.value = 'error';
+      return;
+    }
     // useBase64URL：图片转 data:URL（CSP img-src 已含 data:），不依赖额外 blob 授权
     await renderAsync(buf, el, undefined, {
       className: 'docx',
