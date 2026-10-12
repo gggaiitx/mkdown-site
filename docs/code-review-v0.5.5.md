@@ -90,7 +90,7 @@
 | P2-23 | src/components/preview/HtmlFrame.vue:47,89-91 | build 防抖 timer 未在卸载时清理（300ms 自停） | 同上 |
 | P2-24 | src/api/ipc.ts:44-55,74-75 | ERROR_TEXT 与 toIpcError 的 'UNKNOWN' 兜底在当前调用面属下被死代码（P2-10 修复时会自然用上） | 随 P2-10 处理 |
 | P2-25 | src/utils/mdFormat.ts:29 | 美化规则 `#123` → `# 123`：对 Shell/CMake 注释行是语义改写（"要不要美化"应由用户确认） | 至少在大纲/注释启发式命中时跳过或提示 |
-| P2-26 | vite.config.ts:20 | `sourcemap: false`，线上排障只能靠复现 | 产出隐藏 sourcemap 归档 |
+| P2-26 | vite.config.ts:20 | `sourcemap: false`，线上排障只能靠复现 | ~~产出隐藏 sourcemap 归档~~ **v1.2 修正：维持 false**——Tauri 会把 frontendDist 连 `.map` 全量嵌进二进制，v0.5.6 实测主程序 9.4→14.9MB、安装包近翻倍；源图改走 CI 归档，不随应用分发 |
 | P2-31 | src/views/Workbench.vue:136-141,1322-1323 | toast 去重时 `dup.seq = seq` 改变 :key，TransitionGroup 销毁重建 DOM、重播进出场动画 | 用稳定自增 id 作 key，seq 仅用于 dismiss 查找 |
 | P2-32 | FindBar.vue / SearchPanel.vue（全文）、editorStore.ts:66,94-96、Workbench.vue:684,692、WangEditorEngine.vue:475-476 | 死代码：FindBar/SearchPanel 两组件无任何引用（仅 i18n packs 注释提及）；`lastWorkMode` 只写不读、`scrollTarget` 无消费方、editorStore.scrollToLine 无调用方（滚动均直调引擎 API）；WangEditor 的 getSaveContent/getViewHtml 契约方法无调用方 | 删除死组件与对应 i18n 包/死状态，或明确启用 |
 | P2-33 | src/components/SearchHub.vue:19 | 注释称"Ctrl+Alt+F 在两模式间切换"，但 Workbench.onKeydown（:969 `k === 'f' && !e.altKey`）无此绑定，文档与实现不符 | 补绑定或改注释 |

@@ -19,9 +19,10 @@ export default defineConfig({
     // 原锚定过低白放弃 ES 新特性优化；120 与 Tauri 2 最低 WebView2 要求对齐
     target: 'chrome120',
     minify: 'esbuild',
-    // false → 'hidden'（P2-26）：产出 .map 供归档排障，但不带 sourceMappingURL 注释，
-    // 线上环境不会公开加载源图
-    sourcemap: 'hidden',
+    // 保持 false（P2-26 的 'hidden' 已回退）：Tauri 打包会把 frontendDist 整个目录
+    // （含 .map）嵌进二进制，v0.5.6 实测主程序 9.4MB→14.9MB、安装包近翻倍。
+    // 排障用的源图走 CI 归档，不随应用分发。
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: {
