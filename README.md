@@ -1,6 +1,6 @@
 # 码克 - MkDown 本地优先的多引擎文档编辑器
 
-> 本地优先的多引擎文档编辑器 · Rust + Tauri 2.x 外壳 · Vue 3 + Vite + TypeScript + Pinia 前端 · 三编辑内核（Markdown 实时预览 / Markhtml 富文本 / 代码编辑）
+> 本地优先的多引擎文档编辑器 · Rust + Tauri 2.x 外壳 · Vue 3 + Vite + TypeScript + Pinia 前端 · 三编辑内核（Markdown 实时预览 / Markhtml 富文本 / Markcode代码编辑）
 >
 > 纯本地、离线优先、中文原生。文档、图片、配置全部落在本机磁盘，不上云、不登录、不联网。
 
