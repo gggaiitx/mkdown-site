@@ -32,6 +32,23 @@
   --mk-tip-fg: rgb(240 240 240);
   --mk-radius: 6px;
   --mk-radius-sm: 4px;
+
+  /* md 预览代码块高亮 token 色（GitHub Light 官方主题值，见文件末 .hljs-* 规则）。
+     内核 hljs 已本地化（mdRendererConfig.ts），CDN 主题 link 不再注入，配色在此自管 */
+  --hl-keyword: #d73a49;   /* keyword/type/doctag/template-variable */
+  --hl-title: #6f42c1;     /* title/class/function */
+  --hl-constant: #005cc5;  /* attr/number/literal/meta/variable/selector */
+  --hl-string: #032f62;    /* string/regexp */
+  --hl-variable: #e36209;  /* built_in/symbol */
+  --hl-comment: #6a737d;
+  --hl-tag: #22863a;       /* name/selector-tag/quote */
+  --hl-subst: #24292e;
+  --hl-section: #005cc5;
+  --hl-bullet: #735c0f;
+  --hl-add: #22863a;
+  --hl-add-bg: #f0fff4;
+  --hl-del: #b31d28;
+  --hl-del-bg: #ffeef0;
 }
 
 :root[data-theme='dark'] {
@@ -58,6 +75,22 @@
   --mk-tip-bg: rgb(238 238 240);        /* 气泡提示：暗色主题反转为浅底 */
   --mk-tip-fg: rgb(28 28 30);
   --mk-editor-fg: rgb(196 201 210);     /* 编辑态正文：中档亮度（亮 #3f4a54 / 暗 #e8e9ee 均被否） */
+
+  /* 代码块高亮 token 色：GitHub Dark 官方主题值（亮色默认值见 :root） */
+  --hl-keyword: #ff7b72;
+  --hl-title: #d2a8ff;
+  --hl-constant: #79c0ff;
+  --hl-string: #a5d6ff;
+  --hl-variable: #ffa657;
+  --hl-comment: #8b949e;
+  --hl-tag: #7ee787;
+  --hl-subst: #c9d1d9;
+  --hl-section: #1f6feb;
+  --hl-bullet: #f2cc60;
+  --hl-add: #aff5b4;
+  --hl-add-bg: #033a16;
+  --hl-del: #ffdcd7;
+  --hl-del-bg: #67060c;
 }
 
 * {
@@ -308,4 +341,85 @@ body.mk-col-dragging iframe {
 }
 .workbench.dark ::highlight(mk-find-cur) {
   background-color: rgba(230, 100, 0, 0.85);
+}
+
+/* ---- md 预览代码块高亮（highlight.js token 配色，GitHub Light/Dark 官方色值）----
+   内核 md-editor-v3 v7 的 hljs 与 mermaid/katex 同为 instance 机制：mdRendererConfig.ts
+   已静态注册本地 hljs 11.12.0，内核不再从 unpkg CDN 注入 script 与 github 主题 link，
+   配色改由此处双主题变量自管（--hl-* 见 :root / :root[data-theme='dark']）。
+   只写 token 前景色：pre 容器背景由 md-editor 预览主题（default/github/win）提供，
+   不设 .hljs 底色，避免与预览主题背景打架。全局文档级规则（非 scoped）——
+   编辑区分栏预览、阅读态、导出宿主 #export-pdf-preview 共用。 */
+.hljs-doctag,
+.hljs-keyword,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_ {
+  color: var(--hl-keyword);
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_ {
+  color: var(--hl-title);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--hl-constant);
+}
+.hljs-regexp,
+.hljs-string,
+.hljs-meta .hljs-string {
+  color: var(--hl-string);
+}
+.hljs-built_in,
+.hljs-symbol {
+  color: var(--hl-variable);
+}
+.hljs-comment,
+.hljs-code,
+.hljs-formula {
+  color: var(--hl-comment);
+}
+.hljs-name,
+.hljs-quote,
+.hljs-selector-tag,
+.hljs-selector-pseudo {
+  color: var(--hl-tag);
+}
+.hljs-subst {
+  color: var(--hl-subst);
+}
+.hljs-section {
+  color: var(--hl-section);
+  font-weight: bold;
+}
+.hljs-bullet {
+  color: var(--hl-bullet);
+}
+.hljs-emphasis {
+  color: var(--hl-subst);
+  font-style: italic;
+}
+.hljs-strong {
+  color: var(--hl-subst);
+  font-weight: bold;
+}
+.hljs-addition {
+  color: var(--hl-add);
+  background-color: var(--hl-add-bg);
+}
+.hljs-deletion {
+  color: var(--hl-del);
+  background-color: var(--hl-del-bg);
 }

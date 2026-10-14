@@ -14,6 +14,154 @@ import katex from 'katex';
 // v7 传 katex.instance 后不再注入 CDN 样式（index4.mjs 仅在无 instance 时注入），
 // 字体随包内 css 相对路径由 Vite 打进产物，CSP font-src 'self' 已放行
 import 'katex/dist/katex.min.css';
+// mhchem 扩展：注册 \ce{...}/\pu{...} 化学式宏（Tier 1）。副作用 import 注册在 katex
+// 模块单例上，下方 instance: katex 传的是同一实例，故对内核渲染生效（实测：不注册则
+// \ce 以红色 mathcolor=#cc0000 输出）。
+import 'katex/contrib/mhchem';
+
+// ---- KaTeX 兼容增强（Tier 1，对齐 axiu.xyz 渲染口径）----
+// 差距根因：内核调 katex.renderToString(content, { throwOnError:!1, displayMode })
+// （index4.mjs:1020），strict 走 KaTeX 默认(warn)——test3.md 的 \ce / \tag{\cfrac} /
+// \begin{array}{1} / 私有区粘贴字符(U+F8FD) 等均退化成红色错误文本（axiu 同款文档可正常
+// 渲染的差距即在此）。本段补齐三件事：
+//   ① mhchem 注册（见上方 import）；
+//   ② strict:'ignore' 容忍严格性错误（在下方 config 的 katexConfig 注入）；
+//   ③ 包一层 renderToString 做「仅显示」级 legacy 归一——绝不写回编辑器/保存的文档
+//      （对齐 axiu markdown-compatibility.js 的注释约定）。
+//
+// normalizeFormulaForDisplay 对齐 axiu 的 normalizeLegacyFormula，但刻意**不做**双重反斜杠
+// 折叠(\\{2,}→\)：无 legacyCommands 复制标记时会误伤矩阵/对齐的行分隔 \\（test3.md 的
+// 13 处四连反斜杠留待 Tier 2 MathJax 回退评估）。
+// 实测（scripts 探针，katex 0.18.5）：\tag{\cfrac}、array}{1}、U+F8FD 均因此由 ERR→ok，
+// 且矩阵 \\、\\[2pt]、合法 array{ll} 不受影响；对已归一文本二次应用是幂等的。
+function normalizeFormulaForDisplay(expression: string): string {
+  return String(expression)
+    // 私有使用区粘贴字符（test3.md 的 63 个 U+F8FD）→ 空格：KaTeX 对数学模式内的私区区
+    // 字符直接抛错变红，替换为空格后正常渲染（公式内空白本就被 KaTeX 忽略）
+    .replace(/[\uE000-\uF8FF]/g, ' ')
+    // \begin{array}{1} 的列规格 "{1}" 非法 → {ll}
+    .replace(/\\begin\{array\}\{1\}/g, '\\begin{array}{ll}')
+    // \cfrac/\frac 不能作 \tag 标签（strict:'ignore' 也修不好）→ 还原为字面文本，对齐 axiu
+    .replace(/\\tag\{\\(c?frac)\}/g, '\\tag{\\text{\\textbackslash $1}}');
+}
+
+// 包裹 katex.renderToString：内核每次渲染都动态调用 t.value.renderToString，故包一次即对
+// 预览/阅读/导出全链路生效；委托回原 renderToString，mhchem 等注册态不受影响。
+// 实测 katex.renderToString 属性 writable=true/configurable=true，猴子补丁安全。
+const katexPatchTarget = katex as { renderToString: typeof katex.renderToString };
+const katexRenderRaw = katex.renderToString.bind(katex);
+katexPatchTarget.renderToString = (expression, options): string =>
+  katexRenderRaw(normalizeFormulaForDisplay(expression), options);
+
+// ---- highlight.js 本地实例：md 预览代码块高亮（桌面离线渲染）----
+// v7 默认从 unpkg CDN 注入 hljs script + github 主题 link（内核 es/chunks/index4.mjs
+// 的 useHighlight：editorExtensions.highlight.instance 为空时注入，onload 后取
+// window.hljs），桌面离线/弱网即代码块无着色。此处静态注册本地实例（版本锚定
+// 内核 CDN 同款 @highlightjs/cdn-assets@11.12.0），内核检测到 instance 后跳过
+// 全部 CDN 注入（连主题 link 也不再注入——token 配色改由 global.css 双主题自管）。
+// 渲染调用点（index4.mjs useHighlight 消费处）：getLanguage(fence 语言) 命中走
+// highlight(language)，否则 highlightAuto 兜底；语言文件均为纯函数、无静态依赖，
+// 注册顺序任意。core 版按需注册控制体积，未注册语言由 highlightAuto 兜底仍有色。
+// 注意 hljs 11.12 无独立 html/mysql 模块：html/xhtml/rss/atom/svg 等均为 xml 的
+// 别名（注册 xml 即覆盖），mysql 无别名（sql fence 命中、mysql fence 走兜底）。
+import hljs from 'highlight.js/lib/core';
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import json from 'highlight.js/lib/languages/json';
+import python from 'highlight.js/lib/languages/python';
+import java from 'highlight.js/lib/languages/java';
+import c from 'highlight.js/lib/languages/c';
+import cpp from 'highlight.js/lib/languages/cpp';
+import csharp from 'highlight.js/lib/languages/csharp';
+import go from 'highlight.js/lib/languages/go';
+import rust from 'highlight.js/lib/languages/rust';
+import ruby from 'highlight.js/lib/languages/ruby';
+import php from 'highlight.js/lib/languages/php';
+import swift from 'highlight.js/lib/languages/swift';
+import kotlin from 'highlight.js/lib/languages/kotlin';
+import scala from 'highlight.js/lib/languages/scala';
+import objectivec from 'highlight.js/lib/languages/objectivec';
+import sql from 'highlight.js/lib/languages/sql';
+import bash from 'highlight.js/lib/languages/bash';
+import powershell from 'highlight.js/lib/languages/powershell';
+import yaml from 'highlight.js/lib/languages/yaml';
+import ini from 'highlight.js/lib/languages/ini';
+import dockerfile from 'highlight.js/lib/languages/dockerfile';
+import makefile from 'highlight.js/lib/languages/makefile';
+import diff from 'highlight.js/lib/languages/diff';
+import markdownLang from 'highlight.js/lib/languages/markdown';
+import http from 'highlight.js/lib/languages/http';
+import xml from 'highlight.js/lib/languages/xml';
+import css from 'highlight.js/lib/languages/css';
+import less from 'highlight.js/lib/languages/less';
+import scss from 'highlight.js/lib/languages/scss';
+import lua from 'highlight.js/lib/languages/lua';
+import perl from 'highlight.js/lib/languages/perl';
+import r from 'highlight.js/lib/languages/r';
+import matlab from 'highlight.js/lib/languages/matlab';
+import dart from 'highlight.js/lib/languages/dart';
+import fsharp from 'highlight.js/lib/languages/fsharp';
+import clojure from 'highlight.js/lib/languages/clojure';
+import erlang from 'highlight.js/lib/languages/erlang';
+import elixir from 'highlight.js/lib/languages/elixir';
+import haskell from 'highlight.js/lib/languages/haskell';
+import julia from 'highlight.js/lib/languages/julia';
+import graphql from 'highlight.js/lib/languages/graphql';
+import nginx from 'highlight.js/lib/languages/nginx';
+import properties from 'highlight.js/lib/languages/properties';
+import protobuf from 'highlight.js/lib/languages/protobuf';
+import plaintext from 'highlight.js/lib/languages/plaintext';
+import vbnet from 'highlight.js/lib/languages/vbnet';
+import coffeescript from 'highlight.js/lib/languages/coffeescript';
+
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('java', java);
+hljs.registerLanguage('c', c);
+hljs.registerLanguage('cpp', cpp);
+hljs.registerLanguage('csharp', csharp);
+hljs.registerLanguage('go', go);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('ruby', ruby);
+hljs.registerLanguage('php', php);
+hljs.registerLanguage('swift', swift);
+hljs.registerLanguage('kotlin', kotlin);
+hljs.registerLanguage('scala', scala);
+hljs.registerLanguage('objectivec', objectivec);
+hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('powershell', powershell);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('ini', ini);
+hljs.registerLanguage('dockerfile', dockerfile);
+hljs.registerLanguage('makefile', makefile);
+hljs.registerLanguage('diff', diff);
+hljs.registerLanguage('markdown', markdownLang);
+hljs.registerLanguage('http', http);
+hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('less', less);
+hljs.registerLanguage('scss', scss);
+hljs.registerLanguage('lua', lua);
+hljs.registerLanguage('perl', perl);
+hljs.registerLanguage('r', r);
+hljs.registerLanguage('matlab', matlab);
+hljs.registerLanguage('dart', dart);
+hljs.registerLanguage('fsharp', fsharp);
+hljs.registerLanguage('clojure', clojure);
+hljs.registerLanguage('erlang', erlang);
+hljs.registerLanguage('elixir', elixir);
+hljs.registerLanguage('haskell', haskell);
+hljs.registerLanguage('julia', julia);
+hljs.registerLanguage('graphql', graphql);
+hljs.registerLanguage('nginx', nginx);
+hljs.registerLanguage('properties', properties);
+hljs.registerLanguage('protobuf', protobuf);
+hljs.registerLanguage('plaintext', plaintext);
+hljs.registerLanguage('vbnet', vbnet);
+hljs.registerLanguage('coffeescript', coffeescript);
 
 import { mkFindExtension } from './findHighlight';
 import { headingLineExtension } from './cmHeadingLine';
@@ -23,6 +171,68 @@ let currentDocDir = '';
 
 export function setCurrentDocDir(dir: string): void {
   currentDocDir = dir ?? '';
+}
+
+/**
+ * 导出管线专用 mermaid 渲染（无 foreignObject，可光栅化）。
+ *
+ * 背景（2026-10-13 实测）：mermaid 11 默认配置渲染的 svg 含 <foreignObject>（节点标签），
+ * Chromium 对含 foreignObject 的 svg 图片一律污染画布 → PNG 光栅化必然失败（docxImagefy.ts
+ * 首部有同款实测结论）。且实测单独 flowchart.htmlLabels:false 不够——子图/节点标签的 FO 由
+ * 顶层 htmlLabels 控制，须「顶层 htmlLabels:false + flowchart.htmlLabels:false +
+ * markdownAutoWrap:false」三者齐备才产出纯 svg 文本标签的可光栅化 svg。
+ *
+ * 另一内核事实：md-editor 的 mermaid 渲染结果按源文本缓存在模块级 LRU（10min TTL），
+ * 且缓存命中时**不做节点替换**——主预览渲染过的图表，导出宿主内永远是源码 div，
+ * 等待多久都没用，必须自行渲染（见 MdEditorV3Engine.replaceExportMermaid）。
+ *
+ * 本函数以「白底浅色（与内核 light 口径一致，导出宿主恒 light）+ 无 FO」配置渲染单个图表，
+ * 渲染前后 getConfig()/initialize() 保存恢复内核配置，不影响主预览外观。失败返回 null。
+ */
+const MERMAID_EXPORT_THEME_VARS = {
+  background: '#ffffff',
+  primaryColor: '#ffffff',
+  primaryTextColor: '#1f2329',
+  primaryBorderColor: '#b7c0cc',
+  secondaryColor: '#f7f8fa',
+  tertiaryColor: '#f7f8fa',
+  lineColor: '#596273',
+  edgeLabelBackground: '#ffffff',
+  clusterBkg: '#ffffff',
+  clusterBorder: '#b7c0cc',
+};
+let mermaidRenderSeq = 0;
+/** 运行时 mermaid 单例带 getConfig（类型未声明），用于渲染前后保存/恢复内核配置 */
+const mermaidWithGetConfig = mermaid as typeof mermaid & {
+  getConfig?: () => Record<string, unknown>;
+};
+
+export async function renderMermaidSvg(source: string): Promise<string | null> {
+  const prev = mermaidWithGetConfig.getConfig?.();
+  try {
+    const cfg = {
+      startOnLoad: false,
+      theme: 'base',
+      htmlLabels: false,
+      markdownAutoWrap: false,
+      flowchart: { htmlLabels: false },
+      themeVariables: MERMAID_EXPORT_THEME_VARS,
+    };
+    mermaid.initialize(cfg as Parameters<typeof mermaid.initialize>[0]);
+    const id = `mk-export-mermaid-${++mermaidRenderSeq}-${Date.now().toString(36)}`;
+    const { svg } = await mermaid.render(id, source);
+    return svg;
+  } catch {
+    return null; // 语法错误等渲染失败：交由调用方保留源码（D9 降级）
+  } finally {
+    if (prev) {
+      try {
+        mermaid.initialize(prev as Parameters<typeof mermaid.initialize>[0]);
+      } catch {
+        /* 配置恢复失败不致命（下次主题切换内核会重初始化） */
+      }
+    }
+  }
 }
 
 function toAssetUrl(src: string): string {
@@ -103,9 +313,19 @@ export function setupMdRenderer(): void {
     // 注意：config() 每次调用都是「默认值 deepMerge 传入项」，不累积——
     // 所有自定义必须并入这一次调用，禁止在别处二次调用 config()。
     editorExtensions: {
+      // hljs 本地实例（同上）：内核检测到 instance 即跳过 unpkg CDN 的
+      // script + github 主题 link 注入，代码块高亮离线可用
+      highlight: { instance: hljs },
       mermaid: { instance: mermaid },
       katex: { instance: katex },
     },
+    // ---- KaTeX 渲染选项（顶层 config 项，内核 index4.mjs:1020 以 P.katexConfig 消费）----
+    // 注意：katexConfig 是 config() 的**顶层**选项（与 editorExtensions/editorConfig 同级，
+    // 见 md-editor-v3 types index.d.ts:1139 与 config.mjs:1270 默认恒等），不是
+    // editorExtensions.katex 的子字段（后者 TS 类型仅 {instance,js,css}）。
+    // strict:'ignore' 容忍严格性错误（内核默认 strict=warn，会把 \tag{\cfrac} 等判红）；
+    // throwOnError/displayMode 由内核传入，此处只做增量合并。maxExpand/trust 对齐 axiu。
+    katexConfig: (base) => ({ ...base, strict: 'ignore', maxExpand: 1000, trust: false }),
     // ---- 功能栏提示带快捷键（见 zhWithShortcuts 注释）；中英双语由设置语言选择 ----
     editorConfig: {
       languageUserDefined: { ...zhWithShortcuts, ...enWithShortcuts },

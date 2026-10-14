@@ -9,10 +9,13 @@ export const takePendingOpenArgs = () => call<string[]>('take_pending_open_args'
 export const writeFileAtomic = (path: string, content: string, keepBom: boolean) =>
   call<SaveResult>('write_file_atomic', { path, content, keepBom });
 
-export const saveAs = (defaultName: string, content: string) =>
-  call<SaveResult | null>('save_as', { defaultName, content });
+/** 另存为：ext 缺省 md（旧行为）；initial_dir = 对话框初始目录（V5，反转产物保存用） */
+export const saveAs = (defaultName: string, content: string, ext?: string, initialDir?: string) =>
+  call<SaveResult | null>('save_as', { defaultName, content, ext, initialDir });
 
-export const pickOpenFile = () => call<string | null>('pick_open_file');
+/** 系统打开文件对话框。exts 缺省按历史行为过滤 Markdown；传 ["docx"] 等则按扩展名过滤（Word 反转选取用） */
+export const pickOpenFile = (exts?: string[]) =>
+  call<string | null>('pick_open_file', { exts: exts ?? null });
 
 export const pickWorkspaceDir = () => call<string | null>('pick_workspace_dir');
 

@@ -38,10 +38,17 @@ pub fn load(app: &AppHandle) -> AppResult<AppSettings> {
 
 pub fn save(app: &AppHandle, settings: &AppSettings) -> AppResult<()> {
     let path = config_path(app)?;
-    // 非法值兜底（与 TS DEFAULT_SETTINGS 语义一致）：editor_engine 只认 markdown/wangeditor
+    // 非法值兜底（与 TS DEFAULT_SETTINGS 语义一致）：editor_engine 只认 markdown/wangeditor；
+    // word 引擎/管线只认各自枚举值（2026-10-13 新增）
     let mut settings = settings.clone();
     if settings.editor_engine != "markdown" && settings.editor_engine != "wangeditor" {
         settings.editor_engine = "markdown".into();
+    }
+    if settings.word_export_engine != "builtin" && settings.word_export_engine != "community" {
+        settings.word_export_engine = "builtin".into();
+    }
+    if settings.word_import_fidelity != "semantic" && settings.word_import_fidelity != "fidelity" {
+        settings.word_import_fidelity = "semantic".into();
     }
     let json = serde_json::to_vec_pretty(&settings)
         .map_err(|e| AppError::Internal(format!("设置序列化失败: {e}")))?;

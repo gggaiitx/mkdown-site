@@ -485,6 +485,12 @@ async function exportPdf(): Promise<void> {
   exportHostVisible.value = false;
 }
 
+/** Word 导出用的显示态 HTML（R2）：图片为 asset:// URL，convert 层 docxAssets 直接 fetch。
+ *  口径 = htmlToDisplay(磁盘态)，与编辑器当前所见一致。 */
+function getDisplayHtml(): string {
+  return htmlToDisplay(props.modelValue || '');
+}
+
 defineExpose({
   scrollToLine,
   scrollToMatch,
@@ -493,6 +499,7 @@ defineExpose({
   clearHighlight,
   exportPdf,
   togglePageFullscreen,
+  getDisplayHtml,
 });
 
 onBeforeUnmount(() => {

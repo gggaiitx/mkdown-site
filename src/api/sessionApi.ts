@@ -7,6 +7,8 @@ import { call } from './ipc';
 export interface SessionTabSnapshot {
   /** null = 未命名的新建文档（草稿内容必须随快照保存） */
   path: string | null;
+  /** 意向文件路径（§6.5 draftPath）：反转产物未保存标签的资产基准，V7 随快照恢复 */
+  draftPath?: string | null;
   title: string;
   /** 'md' | 'mh' | 'text' | 'code' | 'html' | 'svg' | 'docx' | 'xlsx' | 'image' */
   kind: string;

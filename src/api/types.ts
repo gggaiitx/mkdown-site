@@ -97,6 +97,16 @@ export interface AppSettings {
   showToolbar: boolean;
   /** 新建文件默认格式：markdown→.md（默认）/ wangeditor→.mh；不影响已打开文件 */
   editorEngine: EditorKernel;
+  /** 导出 Word 正文字体基线（D2）：中文字体 */
+  wordFontZh: string;
+  /** 导出 Word 正文字体基线（D2）：西文字体 */
+  wordFontEn: string;
+  /** 导出 Word 正文字体基线（D2）：正文字号（pt） */
+  wordFontSize: number;
+  /** MD 导出 Word 引擎："builtin"（自研 HTML→docx 映射，公式/图表走光栅化，默认）| "community"（@mohtasham/md-to-docx 试点：原生 OMML 公式 + 语法高亮；仅 md 标签生效） */
+  wordExportEngine: 'builtin' | 'community';
+  /** Word 转 MH 管线："semantic"（mammoth 语义净化，默认）| "fidelity"（docx-preview 高保真试点：保留颜色/字号/对齐） */
+  wordImportFidelity: 'semantic' | 'fidelity';
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -116,4 +126,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   wordWrap: true,
   showToolbar: true,
   editorEngine: 'markdown',
+  wordFontZh: '等线',
+  wordFontEn: 'Calibri',
+  wordFontSize: 11,
+  wordExportEngine: 'builtin',
+  wordImportFidelity: 'semantic',
 };

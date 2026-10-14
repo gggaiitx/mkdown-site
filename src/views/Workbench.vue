@@ -15,6 +15,7 @@ import OutlinePanel from '../components/OutlinePanel.vue';
 import FileTree from '../components/FileTree.vue';
 import SearchHub from '../components/SearchHub.vue';
 import SettingsDialog from '../components/SettingsDialog.vue';
+import WordConvertDialog from '../components/WordConvertDialog.vue';
 import Welcome from '../components/Welcome.vue';
 import AppDialog from '../components/AppDialog.vue';
 import FloatTip from '../components/FloatTip.vue';
@@ -54,7 +55,10 @@ import {
   takePendingOpenArgs,
   writeFileAtomic,
 } from '../api/fileApi';
-import { exportHtml } from '../api/exportApi';
+import { exportDocx, exportHtml, exportPdf } from '../api/exportApi';
+import { htmlToDocx, type WordStyleOpts } from '../convert/htmlToDocx';
+import { mdToDocxCommunity } from '../convert/mdToDocxCommunity';
+import { buildPrintDocument } from '../convert/printDoc';
 import { allowAssetDir } from '../api/imageApi';
 import type { EditorMode, ThemeKind } from '../api/types';
 import { isCodeExt } from '../utils/fileKind';
@@ -88,7 +92,10 @@ function flashReloadArea() {
 }
 /** 目录树组件引用：Shift+F 按名称过滤经 FileTree.openFilter() 打开并聚焦 */
 const fileTreeRef = ref<InstanceType<typeof FileTree> | null>(null);
-const activeDocPath = computed(() => tabs.activeTab?.path ?? null);
+/** 标记文档所在目录（相对资源经 asset:// base 解析）。
+ *  draftPath 升级（§6.5 V1）：未保存标签（path=null）用意向路径兜底——
+ *  反转产物「转换后打开」的相对路径图片据此解析，不再破图 */
+const activeDocPath = computed(() => tabs.activeTab?.path ?? tabs.activeTab?.draftPath ?? null);
 const showSettings = ref(false);
 
 /** 顶栏 GitHub 入口：用系统默认浏览器打开仓库 */
@@ -285,8 +292,11 @@ const isMarkupTab = computed(() => {
   const k = tabs.activeTab?.kind;
   return k === 'html' || k === 'svg';
 });
-/** 激活标签是否可导出 HTML：仅 Markdown 有 previewHtml 渲染来源（其余标签点了只弹提示，直接禁用） */
-const canExportHtml = computed(() => tabs.activeTab?.kind === 'md');
+/** 激活标签是否可导出 HTML / Word：md 有预览 HTML 来源，mh 磁盘态即 HTML（D8 起放开） */
+const canExportHtml = computed(() => {
+  const k = tabs.activeTab?.kind;
+  return k === 'md' || k === 'mh';
+});
 /** 激活标签是否可打印 PDF：md 走内核 ExportPDF，mh 富文本引擎自带导出；代码/标记/预览类无打印宿主 */
 const canPrintPdf = computed(() => {
   const k = tabs.activeTab?.kind;
@@ -729,6 +739,20 @@ function changeFont(delta: number) {
   void settings.update({ fontSize: size });
 }
 
+/** Ctrl/⌘+滚轮调整全局字号：编辑态/分栏态/阅读态统一走 --mk-font-size
+ *  （CM 编辑区与 md 预览区样式都消费该变量，无需按模式分流）。
+ *  必须 window capture + passive:false 且 preventDefault：WebView2/WKWebView
+ *  默认把 Ctrl+滚轮当页面缩放手势，不拦截会整页缩放而非调字号。
+ *  钳制范围与 changeFont（顶栏 +/-）一致 12-24；持久化由 settings.update 内部防抖。
+ *  deltaY<0 = 滚轮向上（远离用户）= 放大，与顶栏 + 按钮同向。 */
+function onFontWheel(e: WheelEvent) {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  changeFont(e.deltaY < 0 ? 1 : -1);
+  // 轻提示反馈当前字号：滚轮连续滚动时 toast 去重合并（同文案同类型），最多 3 条并存
+  editor.showToast(t('toolbar.fontZoomTip', { n: settings.settings.fontSize }), 'info');
+}
+
 // ---------- 大纲跳转 ----------
 function gotoOutline(item: OutlineItem) {
   engineRef.value?.scrollToLine(item.line, item.index);
@@ -791,9 +815,8 @@ watch(
 );
 
 // ---------- 导出 ----------
-function wrapExportHtml(): string {
+function wrapExportHtml(body: string): string {
   const title = tabs.activeTab?.title ?? t('workbench.appName');
-  const html = editor.previewHtml || '';
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -810,7 +833,7 @@ function wrapExportHtml(): string {
   blockquote { border-left: 4px solid #d0d7de; margin: 0; padding: 0 14px; color: #57606a; }
 </style>
 </head>
-<body>${html}</body>
+<body>${body}</body>
 </html>`;
 }
 
@@ -840,18 +863,151 @@ async function doExportHtml() {
     editor.showToast(t('workbench.toast.previewNoExportHtml'), 'info');
     return;
   }
-  // 代码 / HTML / 富文本标签没有 Markdown 渲染 HTML 来源（previewHtml），导出会得到残留内容
-  if (usesCodeEngine.value || isMhTab.value) {
+  // 代码 / html / svg 标签没有渲染 HTML 来源（与 canExportHtml 口径一致：仅 md/mh 可导出）
+  if (usesCodeEngine.value || isMarkupTab.value) {
     editor.showToast(t('workbench.toast.codeNoExport'), 'info');
     return;
   }
+  if (exportingWord.value) return; // 与 Word/PDF 导出共用任务级互斥锁
+  exportingWord.value = true;
+  editor.showToast(t('workbench.toast.exporting'), 'info');
   try {
-    const html = deAssetify(wrapExportHtml(), tab.path ?? t('workbench.untitledMd'));
+    let body: string;
+    if (isMhTab.value) {
+      // D8：mh 导出 HTML——来源 = tab.content（磁盘态，图片已是相对路径，deAssetify 空转）
+      body = tab.content;
+    } else {
+      body = editor.previewHtml || '';
+    }
+    const html = deAssetify(wrapExportHtml(body), tab.path ?? t('workbench.untitledMd'));
     const out = await exportHtml(tab.path ?? t('workbench.untitledMd'), html);
     if (out) editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
   } catch (err) {
     editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+  } finally {
+    exportingWord.value = false;
   }
+}
+
+/** 导出 Word 中（防重入锁）：Toolbar trigger loading + 菜单项禁用 + 二次点击忽略 */
+const exportingWord = ref(false);
+
+/** Word 导出（R1/R2；2026-10-13 增社区引擎试点）：
+ *  md + wordExportEngine='community' → mdToDocxCommunity 直接吃 md 原文（原生公式/语法高亮）；
+ *  其余（md 内置 / mh 全部）→ HTML 快照 → htmlToDocx（docx 包懒加载）→ exportDocx（Rust 对话框 + 原子写） */
+async function doExportWord() {
+  const tab = tabs.activeTab;
+  if (!tab || tabs.activeIsPreview) return;
+  if (exportingWord.value) return;
+  exportingWord.value = true;
+  editor.showToast(t('workbench.toast.exporting'), 'info');
+  try {
+    const style: WordStyleOpts = {
+      fontZh: settings.settings.wordFontZh,
+      fontEn: settings.settings.wordFontEn,
+      fontSize: settings.settings.wordFontSize,
+    };
+    if (!isMhTab.value && settings.settings.wordExportEngine === 'community') {
+      if (!tab.content.trim()) {
+        editor.showToast(t('workbench.toast.wordExportEmpty'), 'error');
+        return;
+      }
+      // 文档目录：解析相对路径图片（./assets/…）的基准
+      const baseDir = tab.path?.replace(/[\\/][^\\/]*$/, '') || undefined;
+      const { blob, warnings } = await mdToDocxCommunity(tab.content, style, baseDir);
+      const data = new Uint8Array(await blob.arrayBuffer());
+      const out = await exportDocx(tab.path ?? t('workbench.untitledMd'), data);
+      if (out) {
+        editor.showToast(
+          warnings.length
+            ? `${t('workbench.toast.exported', { path: out })}（${t('workbench.toast.wordCommunityWarned', { n: warnings.length })}）`
+            : t('workbench.toast.exported', { path: out }),
+          'success',
+        );
+      }
+      return;
+    }
+    let html: string;
+    if (isMhTab.value) {
+      html = wangEngineRef.value?.getDisplayHtml?.() ?? tab.content;
+    } else {
+      // md：等导出宿主渲染完成（mermaid/katex/图片）再取快照
+      html = (await mdEngineRef.value?.getExportPreviewHtml?.()) ?? editor.previewHtml ?? '';
+    }
+    if (!html.trim()) {
+      editor.showToast(t('workbench.toast.wordExportEmpty'), 'error');
+      return;
+    }
+    const { blob, degradedFormulas, failedImages } = await htmlToDocx(html, style);
+    const data = new Uint8Array(await blob.arrayBuffer());
+    const out = await exportDocx(tab.path ?? t('workbench.untitledMd'), data);
+    if (out) {
+      const extra: string[] = [];
+      if (degradedFormulas > 0) extra.push(t('workbench.toast.wordFormulaDegraded', { n: degradedFormulas }));
+      if (failedImages > 0) extra.push(t('workbench.toast.wordImageFailed', { n: failedImages }));
+      editor.showToast(
+        extra.length
+          ? `${t('workbench.toast.exported', { path: out })}（${extra.join('；')}）`
+          : t('workbench.toast.exported', { path: out }),
+        failedImages > 0 ? 'info' : 'success',
+      );
+    }
+  } catch (err) {
+    editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+  } finally {
+    exportingWord.value = false;
+  }
+}
+
+/** PDF 导出（2026-10-13；Edge 打印引擎版）：md → 导出宿主 innerHTML 快照；mh → getDisplayHtml() 显示态 HTML。
+ *  两路 → buildPrintDocument 自包含化（样式/字体/图片全内联，复用 .mk-export-host 打印结构）
+ *  → exportPdf（Rust 调系统 Edge headless --print-to-pdf：矢量文字型 PDF + CSS 完整保真 + 智能分页）。
+ *  与 doExportWord 共用 exportingWord 互斥锁（同一任务级导出语义） */
+async function doExportPdf() {
+  const tab = tabs.activeTab;
+  if (!tab || tabs.activeIsPreview) return;
+  if (exportingWord.value) return;
+  exportingWord.value = true;
+  // 过渡提示：mermaid 渲染 + 样式/字体内联 + Edge 打印共数秒，先给 toast + 按钮 loading，
+  // Rust 侧随后立即弹保存对话框（见 export_pdf：先取路径再打印），用户感知不到空窗
+  editor.showToast(t('workbench.toast.exporting'), 'info');
+  try {
+    let html: string;
+    if (isMhTab.value) {
+      html = wangEngineRef.value?.getDisplayHtml?.() ?? tab.content;
+    } else {
+      // md：等导出宿主渲染完成（mermaid/katex/图片）再取快照（与 Word 导出同链路）
+      html = (await mdEngineRef.value?.getExportPreviewHtml?.()) ?? editor.previewHtml ?? '';
+    }
+    if (!html.trim()) {
+      editor.showToast(t('workbench.toast.wordExportEmpty'), 'error');
+      return;
+    }
+    const printDoc = await buildPrintDocument(html);
+    const out = await exportPdf(tab.path ?? t('workbench.untitledMd'), printDoc);
+    if (out) {
+      editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
+    }
+  } catch (err) {
+    editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+  } finally {
+    exportingWord.value = false;
+  }
+}
+
+/** Word 反转入口（R3/R4）：直接打开转换操作页。
+ *  弹窗内拖入/选择文件开始转换；激活标签为 docx 预览时由 source-path 预设直转。
+ *  并发守卫（V3）：转换进行中忽略二次触发并 toast */
+const wordConvert = ref<{ visible: boolean; target: 'md' | 'mh' }>({
+  visible: false,
+  target: 'md',
+});
+function openWordConvert(target: 'md' | 'mh') {
+  if (wordConvert.value.visible) {
+    editor.showToast(t('workbench.wordConvert.convertingBusy'), 'info');
+    return;
+  }
+  wordConvert.value = { visible: true, target };
 }
 
 async function doPrintPdf() {
@@ -1062,6 +1218,8 @@ let unlistenDrop: (() => void) | null = null;
 const OPENABLE_EXT = /\.(md|markdown|mh|txt|html?|svg)$/i;
 const isDragOpenable = (p: string): boolean => OPENABLE_EXT.test(p) || isCodeExt(p);
 function onDragDrop(ev: { payload: { type: string; paths?: string[] } }) {
+  // 转换弹窗打开时让位：拖拽由弹窗内拖拽区接管（docx 转换源），不触发打开文件
+  if (wordConvert.value.visible) return;
   if (ev.payload.type !== 'drop' || !ev.payload.paths) return;
   const files = ev.payload.paths.filter(isDragOpenable);
   const skipped = ev.payload.paths.length - files.length;
@@ -1096,6 +1254,7 @@ onMounted(async () => {
     void import('../adapters/WangEditorEngine.vue');
   });
   window.addEventListener('keydown', onKeydown, true);
+  window.addEventListener('wheel', onFontWheel, { passive: false, capture: true });
   window.addEventListener('beforeunload', (e) => {
     if (tabs.dirtyCount > 0) {
       e.preventDefault();
@@ -1150,6 +1309,7 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true);
+  window.removeEventListener('wheel', onFontWheel, { capture: true });
   unlistenDrop?.();
   unlistenDrop = null;
   unlistenOpenArgs?.();
@@ -1178,6 +1338,7 @@ watch(() => editor.mode, (m) => {
       :no-split="isMhTab"
       :exportable="canExportHtml"
       :printable="canPrintPdf"
+      :exporting="exportingWord"
       :mode-bar-position="settings.settings.modeBarPosition"
       @toggle-sidebar="sidebarVisible = !sidebarVisible"
       @open-file="openFileByDialog"
@@ -1190,7 +1351,11 @@ watch(() => editor.mode, (m) => {
       @font="changeFont"
       @search="openGlobalSearch"
       @export-html="doExportHtml"
+      @export-word="doExportWord"
+      @export-pdf="doExportPdf"
       @print-pdf="doPrintPdf"
+      @word-to-md="openWordConvert('md')"
+      @word-to-mh="openWordConvert('mh')"
       @settings="showSettings = true"
       @github="openGithub"
       @update="openReleases"
@@ -1322,6 +1487,15 @@ watch(() => editor.mode, (m) => {
       @find="onFind"
     />
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
+
+    <!-- Word 反转「转换操作页面」（R3/R4，§9.2） -->
+    <WordConvertDialog
+      v-if="wordConvert.visible"
+      :visible="wordConvert.visible"
+      :source-path="tabs.activeTab?.kind === 'docx' ? (tabs.activeTab.path ?? '') : ''"
+      :target="wordConvert.target"
+      @close="wordConvert.visible = false"
+    />
 
     <!-- 关闭确认（单标签 / 批量关闭 / 关窗口 三态共用） -->
     <AppDialog

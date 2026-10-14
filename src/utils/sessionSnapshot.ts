@@ -36,6 +36,8 @@ function tabToSnapshot(t: DocumentTab): SessionTabSnapshot {
     cursorLine: t.cursorLine,
     isDirty: t.isDirty,
   };
+  // draftPath 随快照保留（V7）：未保存的反转产物重开应用后资产基准不丢
+  if (t.draftPath) s.draftPath = t.draftPath;
   if (t.isDirty) {
     s.content = t.content;
     s.savedContent = t.savedContent;
@@ -186,10 +188,13 @@ async function restoreOneTab(
       }
     } else if (kind === 'md' || kind === 'mh') {
       // 未命名新建文档（md/mh 同口径恢复，P1-8）：只有草稿语义，无内容则没有恢复价值。
-      // newUntitled 第 4 参 mhContent 承载富文本 HTML 草稿（md 走模板内容、此处为空由下方覆盖）
+      // newUntitled 第 4 参 mhContent 承载富文本 HTML 草稿（md 走模板内容、此处为空由下方覆盖）；
+      // draftPath 经 opts 回填（V7），title 用快照标题（V6：反转产物冠来源名）
       if (!st.isDirty || typeof st.content !== 'string') return null;
-      tab = tabs.newUntitled('', (st.mode as DocumentTab['mode']) ?? 'edit', kind, st.content);
-      tab.title = st.title || tab.title;
+      tab = tabs.newUntitled('', (st.mode as DocumentTab['mode']) ?? 'edit', kind, st.content, {
+        draftPath: st.draftPath ?? undefined,
+        title: st.title || undefined,
+      });
       tab.content = st.content;
       tab.savedContent = typeof st.savedContent === 'string' ? st.savedContent : '';
       tab.isDirty = true;
@@ -200,9 +205,11 @@ async function restoreOneTab(
     if (!tab) return null;
     if (st.cursorLine > 1 && tab.cursorLine === 1) tab.cursorLine = st.cursorLine;
 
-    // 授权文档目录：预览组件图片/md 内嵌资源走 asset:// 需要（同 openFilePath）
-    if (st.path) {
-      const dir = st.path.replace(/[\\/][^\\/]*$/, '');
+    // 授权文档目录：预览组件图片/md 内嵌资源走 asset:// 需要（同 openFilePath）。
+    // draftPath（未保存反转产物）同样要授权——其 assets 已落盘在 docx 同目录（V1/V7 回归点）
+    const grantPath = st.path ?? st.draftPath;
+    if (grantPath) {
+      const dir = grantPath.replace(/[\\/][^\\/]*$/, '');
       if (dir) void allowAssetDir(dir).catch(() => undefined);
     }
     return tab.id;
