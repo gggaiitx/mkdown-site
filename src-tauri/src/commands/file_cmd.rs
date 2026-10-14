@@ -104,18 +104,35 @@ pub async fn write_file_atomic(
 pub async fn save_as(
     default_name: String,
     content: String,
+    ext: Option<String>,
+    initial_dir: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<Option<SaveResult>> {
+    // ext 缺省 md（旧行为不变，R8）；仅认 md/mh 两种，其余按 md 兜底
+    let ext = match ext.as_deref() {
+        Some("mh") => "mh".to_string(),
+        _ => "md".to_string(),
+    };
     let res = spawn_dialog(move || {
-        let Some(mut picked) = rfd::FileDialog::new()
-            .set_file_name(&default_name)
-            .add_filter("Markdown (*.md)", &["md"])
-            .save_file()
-        else {
+        let mut dlg = rfd::FileDialog::new().set_file_name(&default_name);
+        // 过滤器与默认扩展名按 ext 选（R3/R4 反转产物保存 .md / .mh）
+        let (filter_name, exts): (&str, &[&str]) = if ext == "mh" {
+            ("Markhtml (*.mh)", &["mh"])
+        } else {
+            ("Markdown (*.md)", &["md"])
+        };
+        dlg = dlg.add_filter(filter_name, exts);
+        // initial_dir（V5）：反转产物「直接保存」的初始目录 = docx 同目录，保证 assets 不分家
+        if let Some(dir) = initial_dir {
+            if !dir.is_empty() {
+                dlg = dlg.set_directory(dir);
+            }
+        }
+        let Some(mut picked) = dlg.save_file() else {
             return Ok(None);
         };
         if picked.extension().is_none() {
-            picked.set_extension("md");
+            picked.set_extension(&ext);
         }
         fs_service::write_atomic(&picked, content.as_bytes())?;
         Ok(Some(SaveResult {
@@ -132,13 +149,34 @@ pub async fn save_as(
     Ok(res)
 }
 
-/// 系统打开文件对话框（.md 过滤），返回选中路径
+/// 系统打开文件对话框。exts 为空/缺省时按历史行为过滤 Markdown；传入扩展名列表（如 ["docx"]）
+/// 时按其过滤（用于 Word 反转的 .docx 选取）。始终附带「所有文件」兜底。返回选中路径
 #[tauri::command]
-pub async fn pick_open_file(state: State<'_, AppState>) -> AppResult<Option<String>> {
-    let picked = spawn_dialog(|| {
-        Ok(rfd::FileDialog::new()
-            .add_filter("Markdown (*.md)", &["md", "markdown"])
-            .add_filter("所有文件", &["*"])
+pub async fn pick_open_file(
+    state: State<'_, AppState>,
+    exts: Option<Vec<String>>,
+) -> AppResult<Option<String>> {
+    let picked = spawn_dialog(move || {
+        let mut dlg = rfd::FileDialog::new();
+        if let Some(exts) = exts.as_ref() {
+            if !exts.is_empty() {
+                let label = if exts.len() == 1 {
+                    format!("Word (*.{})", exts[0])
+                } else {
+                    let pat = exts
+                        .iter()
+                        .map(|e| format!("*.{}", e))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    format!("文件 ({})", pat)
+                };
+                dlg = dlg.add_filter(&label, exts);
+            }
+        } else {
+            dlg = dlg.add_filter("Markdown (*.md)", &["md", "markdown"]);
+        }
+        dlg = dlg.add_filter("所有文件", &["*"]);
+        Ok(dlg
             .pick_file()
             .map(|p| p.to_string_lossy().into_owned()))
     })

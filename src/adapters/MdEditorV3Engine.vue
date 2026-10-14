@@ -20,7 +20,7 @@ import { modKey } from '../utils/keyHint';
 import { extractOutline } from '../utils/outline';
 import type { EditorMode, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
-import { setCurrentDocDir, setupMdRenderer } from './mdRendererConfig';
+import { setCurrentDocDir, setupMdRenderer, renderMermaidSvg } from './mdRendererConfig';
 import { setCmFind } from './findHighlight';
 import { useI18n } from '../i18n';
 
@@ -420,8 +420,6 @@ function togglePageFullscreen(): void {
   inst?.togglePageFullscreen?.();
 }
 
-defineExpose({ scrollToLine, insert, wrapSelection, setHeading, togglePageFullscreen, highlight, clearHighlight, exportPdf });
-
 // ---- 导出/打印 PDF（官方 ExportPDF 机制同构自建） ----
 // 机制同 md-editor-v3 官方 ExportPDF（@vavt/v3-extension）：独立 MdPreview
 // （id=export-pdf-preview，Teleport 到 body 直下、恒驻 DOM）+ window.print()，
@@ -496,15 +494,122 @@ function waitExportPreviewReady(): Promise<void> {
   });
 }
 
+/**
+ * 等待导出宿主内 Mermaid 渲染完成（svg 就位）：md-editor 的 mermaid 在 html-changed
+ * 之后异步 replaceMermaid（mermaid.render 为 async，渲染源码 div 被整替为 svg 段落），
+ * 「文本长度稳定 / on-html-changed 唤醒」都早于 svg 插入——快照/打印会抓到源码态。
+ * 轮询至宿主内所有 [class*="mermaid"] 节点带 data-processed 或含 svg；
+ * 渲染失败（语法错误）会停留源码态，3s 上限兜底继续（可用性优先，勿无限等待）。
+ */
+async function waitMermaidRendered(): Promise<void> {
+  const started = performance.now();
+  // 图表本体 = 类名含 mermaid 但排除操作条（-action/-copy/-zoom 无 svg 也永不带 data-processed）
+  const isChartEl = (n: Element): boolean => {
+    const c = n.getAttribute('class') ?? '';
+    return (
+      c.includes('mermaid') &&
+      !c.includes('mermaid-action') &&
+      !c.includes('mermaid-copy') &&
+      !c.includes('mermaid-zoom')
+    );
+  };
+  const pending = (): number => {
+    const el = document.getElementById('export-pdf-preview');
+    if (!el) return 0;
+    return Array.from(el.querySelectorAll('[class*="mermaid"]')).filter(
+      (n) => isChartEl(n) && !n.hasAttribute('data-processed') && !n.querySelector('svg'),
+    ).length;
+  };
+  while (pending() > 0 && performance.now() - started < 1500) {
+    await new Promise((r) => setTimeout(r, 120));
+  }
+}
+
+/**
+ * 导出宿主内 mermaid 图表的确定性替换（2026-10-13 修复「导出 Word 架构图空白/源码」）。
+ *
+ * 内核两大事实（见 mdRendererConfig.renderMermaidSvg 注释）：
+ *  1. replaceMermaid 是 html-changed 之后的异步渲染，源码 div 被整替为含 svg 的段落；
+ *  2. 渲染结果按源文本缓存在模块级 LRU，**缓存命中时不做节点替换**——主预览渲染过的
+ *     图表，导出宿主内永远是源码 div（等待解决不了）。
+ * 故此处不再依赖内核渲染：对宿主内每个图表元素（渲染前 div / 渲染后 p 均可）取源码
+ * （优先 data-content 属性，回退 textContent），用 renderMermaidSvg 以「无 foreignObject、
+ * 白底浅色」配置自渲染并就地替换为 data-processed 段落——快照内全部是可光栅化的 svg。
+ * 内核迟到的 replaceMermaid 只替换 div（我们产出的是 p），不会二次覆盖，竞态安全。
+ * 渲染失败保留原样（源码 div → 映射层 D9 降级为源码文本，绝不出空白）。
+ */
+async function replaceExportMermaid(): Promise<void> {
+  const host = document.getElementById('export-pdf-preview');
+  if (!host) return;
+  const isChartEl = (n: Element): boolean => {
+    const c = n.getAttribute('class') ?? '';
+    return (
+      c.includes('mermaid') &&
+      !c.includes('mermaid-action') &&
+      !c.includes('mermaid-copy') &&
+      !c.includes('mermaid-zoom')
+    );
+  };
+  const charts = Array.from(host.querySelectorAll('[class*="mermaid"]')).filter(isChartEl);
+  for (const el of charts) {
+    const src = (el.getAttribute('data-content') ?? el.textContent ?? '').trim();
+    if (!src) continue;
+    const svg = await renderMermaidSvg(src);
+    if (!svg) continue;
+    const p = document.createElement('p');
+    p.className = 'mermaid';
+    p.setAttribute('data-processed', '');
+    p.innerHTML = svg;
+    el.replaceWith(p);
+  }
+}
+
 /** 打印 PDF：同步最新内容 → 等渲染（事件优先、轮询兜底）→ window.print。三态通用。 */
 async function exportPdf(): Promise<void> {
   exportContent.value = props.modelValue;
   await waitExportPreviewReady();
+  await waitMermaidRendered();
+  await replaceExportMermaid();
   if (!document.getElementById('export-pdf-preview')) {
     throw new Error(t('engine.exportPreviewMissing'));
   }
   window.print();
 }
+
+/**
+ * Word 导出用的预览 HTML 快照（R1）：同步内容到导出宿主 → 等渲染（mermaid/katex/图片）→ 取 innerHTML。
+ * 与 exportPdf 共用等待机制，编辑态同样可用（宿主恒驻 DOM）；调用方（Workbench.doExportWord）持锁防重入。
+ *
+ * 关键：导出宿主 .mk-export-host 屏幕态恒 display:none，零布局会导致：
+ *  - Mermaid 在快照 HTML 中拿不到渲染后的 <svg>（依赖真实容器宽度）；
+ *  - 即便 htmlToDocx 后续把 HTML 移入离屏 staging 重新布局，公式/图尺寸量测也易失真。
+ * 故快照期间临时挂 .mk-export-host--live（脱离 display:none，off-screen + visibility:hidden 仅隐藏不丢布局），
+ * 让 Mermaid/KaTeX 在可见布局下完成渲染与回流，取完 innerHTML 即摘除。
+ */
+async function getExportPreviewHtml(): Promise<string> {
+  const host = document.getElementById('export-pdf-preview');
+  if (!host) {
+    throw new Error(t('engine.exportPreviewMissing'));
+  }
+  const wrap = host.closest('.mk-export-host') as HTMLElement | null;
+  wrap?.classList.add('mk-export-host--live');
+  try {
+    exportContent.value = props.modelValue;
+    await waitExportPreviewReady();
+    await waitMermaidRendered();
+    await replaceExportMermaid();
+    await nextTick(); // 等一帧：Mermaid/KaTeX 在可见布局下完成渲染与回流
+    const fresh = document.getElementById('export-pdf-preview');
+    if (!fresh) {
+      throw new Error(t('engine.exportPreviewMissing'));
+    }
+    return fresh.innerHTML;
+  } finally {
+    wrap?.classList.remove('mk-export-host--live');
+  }
+}
+
+defineExpose({ scrollToLine, insert, wrapSelection, setHeading, togglePageFullscreen, highlight, clearHighlight, exportPdf, getExportPreviewHtml });
 
 // ---- 光标跟踪（状态栏 L:C）：监听原生 selectionchange，经 rAF 节流后从 CM6 state 读取 ----
 interface CmViewLike {
@@ -1206,6 +1311,18 @@ mark.mk-pv-find {
    此处宿主结构扁平，用 :not() 排除等价实现。 */
 .mk-export-host {
   display: none;
+}
+/* Word 导出快照期间临时态：脱离 display:none，置于视口外且 visibility:hidden（仅隐藏不丢布局），
+   让 Mermaid/KaTeX 在真实容器宽度下完成渲染与回流；双类选择器特异性高于 .mk-export-host，无需 !important */
+.mk-export-host.mk-export-host--live {
+  display: block;
+  position: fixed;
+  left: -99999px;
+  top: 0;
+  width: 1020px;
+  visibility: hidden;
+  z-index: -1;
+  pointer-events: none;
 }
 @media print {
   body {

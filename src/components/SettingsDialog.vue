@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue';
-import { Download, ExternalLink, Info, Keyboard, Palette, RefreshCw, SlidersHorizontal } from '@lucide/vue';
+import { Download, ExternalLink, SquareArrowOutUpRight, Info, Keyboard, Palette, RefreshCw, SlidersHorizontal } from '@lucide/vue';
 import pkg from '../../package.json';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useI18n } from '../i18n';
@@ -151,10 +151,11 @@ const previewThemes: Array<{ value: string; label: string }> = [
 ];
 
 // ---- 左右分栏分类导航（对齐 WorkBuddy 设置面板形态） ----
-type SectionId = 'appearance' | 'editor' | 'shortcuts' | 'about';
+type SectionId = 'appearance' | 'editor' | 'export' | 'shortcuts' | 'about';
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'settings.sectionAppearance', icon: Palette },
   { id: 'editor', label: 'settings.sectionEditor', icon: SlidersHorizontal },
+  { id: 'export', label: 'settings.sectionExport', icon: SquareArrowOutUpRight },
   { id: 'shortcuts', label: 'settings.sectionShortcuts', icon: Keyboard },
   { id: 'about', label: 'settings.sectionAbout', icon: Info },
 ];
@@ -321,6 +322,59 @@ onBeforeUnmount(onDragEnd);
                 />
                 <span class="track" />
               </label>
+            </div>
+          </template>
+
+          <!-- 导出（D2：Word 正文字体基线） -->
+          <template v-else-if="active === 'export'">
+            <div class="sec-title">{{ t('settings.sectionExport') }}</div>
+            <div class="row">
+              <label>{{ t('settings.exportFontHint') }}</label>
+            </div>
+            <div class="row">
+              <label>{{ t('settings.wordFontZh') }}</label>
+              <select :value="settings.settings.wordFontZh" @change="patch({ wordFontZh: ($event.target as HTMLSelectElement).value })">
+                <option value="等线">{{ t('settings.fontDengxian') }}</option>
+                <option value="宋体">{{ t('settings.fontSimSun') }}</option>
+                <option value="微软雅黑">{{ t('settings.fontMsYaHei') }}</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>{{ t('settings.wordFontEn') }}</label>
+              <select :value="settings.settings.wordFontEn" @change="patch({ wordFontEn: ($event.target as HTMLSelectElement).value })">
+                <option value="Calibri">Calibri</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Arial">Arial</option>
+                <option value="Consolas">Consolas</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>{{ t('settings.wordFontSize', { n: settings.settings.wordFontSize }) }}</label>
+              <input
+                type="range" min="9" max="14" step="1"
+                :value="settings.settings.wordFontSize"
+                @change="patch({ wordFontSize: Number(($event.target as HTMLInputElement).value) })"
+              />
+            </div>
+            <div class="row">
+              <label>{{ t('settings.wordExportEngine') }}</label>
+              <select
+                :value="settings.settings.wordExportEngine"
+                @change="patch({ wordExportEngine: ($event.target as HTMLSelectElement).value as 'builtin' | 'community' })"
+              >
+                <option value="builtin">{{ t('settings.wordEngineBuiltin') }}</option>
+                <option value="community">{{ t('settings.wordEngineCommunity') }}</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>{{ t('settings.wordImportFidelity') }}</label>
+              <select
+                :value="settings.settings.wordImportFidelity"
+                @change="patch({ wordImportFidelity: ($event.target as HTMLSelectElement).value as 'semantic' | 'fidelity' })"
+              >
+                <option value="semantic">{{ t('settings.wordImportSemantic') }}</option>
+                <option value="fidelity">{{ t('settings.wordImportFidelityOpt') }}</option>
+              </select>
             </div>
           </template>
 

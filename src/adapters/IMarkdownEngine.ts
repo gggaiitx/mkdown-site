@@ -40,7 +40,16 @@ export interface MarkdownEngineHandle {
   togglePageFullscreen(): void;
   /** 导出 PDF：md-editor-v3 官方 ExportPDF 机制（window.print 只打印内嵌预览体）。三态通用。 */
   exportPdf(): Promise<void>;
+  /** Word 导出用的预览 HTML 快照：同步内容到导出宿主 → 等渲染（mermaid/katex 完成）→ 取 innerHTML。
+   *  复用 waitExportPreviewReady 等待机制；编辑态同样可用（宿主恒驻）。 */
+  getExportPreviewHtml(): Promise<string>;
 }
 
 /** 引擎组件对外暴露的方法（defineExpose 契约）：通用必选 + Markdown 方法可选 */
-export type EngineHandle = CommonEngineHandle & Partial<MarkdownEngineHandle>;
+export type EngineHandle = CommonEngineHandle & Partial<MarkdownEngineHandle> & Partial<RichTextEngineHandle>;
+
+/** 富文本（wangEditor）专属能力：仅 WangEditorEngine 实现 */
+export interface RichTextEngineHandle {
+  /** 取显示态 HTML（图片为 asset:// URL，docxAssets 可直接 fetch）；Word 导出用 */
+  getDisplayHtml(): string;
+}

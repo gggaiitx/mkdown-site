@@ -13,6 +13,14 @@ export default defineConfig({
   // 发现新依赖时触发重新优化、改写 node_modules/.vite 触发 safe-delete 批量删除拦截
   optimizeDeps: {
     include: ['@tauri-apps/api', '@tauri-apps/api/app', '@tauri-apps/api/window', '@tauri-apps/api/core'],
+    // ★ exclude 必须保持为空（2026-10-13 白板事故复盘）：mammoth/turndown/docx/xlsx/
+    //   docx-preview 均为 CJS 包，一旦 exclude，vite 会把 CJS 源码原样直供浏览器，
+    //   ESM 链接报 "does not provide an export named 'default'" → 整个模块图挂掉 → 白板。
+    //   之前的 exclude 是为规避「运行时首次请求新依赖 → 重建预构建 → commit 删旧 deps
+    //   触发 safe-delete 崩溃」；但正确的规避方式是：装新依赖后先停 dev、删 .vite、再启动
+    //   （启动扫描一次性预构建全部依赖，全新 cache 无旧目录可删，不会触发批量删除拦截）。
+    //   仅纯 ESM 且确实无法预构建的包才允许进 exclude。
+    exclude: [],
   },
   build: {
     // chrome105 → chrome120（P2-15）：Tauri 2 的 WebView2 evergreen 远高于 105，

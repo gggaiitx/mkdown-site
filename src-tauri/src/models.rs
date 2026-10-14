@@ -103,6 +103,26 @@ fn default_editor_engine() -> String {
     "markdown".into()
 }
 
+fn default_word_font_zh() -> String {
+    "等线".into()
+}
+
+fn default_word_font_en() -> String {
+    "Calibri".into()
+}
+
+fn default_word_font_size() -> u32 {
+    11
+}
+
+fn default_word_export_engine() -> String {
+    "builtin".into()
+}
+
+fn default_word_import_fidelity() -> String {
+    "semantic".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
@@ -131,6 +151,21 @@ pub struct AppSettings {
     /// 新建文件默认格式："markdown"（默认）| "wangeditor"（新建 .mh）
     #[serde(default = "default_editor_engine")]
     pub editor_engine: String,
+    /// 导出 Word 正文字体基线（D2）：中文字体（2026-10-13 补：此前缺失导致设置不持久化）
+    #[serde(default = "default_word_font_zh")]
+    pub word_font_zh: String,
+    /// 导出 Word 正文字体基线（D2）：西文字体
+    #[serde(default = "default_word_font_en")]
+    pub word_font_en: String,
+    /// 导出 Word 正文字体基线（D2）：正文字号（pt）
+    #[serde(default = "default_word_font_size")]
+    pub word_font_size: u32,
+    /// MD 导出 Word 引擎："builtin"（默认）| "community"（@mohtasham/md-to-docx 试点）
+    #[serde(default = "default_word_export_engine")]
+    pub word_export_engine: String,
+    /// Word 转 MH 管线："semantic"（默认）| "fidelity"（docx-preview 高保真试点）
+    #[serde(default = "default_word_import_fidelity")]
+    pub word_import_fidelity: String,
 }
 
 impl Default for AppSettings {
@@ -152,6 +187,11 @@ impl Default for AppSettings {
             word_wrap: true,
             show_toolbar: true,
             editor_engine: default_editor_engine(),
+            word_font_zh: default_word_font_zh(),
+            word_font_en: default_word_font_en(),
+            word_font_size: default_word_font_size(),
+            word_export_engine: default_word_export_engine(),
+            word_import_fidelity: default_word_import_fidelity(),
         }
     }
 }

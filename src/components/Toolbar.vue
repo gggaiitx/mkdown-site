@@ -7,6 +7,7 @@ import {
   Pencil, Columns2, BookOpen,   Search, FileCode2, Printer,
   Sun, Moon, Settings, Minus, Plus, Type, Download,
   PanelLeftOpen,
+  SquareArrowOutUpRight, FileText, ArrowRightLeft, FileType, Loader2,
   Minus as WinMin, Square, Copy, X,
 } from '@lucide/vue';
 
@@ -29,10 +30,12 @@ const props = defineProps<{
   codeTab?: boolean;
   /** 激活标签为富文本（.mh）：仅分栏按钮禁用（双形态 edit/read，阅读态带大纲） */
   noSplit?: boolean;
-  /** 激活标签可导出 HTML（仅 Markdown）：false 时按钮灰掉 */
+  /** 激活标签可导出 HTML / Word（md/mh，D8 起 mh 放开）：false 时菜单项灰掉 */
   exportable?: boolean;
-  /** 激活标签可打印 PDF（md 内核 ExportPDF / mh 富文本导出）：false 时按钮灰掉 */
+  /** 激活标签可打印 PDF（md 内核 ExportPDF / mh 富文本导出）：false 时菜单项灰掉 */
   printable?: boolean;
+  /** 导出进行中（Word/PDF/HTML）：trigger 显示 loading，导出项禁用防重复触发 */
+  exporting?: boolean;
   /** 顶栏模式切换三按钮组位置（设置-外观「模式位置」）：center 顶栏居中（默认）/ left 跟随左侧功能区 */
   modeBarPosition?: 'center' | 'left';
 }>();
@@ -49,7 +52,11 @@ const emit = defineEmits<{
   (e: 'font', delta: number): void;
   (e: 'search'): void;
   (e: 'export-html'): void;
+  (e: 'export-word'): void;
+  (e: 'export-pdf'): void;
   (e: 'print-pdf'): void;
+  (e: 'word-to-md'): void;
+  (e: 'word-to-mh'): void;
   (e: 'settings'): void;
   (e: 'github'): void;
   (e: 'update', url: string): void;
@@ -242,6 +249,8 @@ watch(
 // macOS：走 tauri.macos.conf.json 的原生红绿灯（titleBarStyle Overlay，左上角），
 // 隐藏右侧自绘三键并预留左上空间；Windows/Linux 维持自绘三键不变
 const isMac = /Mac/i.test(navigator.platform) || navigator.userAgent.includes('Macintosh');
+/** 字号按钮提示里的滚轮快捷键（Ctrl+滚轮 / Mac ⌘+滚轮，见 Workbench.onFontWheel） */
+const fontWheelHint = isMac ? '⌘+滚轮' : 'Ctrl+滚轮';
 const win = getCurrentWindow();
 const isMaximized = ref(false);
 let unlistenResized: (() => void) | null = null;
@@ -269,6 +278,102 @@ function toggleMaximize() { void win.toggleMaximize(); }
 function closeWindow() {
   // 走 close 事件 → Workbench 的 onCloseRequested 未保存拦截仍然生效
   void win.close();
+}
+
+// ---- 「输出」统一下拉（D1：导出 HTML / 导出 Word / 打印 PDF / Word 转 MD / Word 转 MH） ----
+// 交互口径（2026-10-13 定稿）：**点击图标展开/收起**（不再 hover 展开，防误触）；
+// 点击菜单项后收起；点击外部 / Esc 关闭；Word 转 MD/MH 始终可点（弹窗内拖入/选择文件）。
+const outOpen = ref(false);
+const outWrapRef = ref<HTMLElement | null>(null);
+/** trigger 按钮（用于量测坐标，菜单脱离 overflow:hidden 容器定位） */
+const outBtnRef = ref<HTMLElement | null>(null);
+/** teleport 到 body 后的菜单元素（点击外部关闭需把它纳入命中判定） */
+const outMenuRef = ref<HTMLElement | null>(null);
+/** 菜单 fixed 定位内联样式（top/left 由 trigger 实时坐标推导，越界由 adjustOutputMenu 兜底） */
+const outMenuStyle = ref<Record<string, string>>({});
+
+/** 展开菜单：按 trigger 坐标计算 fixed 定位（脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪）。
+ *  左缘与 trigger 图标左缘对齐；宽度自适应内容（CSS max-content），越界由 adjustOutputMenu 兜底 */
+function openOutput() {
+  const r = outBtnRef.value?.getBoundingClientRect();
+  if (r) {
+    outMenuStyle.value = {
+      position: 'fixed',
+      top: `${Math.round(r.bottom) + 6}px`,
+      left: `${Math.round(r.left)}px`,
+    };
+  }
+  outOpen.value = true;
+  void nextTick(adjustOutputMenu);
+}
+
+/** 越界兜底：右缘超出视口则左移夹紧；下缘放不下翻到 trigger 上方。渲染一帧后量实际尺寸再校正 */
+function adjustOutputMenu() {
+  const menu = outMenuRef.value;
+  const btn = outBtnRef.value;
+  if (!menu || !btn) return;
+  const rect = menu.getBoundingClientRect();
+  const b = btn.getBoundingClientRect();
+  const cur = outMenuStyle.value;
+  const top = parseFloat(cur.top);
+  const next: Record<string, string> = { ...cur };
+  let left = parseFloat(cur.left);
+  if (Number.isFinite(left) && left + rect.width > window.innerWidth - 8) {
+    left = Math.max(8, window.innerWidth - rect.width - 8);
+  }
+  if (Number.isFinite(left)) next.left = `${Math.round(left)}px`;
+  if (
+    Number.isFinite(top) &&
+    top + rect.height > window.innerHeight - 8 &&
+    b.top - rect.height - 6 >= 8
+  ) {
+    next.top = `${Math.round(b.top - rect.height - 6)}px`;
+  }
+  outMenuStyle.value = next;
+}
+function toggleOutput() {
+  if (outOpen.value) {
+    closeOutput();
+  } else {
+    openOutput();
+  }
+}
+function closeOutput() {
+  outOpen.value = false;
+}
+/** 菜单项点击：派发语义事件后统一收起（避免遮挡后续操作） */
+function onOutputItem(e: 'export-html' | 'export-word' | 'export-pdf' | 'print-pdf' | 'word-to-md' | 'word-to-mh') {
+  closeOutput();
+  if (e === 'export-html') emit('export-html');
+  else if (e === 'export-word') emit('export-word');
+  else if (e === 'export-pdf') emit('export-pdf');
+  else if (e === 'print-pdf') emit('print-pdf');
+  else if (e === 'word-to-md') emit('word-to-md');
+  else emit('word-to-mh');
+}
+
+onMounted(() => {
+  // 外部点击关闭（capture：先于菜单项 click 之前判定，mousedown 时菜单仍在）
+  document.addEventListener('mousedown', onDocMouseDown);
+  document.addEventListener('keydown', onDocKeydown);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocMouseDown);
+  document.removeEventListener('keydown', onDocKeydown);
+});
+function onDocMouseDown(e: MouseEvent) {
+  if (!outOpen.value) return;
+  const tgt = e.target as Node;
+  // 命中 trigger 区或已 teleport 到 body 的菜单本身都不关闭
+  if (outWrapRef.value?.contains(tgt)) return;
+  if (outMenuRef.value?.contains(tgt)) return;
+  closeOutput();
+}
+function onDocKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && outOpen.value) {
+    e.stopPropagation();
+    closeOutput();
+  }
 }
 </script>
 
@@ -350,23 +455,69 @@ function closeWindow() {
       <span v-if="searchActive" class="active-dot" />
     </button>
 
-    <button class="tb-btn tb-btn--icon" :disabled="!hasActive || !exportable" @click="emit('export-html')" :data-tip="t('toolbar.exportHtml')">
-      <FileCode2 class="icon" />
-    </button>
-    <button class="tb-btn tb-btn--icon" :disabled="!hasActive || !printable" @click="emit('print-pdf')" :data-tip="t('toolbar.printPdf')">
-      <Printer class="icon" />
-    </button>
+    <!-- 输出统一下拉（D1）：点击展开/收起；三组呈现（V4）——
+         导出文件（HTML / Word）、打印（PDF）、转换（Word 转 MD / MH）；
+         恒可展开（欢迎页也可）：导出/打印按 kind 置灰（无文档时灰），转换恒可点
+         （弹窗内拖入/选择文件，不依赖激活标签） -->
+    <div ref="outWrapRef" class="output-wrap">
+      <button
+        ref="outBtnRef"
+        class="tb-btn tb-btn--icon"
+        :class="{ 'tb-btn--active': outOpen }"
+        @click="toggleOutput"
+      >
+        <Loader2 v-if="props.exporting" class="icon icon-spin" />
+        <SquareArrowOutUpRight v-else class="icon" />
+        <span v-if="outOpen" class="active-dot" />
+      </button>
+      <Teleport to="body">
+        <div
+          v-if="outOpen"
+          ref="outMenuRef"
+          class="output-menu"
+          :style="outMenuStyle"
+        >
+          <div class="om-group">{{ t('toolbar.groupExport') }}</div>
+          <button class="om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-html')">
+            <FileCode2 class="om-ic" />
+            <span class="om-label">{{ t('toolbar.exportHtml') }}</span>
+          </button>
+          <button class="om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-word')">
+            <FileText class="om-ic" />
+            <span class="om-label">{{ t('toolbar.exportWord') }}</span>
+          </button>
+          <button class="om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-pdf')">
+            <FileType class="om-ic" />
+            <span class="om-label">{{ t('toolbar.exportPdf') }}</span>
+          </button>
+          <div class="om-group">{{ t('toolbar.groupPrint') }}</div>
+          <button class="om-item" :disabled="!printable" @click="onOutputItem('print-pdf')">
+            <Printer class="om-ic" />
+            <span class="om-label">{{ t('toolbar.printPdf') }}</span>
+          </button>
+          <div class="om-group">{{ t('toolbar.groupConvert') }}</div>
+          <button class="om-item" @click="onOutputItem('word-to-md')">
+            <ArrowRightLeft class="om-ic" />
+            <span class="om-label">{{ t('toolbar.wordToMd') }}</span>
+          </button>
+          <button class="om-item" @click="onOutputItem('word-to-mh')">
+            <ArrowRightLeft class="om-ic" />
+            <span class="om-label">{{ t('toolbar.wordToMh') }}</span>
+          </button>
+        </div>
+      </Teleport>
+    </div>
 
     <div class="divider" />
 
     <div class="font-seg">
-      <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" :data-tip="t('toolbar.fontSmaller')">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" :data-tip="t('toolbar.fontSmaller', { k: fontWheelHint })">
         <Minus class="icon icon-sm" />
       </button>
       <button class="tb-btn tb-btn--icon tb-font-type" :data-tip="t('toolbar.fontSize')" disabled>
         <Type class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" :data-tip="t('toolbar.fontLarger')">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" :data-tip="t('toolbar.fontLarger', { k: fontWheelHint })">
         <Plus class="icon icon-sm" />
       </button>
     </div>
@@ -534,6 +685,9 @@ function closeWindow() {
 .tb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .tb-btn--active { background: var(--mk-hover); color: var(--mk-fg); }
 .icon { width: 15px; height: 15px; color: var(--mk-fg-muted); }
+/* 导出进行中：trigger 图标旋转（配合 :exporting 与 Workbench 导出 toast） */
+.icon-spin { animation: tb-spin 0.8s linear infinite; }
+@keyframes tb-spin { to { transform: rotate(360deg); } }
 .tb-btn:hover:not(:disabled) .icon { color: var(--mk-fg); }
 .tb-btn--active .icon { color: var(--mk-fg); }
 .icon-sm { width: 13px; height: 13px; }
@@ -592,6 +746,56 @@ function closeWindow() {
 }
 
 .mode-seg { display: inline-flex; gap: 2px; flex: none; }
+
+/* ---- 输出统一下拉（D1） ---- */
+/* 菜单经 Teleport 挂到 body，用 fixed + 内联 top/right（由 trigger 坐标推导）定位，
+   彻底脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪（否则向下展开的部分会被整片切掉） */
+.output-wrap { position: relative; display: inline-flex; flex: none; }
+.output-menu {
+  position: fixed;
+  z-index: 9000;
+  /* 宽度适配内容：随最长菜单项收缩，不再固定 220px */
+  width: max-content;
+  min-width: 150px;
+  max-width: calc(100vw - 16px);
+  padding: 6px 0;
+  background: var(--mk-panel, #fff);
+  border: 1px solid var(--mk-border);
+  border-radius: var(--mk-radius-sm, 6px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  /* 展开动效：淡入 + 轻微下滑（v-if 挂载即播放，Teleport 后 scoped 属性仍在） */
+  animation: om-in 130ms ease-out;
+}
+@keyframes om-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+.output-menu .om-group {
+  padding: 6px 12px 2px;
+  font-size: 10.5px;
+  color: var(--mk-fg-muted);
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.output-menu .om-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--mk-fg);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+}
+.output-menu .om-item:hover:not(:disabled) { background: var(--mk-hover); }
+.output-menu .om-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.output-menu .om-ic { width: 14px; height: 14px; color: var(--mk-fg-muted); flex: none; }
+.output-menu .om-item:hover:not(:disabled) .om-ic { color: var(--mk-fg); }
+.output-menu .om-label { flex: 1; }
 /* 模式位置=居中（设置-外观「模式位置」，默认）：三按钮组脱离左侧功能流，
    绝对定位于顶栏水平中心（tb-main 与 toolbar 垂直同心，top 50% 即垂直居中）。
    按钮自身阻断拖拽，原空位由 flex-spacer 的拖拽区承接 */
