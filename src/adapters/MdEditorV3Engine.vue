@@ -1521,21 +1521,26 @@ onBeforeUnmount(() => {
 /* ---- 行号（设置-编辑器「显示行号」）----
    数字来自 cmLineNumber.ts 挂在每行的 data-ln 属性（只覆盖可视区）。开关只切 engine-root 上的
    show-linenum 类：不重配 CM 扩展、不补发事务，因此切换不会打断输入与撤销栈。
-   伪元素用 right:100% 贴着文本左侧，宽度自适应，不必按位数预留固定宽；
-   padding-left 留出的槽位需大于最宽行号（4em 覆盖到 4 位数行号）。 */
-.engine-root.show-linenum :deep(.cm-content) {
-  padding-left: 3.5em;
+   留白必须挂在 .cm-line 而不是 .cm-content：CM6 的选区层按 .cm-content 的内边距盒定位，
+   留白挂在 content 上会让选区底色探进行号列；挂在行自身上，选区按字形坐标画，只覆盖正文。 */
+.engine-root.show-linenum {
+  /* 行号列总宽：加宽/收窄整列只改这一个值（数字与正文的间距另见 padding-right） */
+  --mk-ln-w: 3.5em;
 }
 .engine-root.show-linenum :deep(.cm-line) {
   position: relative;
+  padding-left: var(--mk-ln-w);
 }
 .engine-root.show-linenum :deep(.cm-line::before) {
   content: attr(data-ln);
   position: absolute;
   top: 0;
-  right: 100%;
-  /* 数字右缘与正文的间距：调这一个值就能整体左右挪列（需 ≤ padding-left − 数字宽） */
-  margin-right: 1.9em;
+  left: 0;
+  width: var(--mk-ln-w);
+  /* 数字右缘与正文的间距：需 ≤ --mk-ln-w − 数字宽，否则最左一位会被裁 */
+  padding-right: 1.9em;
+  box-sizing: border-box;
+  text-align: right;
   color: var(--mk-fg-muted);
   opacity: 0.62;
   /* 行号独立字号（不跟全局字号缩放，与右键菜单 12.5px 同口径）；标题行的字号与字重也不继承 */
