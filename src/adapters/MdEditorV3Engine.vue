@@ -1515,7 +1515,7 @@ onBeforeUnmount(() => {
    伪元素用 right:100% 贴着文本左侧，宽度自适应，不必按位数预留固定宽；
    padding-left 留出的槽位需大于最宽行号（4em 覆盖到 4 位数行号）。 */
 .engine-root.show-linenum :deep(.cm-content) {
-  padding-left: 4em;
+  padding-left: 5em;
 }
 .engine-root.show-linenum :deep(.cm-line) {
   position: relative;
@@ -1525,7 +1525,8 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   right: 100%;
-  margin-right: 1.1em;
+  /* 数字右缘与正文的间距：调这一个值就能整体左右挪列（需 ≤ padding-left − 数字宽） */
+  margin-right: 1.9em;
   color: var(--mk-fg-muted);
   opacity: 0.62;
   /* 标题行是 19px 粗体（.mk-cm-heading），伪元素会继承它的字号与字重，
