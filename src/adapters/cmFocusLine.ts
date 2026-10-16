@@ -7,7 +7,10 @@
  * 富文本 .mh 没有 CM 视图，由 WangEditorEngine 给 Slate 顶层块挂同一个类（样式在 global.css）。
  *
  * 段落 = 光标所在处向两侧扩到空行为止（算法在 utils/mdFocusBlock.ts），
- * 所以标题、表格、列表各自成块，不会被逐行拆开。空行本身不压暗：段间距观感保持不变。
+ * 所以标题、表格、列表各自成块，不会被逐行拆开。
+ * 空行也一并挂淡出类：md 引擎的行号是画在 `.cm-line::before` 里的，跟着所在行的
+ * 组透明度一起压暗——空行若豁免，它的行号会在整列淡出的数字里亮着（2026-10-16 反馈）。
+ * 空行没有正文，压暗对它除行号外无任何可见影响（行高与段间距不变）。
  */
 import {
   Decoration,
@@ -41,7 +44,7 @@ function build(view: EditorView): DecorationSet {
     for (let pos = from; pos <= to; ) {
       const line = doc.lineAt(pos);
       const index = line.number - 1;
-      if ((index < start || index > end) && line.text.trim() !== '') {
+      if (index < start || index > end) {
         builder.add(line.from, line.from, Decoration.line({ class: 'mk-focus-dim' }));
       }
       pos = line.to + 1;

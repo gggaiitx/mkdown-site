@@ -106,6 +106,31 @@ watch(
   },
 );
 
+// ---- 行号贴左边界：量出窗格左缘到正文行的留白，注入 --mk-ln-pad 供样式段反拉 ----
+// 这段留白是「居中限宽」算出来的动态值（窗宽、版式、分栏、侧栏拖拽都会变），CSS 里在
+// .cm-line::before 上拿不到：百分比在那儿解析的是 .cm-line 自身的宽（正文列宽），不是滚动区的宽。
+// 所以直接量几何：行盒左缘 - 滚动区左缘（含 .cm-scroller 自身内边距与 .cm-content 的居中留白）。
+// 行盒左缘与字号无关，故一个值对全部行生效（标题行的列宽差由 --mk-ln-gut 注册属性兜住）。
+const colPad = ref('0px');
+function measureColPad(): void {
+  const root = rootRef.value;
+  const scroller = root?.querySelector<HTMLElement>('.cm-scroller');
+  const line = root?.querySelector<HTMLElement>('.cm-line');
+  if (!scroller || !line) return;
+  const k =
+    line.getBoundingClientRect().left -
+    scroller.getBoundingClientRect().left +
+    scroller.scrollLeft;
+  const next = Number.isFinite(k) && k > 0 ? `${Math.round(k * 100) / 100}px` : '0px';
+  if (next !== colPad.value) colPad.value = next;
+}
+/** 等一帧再量：CM 挂载/版式类切换后 padding 才是最终值 */
+function scheduleColPad(): void {
+  void nextTick(() => requestAnimationFrame(measureColPad));
+}
+let colPadRO: ResizeObserver | null = null;
+watch([() => props.readLayout, () => props.mode, () => props.showLineNumbers], scheduleColPad);
+
 /**
  * v7 的 preview prop 只作为挂载初值写入内部 store（挂载后无 props 同步），
  * 运行时切换预览必须走实例 API togglePreview()（内部经 updateSetting 生效）。
@@ -1286,6 +1311,11 @@ onMounted(() => {
   // 行高跟随主题：导出预览宿主渲染有 500ms 防抖，onMounted 时内容可能未渲染
   // （量到容器 normal 行高会被守卫拦下），以 @on-html-changed 为准，这里仅兜底空文档
   void nextTick(() => setTimeout(measureEditLineHeight, 700));
+  // 行号反拉量：窗格宽度变化（拖窗/收展侧栏/切分栏）一律重算左留白
+  colPadRO = new ResizeObserver(measureColPad);
+  if (rootRef.value) colPadRO.observe(rootRef.value);
+  scheduleColPad();
+  void nextTick(() => setTimeout(measureColPad, 700));
   // 用户主动操作标记：定位重试窗口内滚轮/按键/点击则放弃补位，防止"刚滚完又被拽回去"
   for (const ev of ['wheel', 'keydown', 'pointerdown'] as const) {
     rootRef.value?.addEventListener(ev, markUserTouch, { capture: true, passive: true });
@@ -1298,6 +1328,8 @@ onBeforeUnmount(() => {
   rootRef.value?.removeEventListener('paste', onPasteTable, true);
   rootRef.value?.removeEventListener('contextmenu', onEditorContext, true);
   document.removeEventListener('selectionchange', onSelectionChange);
+  colPadRO?.disconnect();
+  colPadRO = null;
   for (const ev of ['wheel', 'keydown', 'pointerdown'] as const) {
     rootRef.value?.removeEventListener(ev, markUserTouch, { capture: true });
   }
@@ -1339,7 +1371,7 @@ onBeforeUnmount(() => {
     ref="rootRef"
     class="engine-root"
     :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false, 'show-linenum': showLineNumbers === true }]"
-    :style="{ '--mk-editor-lh': editLineHeight }"
+    :style="{ '--mk-editor-lh': editLineHeight, '--mk-ln-pad': colPad }"
   >
     <!-- 阅读态：独立滚动容器 + 居中阅读栏，内容可正常滚动；key 绑定 docPath+language，
          切文档/切语言时重建（内核语言同为挂载初值型） -->
@@ -1523,21 +1555,36 @@ onBeforeUnmount(() => {
    show-linenum 类：不重配 CM 扩展、不补发事务，因此切换不会打断输入与撤销栈。
    留白必须挂在 .cm-line 而不是 .cm-content：CM6 的选区层按 .cm-content 的内边距盒定位，
    留白挂在 content 上会让选区底色探进行号列；挂在行自身上，选区按字形坐标画，只覆盖正文。 */
+/* 行号列宽要跨「行 → 伪元素」传递（两者字号不同），注册为 <length> 让它按行的字号先算成 px */
+@property --mk-ln-gut {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
 .engine-root.show-linenum {
-  /* 行号列总宽：加宽/收窄整列只改这一个值（数字与正文的间距另见 padding-right） */
-  --mk-ln-w: 3.5em;
+  /* 行号左缘距窗格左边界的内缩：整列再往左/往右，只改这一个值 */
+  --mk-ln-x: 8px;
 }
 .engine-root.show-linenum :deep(.cm-line) {
-  padding-left: var(--mk-ln-w);
+  /* 行号列宽（= 正文左留白），同时就是「行号 ↔ 正文」的间距旋钮：数字左缘钉在
+     窗格左边界 +8px，正文起点 = 窗格左留白(30px) + 本值，调小它只有正文往左挪。
+     下限：3~4 位行号宽约 21~28px，扣掉那 30px 留白后本值不宜低于 1em。
+     注册成 <length> 后它在本行字号下算成 px 再继承给 ::before —— 标题行字号 19px，
+     伪元素自己钉的是 12.5px，不这么做两边就取不到同一个值，
+     标题行的数字会比正文行偏右（3.5 × (19-15) = 14px）。 */
+  --mk-ln-gut: 1.5em;
+  padding-left: var(--mk-ln-gut);
 }
 .engine-root.show-linenum :deep(.cm-line::before) {
   content: attr(data-ln);
   /* 不用绝对定位：那要求 .cm-line 确实成为包含块（受内核同名规则与样式注入顺序影响，
-     一旦没吃到就整体错位）。改为随文本流排布，再用负 margin 把整块拉进左留白 ——
-     位置只由 --mk-ln-w 决定，数字天然贴列左，且与文字同一基线、无需手工算行高。 */
+     一旦没吃到就整体错位），且伪元素行高得按所在行字号逐档补。改为随文本流排布 + 负 margin
+     反拉，与正文同基线。拉出量 = 本行列宽 + 窗格左留白(--mk-ln-pad，脚本量得) - 目标内缩，
+     宽度与拉出量相等 ⇒ 正文起点分毫不动，数字左缘恒落在「窗格左边界 + --mk-ln-x」。 */
+  --mk-ln-pull: calc(var(--mk-ln-gut) + var(--mk-ln-pad, 0px) - var(--mk-ln-x));
   display: inline-block;
-  width: var(--mk-ln-w);
-  margin-left: calc(-1 * var(--mk-ln-w));
+  width: var(--mk-ln-pull);
+  margin-left: calc(-1 * var(--mk-ln-pull));
   padding-right: 0.8em;
   box-sizing: border-box;
   text-align: left;
