@@ -11,6 +11,7 @@ import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 
 import { mkFindExtension, setCmFind } from './findHighlight';
+import { focusLineExtension, setFocusMode } from './cmFocusLine';
 import { codeDarkTheme, codeLightTheme } from './codeTheme';
 import { buildLanguageExtensions } from './codeLanguage';
 import type { ThemeKind } from '../api/types';
@@ -20,6 +21,8 @@ const props = defineProps<{
   theme: ThemeKind;
   /** 文档路径（null = 未保存新建）：同一组件实例切换文件时按新扩展名重载语言包 */
   path: string | null;
+  /** 专注模式（设置-编辑器，与 md 引擎同一开关）：当前段落清晰、其余行淡出 */
+  focusMode?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -59,6 +62,17 @@ async function loadLanguage(ext: string): Promise<void> {
   view?.dispatch({ effects: langComp.reconfigure(extensions) });
 }
 
+// 专注模式：开关写进 cmFocusLine 的模块级标志（构造期即读取，故首挂也生效）；
+// 空事务只为触发 ViewPlugin 重算装饰，不改文档内容
+watch(
+  () => props.focusMode,
+  (on) => {
+    setFocusMode(!!on);
+    view?.dispatch({});
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
   if (!rootRef.value) return;
   view = new EditorView({
@@ -67,6 +81,7 @@ onMounted(() => {
       extensions: [
         basicSetup,
         mkFindExtension,
+        focusLineExtension,
         themeComp.of(props.theme === 'dark' ? codeDarkTheme : codeLightTheme),
         langComp.of([]),
         keymap.of([
@@ -135,11 +150,33 @@ function highlight(keyword: string, caseSensitive = false): void {
   setCmFind({ keyword, caseSensitive });
 }
 
+/** 替换一处（偏移以全文为基准，与 tab.content 同源）；先比对 expect 再动手 */
+function replaceRange(from: number, to: number, replacement: string, expect: string): boolean {
+  if (!view) return false;
+  if (view.state.doc.sliceString(from, to) !== expect) return false;
+  view.dispatch({
+    changes: { from, to, insert: replacement },
+    selection: { anchor: from + replacement.length },
+    scrollIntoView: true,
+  });
+  view.focus();
+  return true;
+}
+
+/** 整篇替换：单事务完成全部命中，一步撤销即可整体回退 */
+function replaceDocText(nextText: string, baseText: string): boolean {
+  if (!view) return false;
+  if (view.state.doc.toString() !== baseText) return false;
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: nextText } });
+  view.focus();
+  return true;
+}
+
 function clearHighlight(): void {
   setCmFind({ keyword: '', caseSensitive: false });
 }
 
-defineExpose({ scrollToLine, insert, highlight, clearHighlight });
+defineExpose({ scrollToLine, insert, highlight, clearHighlight, replaceRange, replaceDocText });
 
 onBeforeUnmount(() => {
   view?.destroy();

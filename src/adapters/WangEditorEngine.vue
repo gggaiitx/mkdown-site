@@ -13,7 +13,7 @@
  *   Range 高亮不触碰 Slate 托管 DOM（原 R6 no-op 方案废弃——WebView 原生 Ctrl+F 无计数/定位能力），
  *   编辑/阅读两态通用；当前命中单独注册 mk-find-cur 强化色。
  */
-import { nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue';
 import { i18nChangeLanguage } from '@wangeditor/editor';
 import type { IDomEditor, IEditorConfig, IToolbarConfig } from '@wangeditor/editor';
@@ -31,6 +31,8 @@ const props = defineProps<{
   modelValue: string;
   mode: EditorMode;
   theme: ThemeKind;
+  /** 专注模式（设置-编辑器）：当前块保持清晰、其余块淡出；阅读态不生效 */
+  focusMode?: boolean;
   /** 文档路径（null = 未保存新建）：图片落盘目录与 asset 还原基准 */
   docPath: string | null;
   language: string;
@@ -236,6 +238,7 @@ function onCreated(editor: IDomEditor): void {
   editorRef.value = editor;
   applyMode(editor, props.mode);
   editor.setHtml(htmlToDisplay(props.modelValue || '<p><br></p>'));
+  void nextTick(applyFocusBlocks); // 首挂即上色（语言切换重建实例也走这里）
   emitOutlineSoon();
 }
 
@@ -363,6 +366,32 @@ function editableRoot(): HTMLElement | null {
   const inner = container?.querySelector('[data-slate-editor]') as HTMLElement | null;
   return inner ?? (container as HTMLElement | null);
 }
+
+// ---- 专注模式（设置-编辑器「专注模式」）----
+/** 给 Slate 顶层块挂淡出类，光标所在块保持清晰（md/code 用的是 CM6 行装饰，这里没有 CM 视图）。
+ *  只动 class、不碰 Slate 数据；Slate 重渲染会丢类，故内容 / 模式 / 光标变动都要重挂。 */
+function applyFocusBlocks(): void {
+  const root = editableRoot();
+  if (!root) return;
+  const blocks = Array.from(root.children) as HTMLElement[];
+  if (!props.focusMode || props.mode === 'read') {
+    for (const b of blocks) b.classList.remove('mk-focus-dim');
+    return;
+  }
+  const anchorNode = window.getSelection()?.anchorNode ?? null;
+  const current = anchorNode ? blocks.find((b) => b.contains(anchorNode)) ?? null : null;
+  for (const b of blocks) b.classList.toggle('mk-focus-dim', b !== current);
+}
+
+/** 内容 / 模式 / 开关变化后重挂（nextTick 等 Slate 渲染落地）；
+ *  光标移动靠 selectionchange——wangEditor 不暴露选区事件，只能借 document 全局监听 */
+watch(
+  () => [props.focusMode, props.mode, props.modelValue],
+  () => {
+    void nextTick(applyFocusBlocks);
+  },
+);
+onMounted(() => document.addEventListener('selectionchange', applyFocusBlocks));
 
 /** 查找滚动根：与 scrollToLine 同口径（.w-e-scroll 是 container 的【子】元素，向下找） */
 function findScrollRoot(): HTMLElement | null {
@@ -503,6 +532,7 @@ defineExpose({
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener('selectionchange', applyFocusBlocks);
   if (outlineTimer) clearTimeout(outlineTimer);
   clearHighlight(); // 清 CSS.highlights 注册，防泄漏到后续标签
   editorRef.value?.destroy();

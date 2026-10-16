@@ -70,7 +70,19 @@ export interface MarkdownEngineHandle {
 }
 
 /** 引擎组件对外暴露的方法（defineExpose 契约）：通用必选 + Markdown 方法可选 */
-export type EngineHandle = CommonEngineHandle & Partial<MarkdownEngineHandle> & Partial<RichTextEngineHandle>;
+export type EngineHandle =
+  CommonEngineHandle & Partial<MarkdownEngineHandle> & Partial<RichTextEngineHandle> & Partial<CmReplaceHandle>;
+
+/** 文本级替换能力：只有 CodeMirror 系引擎（md / code）实现。
+ *  .mh 富文本的内容模型是 HTML、命中口径与纯文本不同，故不实现（业务层用 `?.` 调用并据此隐藏替换入口）。
+ *  偏移量以「文档全文」为基准，与 tab.content 同源；两处方法都带一致性校验，
+ *  防止「查找之后文本又变了」替错位置——校验不过返回 false，由调用方提示重新查找。 */
+export interface CmReplaceHandle {
+  /** 替换一处：doc[from,to) 必须等于 expect */
+  replaceRange(from: number, to: number, replacement: string, expect: string): boolean;
+  /** 整篇替换（一次事务 = 一步撤销）：当前文档必须等于 baseText */
+  replaceDocText(nextText: string, baseText: string): boolean;
+}
 
 /** 富文本（wangEditor）专属能力：仅 WangEditorEngine 实现 */
 export interface RichTextEngineHandle {

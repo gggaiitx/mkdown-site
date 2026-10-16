@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { openInSystem, probeTextFile } from '../api/fileApi';
 import { modKey } from '../utils/keyHint';
 import { htmlPlainText } from '../utils/htmlText';
+import type { ReplaceRequest } from '../utils/mdReplace';
 import type { SearchHit } from '../api/types';
 import { fileKind } from '../utils/fileKind';
 import { useI18n } from '../i18n';
@@ -19,12 +20,14 @@ import { useI18n } from '../i18n';
  * - 面板可拖动（标题栏 / 底栏空白区按住拖移）；模式切换走面板 UI（标题栏范围按钮 /
  *   底栏切换按钮；Workbench 侧 Ctrl+F / Ctrl+P 开面板时已带入对应模式）
  */
-const props = defineProps<{ mode: 'file' | 'global' }>();
+const props = defineProps<{ mode: 'file' | 'global'; canReplace?: boolean }>();
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'update:mode', m: 'file' | 'global'): void;
   (e: 'goto', line: number, kw?: string, caseSensitive?: boolean, matchIndex?: number): void;
   (e: 'find', keyword: string, caseSensitive: boolean): void;
+  /** 替换请求：区间计算与落盘在 Workbench（那里同时持有 tab.content 与引擎句柄） */
+  (e: 'replace', req: ReplaceRequest): void;
 }>();
 
 const search = useSearchStore();
@@ -411,6 +414,32 @@ const footCount = computed(() =>
 );
 
 const switchLabel = computed(() => (props.mode === 'file' ? t('search.switchToGlobal') : t('search.switchToFile')));
+
+// ================= 文件内替换（仅 CodeMirror 系引擎：md / code / 文本；.mh 不提供）=================
+/** 替换文本；空串即「删除命中」 */
+const replaceWith = ref('');
+
+/**
+ * 发出替换请求：关键词、大小写、命中序号都由面板带过去——面板是命中列表的真相源，
+ * Workbench 只按同一口径算出文档偏移并交引擎落盘（引擎 dispatch → on-change → markDirty → 自动保存）。
+ * 「替换当前」后面板留在原序号：列表随 tab.content 重算，同序号自然指向下一处，越界则回绕。
+ */
+function doReplace(mode: ReplaceRequest['mode']): void {
+  if (fileMatches.value.length === 0) return;
+  emit('replace', {
+    mode,
+    keyword: keyword.value,
+    replacement: replaceWith.value,
+    caseSensitive: caseSensitive.value,
+    index: fileCur.value,
+  });
+  if (mode === 'all') return;
+  void nextTick(() => {
+    if (fileMatches.value.length === 0) return;
+    if (fileCur.value >= fileMatches.value.length) fileCur.value = 0;
+    gotoFile(fileCur.value);
+  });
+}
 /** 底栏切换提示：显示"另一个模式"的实际快捷键（文件内=⌘/Ctrl+P 去全局 / 全局=⌘/Ctrl+F 回文件内），Mac 用 ⌘ 符号 */
 const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 'F'}`);
 </script>
@@ -465,6 +494,24 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
         M↓
       </button>
       <button class="close" :title="t('search.closeTitle')" @click="emit('close')">×</button>
+    </div>
+
+    <!-- 替换行：只在文件内模式、引擎支持文本级替换（md / code / 文本，.mh 不支持）且已有关键词时出现。
+         Enter = 替换当前并跳到下一处 -->
+    <div v-if="mode === 'file' && canReplace && keyword" class="hub-replace">
+      <input
+        v-model="replaceWith"
+        class="ipt"
+        :placeholder="t('search.replacePlaceholder')"
+        spellcheck="false"
+        @keydown.enter.prevent="doReplace('one')"
+      />
+      <button class="opt" :disabled="!fileMatches.length" :title="t('search.replaceOneHint')" @click="doReplace('one')">
+        {{ t('search.replaceOne') }}
+      </button>
+      <button class="opt" :disabled="!fileMatches.length" :title="t('search.replaceAllHint')" @click="doReplace('all')">
+        {{ t('search.replaceAll') }}
+      </button>
     </div>
 
     <!-- 结果区 -->
@@ -610,6 +657,18 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
 .opt.on { border-color: var(--mk-accent); color: var(--mk-accent); }
 .opt:hover, .close:hover { background: var(--mk-hover); color: var(--mk-fg); }
 .close { border: none; font-size: 16px; }
+.opt:disabled { opacity: 0.4; cursor: default; }
+
+/* ---- 替换行：与标题栏同族但更矮，避免抢查找输入的视觉重心 ---- */
+.hub-replace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--mk-border);
+  background: var(--mk-panel);
+}
+.hub-replace .ipt { font-size: 13px; }
 
 /* ---- 结果区 ---- */
 .hub-body {

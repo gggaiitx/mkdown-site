@@ -72,6 +72,7 @@ import {
   type FormatId, type HeadingId, type WrapActionId,
 } from '../utils/mdActions';
 import type { BlockFormatKind } from '../utils/mdLineFormat';
+import { findMatchRanges, replaceAll, type ReplaceRequest } from '../utils/mdReplace';
 import { TEMPLATES, type MdTemplate } from '../utils/markdownTemplate';
 import { debounce } from '../utils/common';
 import { useI18n } from '../i18n';
@@ -813,6 +814,42 @@ function onFind(keyword: string, caseSensitive: boolean) {
   engineRef.value?.highlight(keyword, caseSensitive);
 }
 
+/** 可替换范围：只有 CodeMirror 系引擎（md / code / 文本）具备文本级替换。
+ *  .mh 的内容模型是 HTML、命中口径不同（面板按去标签纯文本匹配，偏移对不上源码），
+ *  阅读态没有可编辑文档，预览类标签无文本语义——三者都不提供替换入口 */
+const canReplace = computed(
+  () => !!tabs.activeTab && !tabs.activeIsPreview && !isMhTab.value && editor.mode !== 'read',
+);
+
+/** 全文替换：命中偏移在 tab.content 上算（与面板「第 k 处」同序同数），交引擎带 expect 校验落盘。
+ *  引擎 dispatch 必带 docChanged → on-change → markDirty → 自动保存，不另开写盘支路 */
+function onReplace(req: ReplaceRequest): void {
+  const tab = tabs.activeTab;
+  if (!tab || !canReplace.value) return;
+  const engine = engineRef.value;
+  if (req.mode === 'all') {
+    const res = replaceAll(tab.content, req.keyword, req.replacement, req.caseSensitive);
+    if (res.count === 0) {
+      editor.showToast(t('search.replaceNone'), 'info');
+      return;
+    }
+    if (!engine?.replaceDocText?.(res.text, tab.content)) {
+      editor.showToast(t('search.replaceStale'), 'info');
+      return;
+    }
+    editor.showToast(t('search.replaceDone', { n: res.count }), 'success');
+    return;
+  }
+  const hit = findMatchRanges(tab.content, req.keyword, req.caseSensitive)[req.index];
+  if (!hit) {
+    editor.showToast(t('search.replaceNone'), 'info');
+    return;
+  }
+  if (!engine?.replaceRange?.(hit.from, hit.to, req.replacement, tab.content.slice(hit.from, hit.to))) {
+    editor.showToast(t('search.replaceStale'), 'info');
+  }
+}
+
 /** 工具栏搜索按钮：打开统一搜索面板（全局模式） */
 function openGlobalSearch() {
   hubMode.value = 'global';
@@ -1481,6 +1518,7 @@ watch(() => editor.mode, (m) => {
               ref="codeEngineRef"
               :model-value="tabs.activeTab.content"
               :theme="settings.settings.theme"
+              :focus-mode="settings.settings.focusMode"
               :path="tabs.activeTab.path"
               @update:model-value="onContentChange"
               @save="() => saveActive()"
@@ -1522,6 +1560,7 @@ watch(() => editor.mode, (m) => {
               :model-value="isMhTab ? tabs.activeTab?.content ?? '' : ''"
               :mode="editor.mode"
               :theme="settings.settings.theme"
+              :focus-mode="settings.settings.focusMode"
               :doc-path="activeDocPath"
               :language="settings.settings.language"
               :read-layout="settings.settings.readLayout"
@@ -1566,10 +1605,12 @@ watch(() => editor.mode, (m) => {
     <SearchHub
       v-if="search.visible"
       :mode="hubMode"
+      :can-replace="canReplace"
       @update:mode="hubMode = $event"
       @close="closeHub"
       @goto="gotoLine"
       @find="onFind"
+      @replace="onReplace"
     />
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
 

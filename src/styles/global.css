@@ -345,6 +345,17 @@ body.mk-col-dragging iframe {
   background-color: rgba(230, 100, 0, 0.85);
 }
 
+/* ---- 专注模式（设置-编辑器「专注模式」）：非当前段落淡出 ----
+   同一个类由三处挂载：cmFocusLine.ts 的 CM6 行装饰（md 与 code 引擎共用同一份扩展）、
+   WangEditorEngine 给 Slate 顶层块加的 class。hover 恢复显示，避免指针指向淡出内容时读不清 */
+.mk-focus-dim {
+  opacity: 0.3;
+  transition: opacity 0.15s ease;
+}
+.mk-focus-dim:hover {
+  opacity: 0.75;
+}
+
 /* ---- md 预览代码块高亮（highlight.js token 配色，GitHub Light/Dark 官方色值）----
    内核 md-editor-v3 v7 的 hljs 与 mermaid/katex 同为 instance 机制：mdRendererConfig.ts
    已静态注册本地 hljs 11.12.0，内核不再从 unpkg CDN 注入 script 与 github 主题 link，

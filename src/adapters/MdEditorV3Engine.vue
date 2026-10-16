@@ -479,6 +479,10 @@ interface CmTableView {
     selection: { main: { from: number; to: number; head: number; empty: boolean } };
     doc: {
       lines: number;
+      /** 全文长度与整篇文本：文本级替换的一致性校验要用 */
+      length: number;
+      toString(): string;
+      sliceString(from: number, to: number): string;
       lineAt(pos: number): { number: number; from: number; to: number; text: string };
       line(n: number): { from: number; to: number; text: string };
     };
@@ -583,6 +587,32 @@ function insertTable(rows = 2, cols = 3): void {
     selection: { anchor: line.to + sep.length + 2 },
     scrollIntoView: true,
   });
+}
+
+// ---- 文本级替换（全文替换用；契约见 IMarkdownEngine.CmReplaceHandle）----
+/** 替换一处。dispatch 必带 docChanged → 内核 on-change 冒泡 → markDirty → 自动保存，
+ *  不需要另外回写 tab.content。偏移与 tab.content 同源，仍先比对 expect 再动手 */
+function replaceRange(from: number, to: number, replacement: string, expect: string): boolean {
+  const view = getTableView();
+  if (!view) return false;
+  if (view.state.doc.sliceString(from, to) !== expect) return false; // 查找后文本又变了：拒绝，别替错位置
+  view.dispatch({
+    changes: { from, to, insert: replacement },
+    selection: { anchor: from + replacement.length },
+    scrollIntoView: true,
+  });
+  view.focus();
+  return true;
+}
+
+/** 整篇替换：单事务完成全部命中（一步撤销即可整体回退），文档与 baseText 不符时拒绝 */
+function replaceDocText(nextText: string, baseText: string): boolean {
+  const view = getTableView();
+  if (!view) return false;
+  if (view.state.doc.toString() !== baseText) return false;
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: nextText } });
+  view.focus();
+  return true;
 }
 
 /** 粘贴拦截：剪贴板为 ≥2行×2列 的 TSV/CSV 时改写为 Markdown 表格再交默认插入 */
@@ -818,6 +848,8 @@ defineExpose({
   tableOp,
   insertTable,
   focusEditor,
+  replaceRange,
+  replaceDocText,
 });
 
 // ---- 光标跟踪（状态栏 L:C）：监听原生 selectionchange，经 rAF 节流后从 CM6 state 读取 ----
@@ -1459,16 +1491,6 @@ onBeforeUnmount(() => {
    注意：固定值不随设置里的全局字号缩放（用户指定绝对 19px） */
 .engine-root :deep(.cm-line.mk-cm-heading) {
   font-size: 19px;
-}
-/* ---- 专注模式（设置-编辑器）：非当前段落行淡出，光标所在段落保持全亮 ----
-   行类由 cmFocusLine.ts 的 Decoration.line 挂载；只改透明度，字色/背景仍随内核主题，
-   深浅色两套都成立；hover 行恢复显示，避免指针指向淡出行时读不清 */
-.engine-root :deep(.cm-line.mk-line-dim) {
-  opacity: 0.3;
-  transition: opacity 0.15s ease;
-}
-.engine-root :deep(.cm-line.mk-line-dim:hover) {
-  opacity: 0.75;
 }
 .engine-root :deep(.md-editor-preview),
 .engine-root :deep(.md-editor-previewOnly) {
