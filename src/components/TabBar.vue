@@ -364,7 +364,7 @@ function menuRename() {
 function renameActive() {
   renameTab(tabs.activeId);
 }
-defineExpose({ renameActive });
+defineExpose({ renameActive, reloadActive });
 async function doRename() {
   const { path, value } = renameDialog.value;
   if (!path || !value.trim()) return;
@@ -381,14 +381,21 @@ async function doRename() {
 const reloadConfirm = ref<{ visible: boolean; tabId: string | null }>({
   visible: false, tabId: null,
 });
-async function menuReload() {
-  const tab = ctxIdx.value >= 0 ? tabs.tabs[ctxIdx.value] : null;
+/** 刷新共用入口：无路径（未保存新建）不可刷新；脏文档先弹确认丢弃未保存修改 */
+async function requestReload(tab: DocumentTab | undefined | null): Promise<void> {
   if (!tab?.path) return;
   if (tab.isDirty) {
     reloadConfirm.value = { visible: true, tabId: tab.id };
     return;
   }
   await doReload(tab.id);
+}
+function menuReload() {
+  void requestReload(ctxIdx.value >= 0 ? tabs.tabs[ctxIdx.value] : null);
+}
+/** 供父级调用（编辑区右键菜单）：刷新当前激活标签 */
+function reloadActive() {
+  void requestReload(tabs.activeTab);
 }
 async function doReload(id: string) {
   try {

@@ -165,6 +165,7 @@ hljs.registerLanguage('coffeescript', coffeescript);
 
 import { mkFindExtension } from './findHighlight';
 import { headingLineExtension } from './cmHeadingLine';
+import { focusLineExtension } from './cmFocusLine';
 import { isMac } from '../utils/keyHint';
 
 let currentDocDir = '';
@@ -355,12 +356,13 @@ export function setupMdRenderer(): void {
         }
       });
     },
-    // ---- CM6 扩展注入：文件内查找关键词高亮 + # 标题行装饰（编辑/分栏态） ----
+    // ---- CM6 扩展注入：文件内查找关键词高亮 + # 标题行装饰 + 专注模式淡出（编辑/分栏态） ----
     codeMirrorExtensions(extensions) {
       return [
         ...extensions,
         { type: 'mk-find-highlight', extension: mkFindExtension },
         { type: 'mk-heading-line', extension: headingLineExtension },
+        { type: 'mk-focus-line', extension: focusLineExtension },
       ];
     },
   });

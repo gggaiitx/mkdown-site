@@ -11,8 +11,21 @@
  */
 import type { EditorMode, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
+import type { TableOp } from '../utils/mdTable';
+import type { BlockFormatKind } from '../utils/mdLineFormat';
 
 export type { EditorMode, OutlineItem, ThemeKind };
+
+/** 编辑区右键菜单载荷：引擎拦截 contextmenu 后上报，上层据此唤起菜单。
+ *  引擎已把光标落到点击处，菜单项只需回调 tableOp / insertTable / setBlockFormat 等 */
+export interface EditorCtxPayload {
+  x: number;
+  y: number;
+  /** 右键点是否落在表格块内：false 时只给「插入表格」 */
+  inTable: boolean;
+  /** 等宽对齐是否可用：长文本表补列宽会撑出数百字符行，故置灰 */
+  wideAlignable: boolean;
+}
 
 /** 语言无关的通用引擎能力（所有引擎必实现） */
 export interface CommonEngineHandle {
@@ -34,8 +47,12 @@ export interface CommonEngineHandle {
 export interface MarkdownEngineHandle {
   /** 用前后缀包裹当前选区（无选区时插入占位文本）：加粗/斜体/链接/图片占位/代码块等格式快捷键 */
   wrapSelection(prefix: string, suffix: string, placeholder?: string): void;
-  /** 为光标所在行（或选区覆盖各行）设置 N 级标题（1~6，行首语义，幂等剥旧前缀） */
-  setHeading(level: number): void;
+  /** 为光标所在行（或选区覆盖各行）设置 N 级标题（1~6，行首语义，幂等剥旧前缀）。
+   *  example = 目标是一整行空行时补进去的示例文字（不传则空行原样不动） */
+  setHeading(level: number, example?: string): void;
+  /** 逐行为选区覆盖行施加块级格式：引用 / 无序 / 有序（自动编号）/ 任务项（保留勾选态）/ 正文。
+   *  既有块标记先剥净再补新标记，各档之间来回转换不会叠加前缀；example 同 setHeading */
+  setBlockFormat(kind: BlockFormatKind, example?: string): void;
   /** 切换编辑器页面内全屏（同工具栏 pageFullscreen 图标，F11 快捷键共用） */
   togglePageFullscreen(): void;
   /** 导出 PDF：md-editor-v3 官方 ExportPDF 机制（window.print 只打印内嵌预览体）。三态通用。 */
@@ -43,6 +60,13 @@ export interface MarkdownEngineHandle {
   /** Word 导出用的预览 HTML 快照：同步内容到导出宿主 → 等渲染（mermaid/katex 完成）→ 取 innerHTML。
    *  复用 waitExportPreviewReady 等待机制；编辑态同样可用（宿主恒驻）。 */
   getExportPreviewHtml(): Promise<string>;
+  /** 表格编辑：对光标所在表格执行行/列增删、紧凑规整（normalize）或等宽对齐（align-wide）。
+   *  返回 false = 光标不在表格内 / 该操作对当前表不适用（如宽表等宽对齐），调用方据此提示 */
+  tableOp(op: TableOp): boolean;
+  /** 在光标处插入表格骨架（rows 数据行 × cols 列，含表头） */
+  insertTable(rows?: number, cols?: number): void;
+  /** 焦点交还编辑区：右键菜单项点完焦点停在按钮上，操作后需能直接接着打字 */
+  focusEditor(): void;
 }
 
 /** 引擎组件对外暴露的方法（defineExpose 契约）：通用必选 + Markdown 方法可选 */

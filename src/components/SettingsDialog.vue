@@ -323,6 +323,17 @@ onBeforeUnmount(onDragEnd);
                 <span class="track" />
               </label>
             </div>
+            <div class="row">
+              <label>{{ t('settings.focusMode') }}</label>
+              <label class="switch" :title="t('settings.focusModeHint')">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.focusMode"
+                  @change="patch({ focusMode: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
           </template>
 
           <!-- 导出（D2：Word 正文字体基线） -->

@@ -95,6 +95,8 @@ export interface AppSettings {
   wordWrap: boolean;
   /** 编辑器顶部功能栏（格式工具条）显隐：false = 隐藏，正文区上移 */
   showToolbar: boolean;
+  /** 专注模式：编辑区当前段落保持原样、其余行淡出（仅 Markdown 引擎的编辑/分栏态生效） */
+  focusMode: boolean;
   /** 新建文件默认格式：markdown→.md（默认）/ wangeditor→.mh；不影响已打开文件 */
   editorEngine: EditorKernel;
   /** 导出 Word 正文字体基线（D2）：中文字体 */
@@ -125,6 +127,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   scrollSync: true,
   wordWrap: true,
   showToolbar: true,
+  focusMode: false,
   editorEngine: 'markdown',
   wordFontZh: '等线',
   wordFontEn: 'Calibri',

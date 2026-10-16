@@ -535,7 +535,9 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
 <style scoped>
 .hub {
   position: fixed;
-  z-index: 80;
+  /* 10100+ 层级带：编辑器「页面全屏」层（内核 z-index 10000 的 fixed 铺满层）
+     会盖住旧的 80，全屏状态下 Ctrl+F 面板将完全看不见 */
+  z-index: 10100;
   width: 560px;
   max-width: calc(100vw - 24px);
   height: 420px;

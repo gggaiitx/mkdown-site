@@ -19,14 +19,17 @@ import WordConvertDialog from '../components/WordConvertDialog.vue';
 import Welcome from '../components/Welcome.vue';
 import AppDialog from '../components/AppDialog.vue';
 import FloatTip from '../components/FloatTip.vue';
+import EditorCtxMenu from '../components/EditorCtxMenu.vue';
 // docx-preview / xlsx 体积大（合计约 1.6MB 未压缩）且仅在点开对应文件时才渲染：
 // 懒加载拆出首屏 chunk（P1-7），模板用法不变
 const DocxPreview = defineAsyncComponent(() => import('../components/preview/DocxPreview.vue'));
 const SheetPreview = defineAsyncComponent(() => import('../components/preview/SheetPreview.vue'));
+const PdfPreview = defineAsyncComponent(() => import('../components/preview/PdfPreview.vue'));
 import ImagePreview from '../components/preview/ImagePreview.vue';
 import HtmlFrame from '../components/preview/HtmlFrame.vue';
 import SvgFrame from '../components/preview/SvgFrame.vue';
 import { MdEditorV3Engine, CodeEditorEngine, WangEditorEngine, type EngineHandle } from '../adapters';
+import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
 import { formatMarkdown } from '../utils/mdFormat';
 import {
   hydrateSession,
@@ -41,6 +44,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useTabsStore } from '../stores/tabsStore';
 import { useEditorStore } from '../stores/editorStore';
 import { useSearchStore } from '../stores/searchStore';
+import { useExternalChangeGuard } from '../composables/useExternalChangeGuard';
 
 import {
   getFileMeta,
@@ -62,6 +66,12 @@ import { buildPrintDocument } from '../convert/printDoc';
 import { allowAssetDir } from '../api/imageApi';
 import type { EditorMode, ThemeKind } from '../api/types';
 import { isCodeExt } from '../utils/fileKind';
+import type { TableOp } from '../utils/mdTable';
+import {
+  BLOCK_EXAMPLE_KEYS, HEADING_EXAMPLE_KEY, HEADING_LEVELS, WRAP_ACTIONS,
+  type FormatId, type HeadingId, type WrapActionId,
+} from '../utils/mdActions';
+import type { BlockFormatKind } from '../utils/mdLineFormat';
 import { TEMPLATES, type MdTemplate } from '../utils/markdownTemplate';
 import { debounce } from '../utils/common';
 import { useI18n } from '../i18n';
@@ -72,6 +82,13 @@ const ws = useWorkspaceStore();
 const tabs = useTabsStore();
 const editor = useEditorStore();
 const search = useSearchStore();
+
+/** 外部修改检测（composable 内自带窗口聚焦 + 轮询触发）：脏标签撞车时弹对话框让用户裁决 */
+const {
+  conflict: externalConflict,
+  resolveReload: onExternalReload,
+  resolveKeep: onExternalKeep,
+} = useExternalChangeGuard();
 
 /** 三个引擎各自持 ref（引擎常驻挂载后并存，不能用同名 ref 互踩）；
  *  engineRef 由当前激活标签种类路由到对应实例 */
@@ -230,6 +247,13 @@ function onOutline(items: OutlineItem[]) {
   editor.outline = items;
 }
 
+/** 引擎光标上报（md / code 引擎共用）：写状态栏行列。
+ *  ★ 参数显式标注：MdEditorV3Engine 的 emits 类型字面量成员增多后，
+ *    vue-tsc 对该组件模板绑定丢失上下文推断（解构参数变隐式 any），此处自带类型即不受影响 */
+function onEngineCursor({ line, col }: { line: number; col: number }) {
+  editor.setCursor(line, col);
+}
+
 // ---------- 打开 / 新建 ----------
 async function openWorkspace() {
   try {
@@ -370,7 +394,9 @@ async function routeByType(path: string, openSystem = true): Promise<'text' | 'h
   try {
     if (await probeTextFile(path)) return 'text';
     const kind = await probePreviewKind(path).catch(() => null);
-    if (kind === 'docx' || kind === 'xlsx' || kind === 'image') {
+    // 命中即预览：与 Rust 侧 preview_kind「非 null 即可预览」语义严格一致，
+    // 新增预览种类只改 Rust 名单，前端不再补白名单（方案 §5.4 修订）
+    if (kind) {
       tabs.openPreviewByPath(path, kind);
       ws.expandTo(path);
       ws.select(path);
@@ -1029,6 +1055,40 @@ async function doPrintPdf() {
   }
 }
 
+/** 编辑区右键菜单：引擎在 contextmenu 上报点击处载荷 → 组件唤起菜单；
+ *  表格组回传 onTableOp（按光标执行行/列/规整），格式组回传 onFormatFromMenu（与快捷键同源分发），
+ *  刷新转交 TabBar（脏确认与重读链路都在那边）。 */
+const editorCtx = ref<EditorCtxPayload | null>(null);
+function onEditorContext(payload: EditorCtxPayload): void {
+  editorCtx.value = payload;
+}
+function onTableOp(op: 'insert' | TableOp): void {
+  editorCtx.value = null;
+  if (op === 'insert') {
+    engineRef.value?.insertTable?.();
+    engineRef.value?.focusEditor?.();
+    return;
+  }
+  // 等宽对齐仅适用于窄表（菜单已置灰兜底）：宽表补列宽会撑出数百字符行，直接降级提示
+  if (!engineRef.value?.tableOp?.(op)) {
+    editor.showToast(t('workbench.toast.tableAlignUnavailable'), 'info');
+    return;
+  }
+  engineRef.value?.focusEditor?.(); // 菜单项点完焦点在按钮上，交还编辑区才能接着打字
+}
+
+/** 右键「刷新」：收掉菜单后转交 TabBar——脏文档丢弃确认与 reloadTab 链路都在那里，避免复制一份 */
+function onCtxRefresh(): void {
+  editorCtx.value = null;
+  tabBarRef.value?.reloadActive();
+}
+
+/** 右键「专注模式」：视图级开关，状态落设置文件（跨文档保持），点完即收菜单 */
+function onToggleFocusMode(): void {
+  editorCtx.value = null;
+  settings.update({ focusMode: !settings.settings.focusMode });
+}
+
 // ---------- 快捷键 ----------
 /** CM6 编辑器是否持有焦点（v7 内核 = .cm-editor.cm-focused；CM5 的 .CodeMirror-focused 类已不存在） */
 const isEditorFocused = () => !!document.querySelector('.cm-editor.cm-focused');
@@ -1051,6 +1111,31 @@ function engineEditable(): boolean {
  * 特例：Ctrl+K 内核无绑定（内核链接键是 Ctrl+L）；Ctrl+Shift+I 内核走上传弹窗——两者统一由应用层处理，
  * 保证行为与设置面板说明一致。
  */
+/** 执行格式动作：右键菜单与快捷键共用这一条分发。
+ *  包裹型走内核 insert（无选区补占位文本），标题与块级走引擎逐行改写。
+ *  id 归属用 in 判定，末支即块级档（引用/无序/有序/任务/正文）。
+ *  refocus 仅菜单路径开启：键盘路径原先不动焦点，Ctrl+B 落在搜索框等处时不该被抢走 */
+function runFormat(id: FormatId, refocus = false): void {
+  if (!engineEditable()) return;
+  const engine = engineRef.value;
+  if (id in WRAP_ACTIONS) {
+    const wrap = WRAP_ACTIONS[id as WrapActionId];
+    // 有选区 → 包裹选区；无选区且所在行非空 → 包裹整行；空行 → 补示例文字（引擎已把示例置于选中态）
+    engine?.wrapSelection?.(wrap.prefix, wrap.suffix, t(wrap.placeholderKey));
+  } else if (id in HEADING_LEVELS) {
+    engine?.setHeading?.(HEADING_LEVELS[id as HeadingId], t(HEADING_EXAMPLE_KEY));
+  } else {
+    const exampleKey = BLOCK_EXAMPLE_KEYS[id as BlockFormatKind];
+    engine?.setBlockFormat?.(id as BlockFormatKind, exampleKey ? t(exampleKey) : undefined);
+  }
+  if (refocus) engine?.focusEditor?.();
+}
+
+/** 右键菜单格式项：执行后把焦点还给编辑区 */
+function onFormatFromMenu(id: FormatId): void {
+  runFormat(id, true);
+}
+
 function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
   // 代码 / HTML / 富文本标签：格式键全部交还内核/浏览器，不做 Markdown 包裹（防止把源码包进 ** 等）
   if (usesCodeEngine.value || isMhTab.value) return false;
@@ -1059,22 +1144,19 @@ function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
     (e.shiftKey && k === 'c');
   if (kernelBound && isEditorFocused()) return false;
 
-  const wrap = (prefix: string, suffix: string, placeholder: string) => {
+  const run = (id: FormatId): true => {
     e.preventDefault();
-    if (engineEditable()) engineRef.value?.wrapSelection?.(prefix, suffix, placeholder);
+    runFormat(id);
+    return true;
   };
   if (!e.shiftKey) {
-    if (k === 'b') { wrap('**', '**', t('workbench.placeholder.bold')); return true; }
-    if (k === 'i') { wrap('*', '*', t('workbench.placeholder.italic')); return true; }
-    if (k === 'k') { wrap('[', '](https://)', t('workbench.placeholder.link')); return true; }
-    if (k >= '1' && k <= '6') {
-      e.preventDefault();
-      if (engineEditable()) engineRef.value?.setHeading?.(Number(k));
-      return true;
-    }
+    if (k === 'b') return run('bold');
+    if (k === 'i') return run('italic');
+    if (k === 'k') return run('link');
+    if (k >= '1' && k <= '6') return run(`h${k}` as HeadingId);
   } else {
-    if (k === 'c') { wrap('\n```\n', '\n```\n', t('workbench.placeholder.code')); return true; }
-    if (k === 'i') { wrap('![', '](https://)', t('workbench.placeholder.image')); return true; }
+    if (k === 'c') return run('codeBlock');
+    if (k === 'i') return run('image');
   }
   return false;
 }
@@ -1383,11 +1465,12 @@ watch(() => editor.mode, (m) => {
       <div class="center">
         <TabBar ref="tabBarRef" @close="requestCloseTab" @close-batch="requestCloseBatch" @reloaded="flashReloadArea" />
         <div class="editor-area" :class="{ 'area-reloading': reloadFlash }" v-if="tabs.activeTab">
-          <!-- 预览类标签（docx/xlsx/图片）：只读预览，不进编辑器。
+          <!-- 预览类标签（docx/xlsx/图片/pdf）：只读预览，不进编辑器。
                :key=reloadSeq：右键「刷新」bump 后重挂，重新经 asset:// 自取字节 -->
           <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
           <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
           <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
+          <PdfPreview v-else-if="tabs.activeTab.kind === 'pdf'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
           <!-- 文本类标签：md/text/svg 由 md 引擎接管；html 与 code 由代码引擎接管源码侧。
                html/svg 三模式：edit=代码编辑器，split=代码编辑器+Frame，read=Frame
                （编辑器恒挂载不卸载，html-mode 布局类控显隐，:first-child 规则命中编辑器） -->
@@ -1401,7 +1484,7 @@ watch(() => editor.mode, (m) => {
               :path="tabs.activeTab.path"
               @update:model-value="onContentChange"
               @save="() => saveActive()"
-              @cursor="({ line, col }) => editor.setCursor(line, col)"
+              @cursor="onEngineCursor"
             />
             <!-- .mh 富文本：wangEditor 引擎。★ 首次激活 mh 后常驻挂载（v-show 显隐）——
                  createEditor 成本高（数百 ms），随标签切换反复销毁重建是 md→mh 卡顿根因；
@@ -1417,6 +1500,7 @@ watch(() => editor.mode, (m) => {
               :preview-theme="settings.settings.previewTheme"
               :read-layout="settings.settings.readLayout"
               :show-toolbar="settings.settings.showToolbar"
+              :focus-mode="settings.settings.focusMode"
               :scroll-sync="settings.settings.scrollSync"
               :doc-path="activeDocPath"
               :language="settings.settings.language"
@@ -1424,11 +1508,12 @@ watch(() => editor.mode, (m) => {
               @update:model-value="onContentChange"
               @save="() => saveActive()"
               @outline="onOutline"
-              @cursor="({ line, col }) => editor.setCursor(line, col)"
+              @cursor="onEngineCursor"
               @html-changed="(h: string) => (editor.previewHtml = h)"
               @toast="(t: string) => editor.showToast(t, 'error')"
               @open-link="onOpenLink"
               @open-doc="onOpenDoc"
+              @editor-context="onEditorContext"
             />
             <WangEditorEngine
               v-if="wangEverMounted"
@@ -1536,6 +1621,21 @@ watch(() => editor.mode, (m) => {
       @cancel="wsRemoveAll = false"
     />
 
+    <!-- 外部修改冲突：磁盘内容与本地基线(savedContent)不一致，且本地有未保存改动。
+         重新加载 = 丢弃本地采纳磁盘；保留我的改动 = 双方都不动，同一磁盘版本本会话内不再重复提示 -->
+    <AppDialog
+      :visible="!!externalConflict"
+      :title="t('workbench.external.title')"
+      :message="externalConflict
+        ? t('workbench.external.message', { name: externalConflict.title })
+        : ''"
+      :confirm-text="t('workbench.external.reload')"
+      :cancel-text="t('workbench.external.keep')"
+      danger
+      @confirm="onExternalReload"
+      @cancel="onExternalKeep"
+    />
+
     <!-- 轻提示 -->
     <Teleport to="body">
       <TransitionGroup name="toast" tag="div" class="toast-host">        <div
@@ -1554,6 +1654,18 @@ watch(() => editor.mode, (m) => {
         </div>
       </TransitionGroup>
     </Teleport>
+
+    <!-- 编辑区右键菜单：MdEditorV3Engine 右键拦截上报，格式项与快捷键共用 runFormat 分发 -->
+    <EditorCtxMenu
+      :ctx="editorCtx"
+      :can-reload="!!tabs.activeTab?.path"
+      :focus-mode="settings.settings.focusMode"
+      @op="onTableOp"
+      @format="onFormatFromMenu"
+      @refresh="onCtxRefresh"
+      @toggle-focus="onToggleFocusMode"
+      @dismiss="editorCtx = null"
+    />
 
     <!-- 全局浮动气泡提示（data-tip 委托） -->
     <FloatTip />

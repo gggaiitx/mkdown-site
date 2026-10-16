@@ -318,6 +318,7 @@ pub fn is_text_file(path: &Path) -> bool {
 /// - xlsx/xlsm：SheetJS 解析 + HTML 表格渲染；.xls 同为 OLE，不收；
 /// - image：仅收 WebView2（Chromium）原生可解码的格式；
 ///   tiff/heic/emf/wmf/psd 浏览器不能渲染，交系统查看器；
+/// - pdf：pdfjs-dist 纯前端渲染（应用内预览，阶段二）；
 /// - svg 不在此列：内容是文本（is_text_file 命中在先），前端按 kind='svg'
 ///   开文本标签支持编辑/分栏/阅读三模式（阅读态由 SvgFrame 渲染）。
 ///
@@ -328,6 +329,7 @@ pub fn preview_kind(path: &Path) -> Option<&'static str> {
         "docx" => Some("docx"),
         "xlsx" | "xlsm" => Some("xlsx"),
         "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "ico" => Some("image"),
+        "pdf" => Some("pdf"),
         _ => None,
     }
 }
@@ -487,6 +489,16 @@ mod tests {
             preview_kind(&dir.path().join("e.doc")),
             None,
             "遗留 OLE 格式维持系统打开"
+        );
+        assert_eq!(
+            preview_kind(&dir.path().join("f.PDF")),
+            Some("pdf"),
+            "pdf 应进应用内预览且大小写不敏感"
+        );
+        std::fs::write(dir.path().join("f.pdf"), b"%PDF-1.7\n1 0 obj\nendobj\ntrailer\n%%EOF").unwrap();
+        assert!(
+            !is_text_file(&dir.path().join("f.pdf")),
+            "pdf 必须留在二进制黑名单，不得被嗅探判为文本"
         );
         assert_eq!(
             preview_kind(&dir.path().join("noext")),

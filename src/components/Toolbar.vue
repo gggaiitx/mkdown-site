@@ -280,41 +280,58 @@ function closeWindow() {
   void win.close();
 }
 
-// ---- 「输出」统一下拉（D1：导出 HTML / 导出 Word / 打印 PDF / Word 转 MD / Word 转 MH） ----
+// ---- 下拉菜单开合（「输出」；表格编辑已迁到编辑区右键菜单） ----
 // 交互口径（2026-10-13 定稿）：**点击图标展开/收起**（不再 hover 展开，防误触）；
-// 点击菜单项后收起；点击外部 / Esc 关闭；Word 转 MD/MH 始终可点（弹窗内拖入/选择文件）。
-const outOpen = ref(false);
+// 点击菜单项后收起；点击外部 / Esc 关闭。
+type MenuId = 'output';
+const openMenuId = ref<MenuId | null>(null);
 const outWrapRef = ref<HTMLElement | null>(null);
 /** trigger 按钮（用于量测坐标，菜单脱离 overflow:hidden 容器定位） */
 const outBtnRef = ref<HTMLElement | null>(null);
 /** teleport 到 body 后的菜单元素（点击外部关闭需把它纳入命中判定） */
 const outMenuRef = ref<HTMLElement | null>(null);
-/** 菜单 fixed 定位内联样式（top/left 由 trigger 实时坐标推导，越界由 adjustOutputMenu 兜底） */
+/** 菜单 fixed 定位内联样式（top/left 由 trigger 实时坐标推导，越界由 adjustMenu 兜底） */
 const outMenuStyle = ref<Record<string, string>>({});
 
+const menuRefs: Record<MenuId, { wrap: typeof outWrapRef; btn: typeof outBtnRef; menu: typeof outMenuRef; style: typeof outMenuStyle }> = {
+  output: { wrap: outWrapRef, btn: outBtnRef, menu: outMenuRef, style: outMenuStyle },
+};
+
+const outOpen = computed(() => openMenuId.value === 'output');
+
 /** 展开菜单：按 trigger 坐标计算 fixed 定位（脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪）。
- *  左缘与 trigger 图标左缘对齐；宽度自适应内容（CSS max-content），越界由 adjustOutputMenu 兜底 */
-function openOutput() {
-  const r = outBtnRef.value?.getBoundingClientRect();
+ *  左缘与 trigger 图标左缘对齐；宽度自适应内容（CSS max-content），越界由 adjustMenu 兜底 */
+function openMenu(id: MenuId) {
+  const m = menuRefs[id];
+  const r = m.btn.value?.getBoundingClientRect();
   if (r) {
-    outMenuStyle.value = {
+    m.style.value = {
       position: 'fixed',
       top: `${Math.round(r.bottom) + 6}px`,
       left: `${Math.round(r.left)}px`,
     };
   }
-  outOpen.value = true;
-  void nextTick(adjustOutputMenu);
+  openMenuId.value = id;
+  void nextTick(() => adjustMenu(id));
+}
+
+function toggleMenu(id: MenuId) {
+  if (openMenuId.value === id) closeMenu();
+  else openMenu(id);
+}
+function closeMenu() {
+  openMenuId.value = null;
 }
 
 /** 越界兜底：右缘超出视口则左移夹紧；下缘放不下翻到 trigger 上方。渲染一帧后量实际尺寸再校正 */
-function adjustOutputMenu() {
-  const menu = outMenuRef.value;
-  const btn = outBtnRef.value;
+function adjustMenu(id: MenuId) {
+  const m = menuRefs[id];
+  const menu = m.menu.value;
+  const btn = m.btn.value;
   if (!menu || !btn) return;
   const rect = menu.getBoundingClientRect();
   const b = btn.getBoundingClientRect();
-  const cur = outMenuStyle.value;
+  const cur = m.style.value;
   const top = parseFloat(cur.top);
   const next: Record<string, string> = { ...cur };
   let left = parseFloat(cur.left);
@@ -329,21 +346,11 @@ function adjustOutputMenu() {
   ) {
     next.top = `${Math.round(b.top - rect.height - 6)}px`;
   }
-  outMenuStyle.value = next;
-}
-function toggleOutput() {
-  if (outOpen.value) {
-    closeOutput();
-  } else {
-    openOutput();
-  }
-}
-function closeOutput() {
-  outOpen.value = false;
+  m.style.value = next;
 }
 /** 菜单项点击：派发语义事件后统一收起（避免遮挡后续操作） */
 function onOutputItem(e: 'export-html' | 'export-word' | 'export-pdf' | 'print-pdf' | 'word-to-md' | 'word-to-mh') {
-  closeOutput();
+  closeMenu();
   if (e === 'export-html') emit('export-html');
   else if (e === 'export-word') emit('export-word');
   else if (e === 'export-pdf') emit('export-pdf');
@@ -362,17 +369,18 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onDocKeydown);
 });
 function onDocMouseDown(e: MouseEvent) {
-  if (!outOpen.value) return;
+  if (!openMenuId.value) return;
   const tgt = e.target as Node;
-  // 命中 trigger 区或已 teleport 到 body 的菜单本身都不关闭
-  if (outWrapRef.value?.contains(tgt)) return;
-  if (outMenuRef.value?.contains(tgt)) return;
-  closeOutput();
+  // 命中任一 trigger 区或已 teleport 到 body 的菜单本身都不关闭
+  for (const m of Object.values(menuRefs)) {
+    if (m.wrap.value?.contains(tgt) || m.menu.value?.contains(tgt)) return;
+  }
+  closeMenu();
 }
 function onDocKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && outOpen.value) {
+  if (e.key === 'Escape' && openMenuId.value) {
     e.stopPropagation();
-    closeOutput();
+    closeMenu();
   }
 }
 </script>
@@ -455,6 +463,8 @@ function onDocKeydown(e: KeyboardEvent) {
       <span v-if="searchActive" class="active-dot" />
     </button>
 
+    <!-- 表格编辑入口已迁至编辑区右键菜单（Workbench.vue + MdEditorV3Engine 的 contextmenu 拦截） -->
+
     <!-- 输出统一下拉（D1）：点击展开/收起；三组呈现（V4）——
          导出文件（HTML / Word）、打印（PDF）、转换（Word 转 MD / MH）；
          恒可展开（欢迎页也可）：导出/打印按 kind 置灰（无文档时灰），转换恒可点
@@ -464,7 +474,7 @@ function onDocKeydown(e: KeyboardEvent) {
         ref="outBtnRef"
         class="tb-btn tb-btn--icon"
         :class="{ 'tb-btn--active': outOpen }"
-        @click="toggleOutput"
+        @click="toggleMenu('output')"
       >
         <Loader2 v-if="props.exporting" class="icon icon-spin" />
         <SquareArrowOutUpRight v-else class="icon" />

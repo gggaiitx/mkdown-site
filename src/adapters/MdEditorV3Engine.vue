@@ -20,8 +20,12 @@ import { modKey } from '../utils/keyHint';
 import { extractOutline } from '../utils/outline';
 import type { EditorMode, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
+import type { EditorCtxPayload } from './IMarkdownEngine';
 import { setCurrentDocDir, setupMdRenderer, renderMermaidSvg } from './mdRendererConfig';
 import { setCmFind } from './findHighlight';
+import { buildTableSkeleton, editTable, isWideAlignable, parseTable, tsvToTable } from '../utils/mdTable';
+import { formatBlockLines, type BlockFormatKind, type BlockKind } from '../utils/mdLineFormat';
+import { setFocusMode } from './cmFocusLine';
 import { useI18n } from '../i18n';
 
 const props = defineProps<{
@@ -36,6 +40,8 @@ const props = defineProps<{
   editorId: string;
   /** 编辑器顶部功能栏显隐（设置-编辑器）：false = 隐藏（正文区上移） */
   showToolbar?: boolean;
+  /** 专注模式（设置-编辑器）：当前段落保持原样，其余行淡出。仅编辑/分栏态的 CM 窗格生效 */
+  focusMode?: boolean;
   /** 分栏态编辑区↔预览区滚动同步（设置-编辑器「滚动同步」，默认开）。
    *  传 false 时内核 scrollAuto 关闭——注意内核按滚动**比例**同步，
    *  编辑区与预览区行高不同会产生百像素级累积偏差（实测约 127px） */
@@ -58,6 +64,9 @@ const emit = defineEmits<{
   (e: 'openLink', href: string): void;
   /** 文件路径链接（docs/PRD.md 等）：交由应用按当前文档目录解析后打开 */
   (e: 'openDoc', href: string): void;
+  /** 编辑区右键：请求上层在 (x, y) 弹表格菜单（inTable=false 时只有「插入表格」）。
+   *  引擎已把光标落到点击处，菜单项只需回调 tableOp / insertTable */
+  (e: 'editorContext', pos: EditorCtxPayload): void;
 }>();
 
 const rootRef = ref<HTMLElement | null>(null);
@@ -370,6 +379,17 @@ function insert(text: string): void {
 
 /** 用前后缀包裹当前选区（无选区时插入 placeholder）：加粗/斜体/链接/图片占位/代码块共用 */
 function wrapSelection(prefix: string, suffix: string, placeholder = ''): void {
+  // 无选区时先把作用对象定下来：光标所在行非空 → 整行即目标（中文没有词边界，整行是最小的
+  // 行得通语义单位）；空行不动，交给 placeholder 走「示例文字」路径。
+  // 内核 insert 回调读的是调用当下的 selection.main（MdEditor.mjs:98-99），故这里先 dispatch 再生效。
+  const view = getTableView();
+  if (view) {
+    const sel = view.state.selection.main;
+    if (sel.empty) {
+      const line = view.state.doc.lineAt(sel.head);
+      if (line.text.trim() !== '') view.dispatch({ selection: { anchor: line.from, head: line.to } });
+    }
+  }
   const inst = editorRef.value as unknown as InsertApi | null;
   inst?.insert?.((selectedText) => {
     const inner = selectedText || placeholder;
@@ -385,33 +405,203 @@ function wrapSelection(prefix: string, suffix: string, placeholder = ''): void {
 /** setHeading 用的 CM6 视图最小接口（dispatch 纯对象 transaction，不引 codemirror 包） */
 interface CmHeadingView {
   state: {
-    selection: { main: { from: number; to: number } };
+    selection: { main: { from: number; to: number; head: number } };
     doc: {
       lineAt(pos: number): { number: number };
       line(n: number): { from: number; to: number; text: string };
     };
   };
-  dispatch(spec: { changes: Array<{ from: number; to: number; insert: string }> }): void;
+  /** head 省略 = 收缩为插入点；块级格式补示例文字时要靠它把示例置于选中态 */
+  dispatch(spec: {
+    changes?: Array<{ from: number; to: number; insert: string }> | { from: number; to: number; insert: string };
+    selection?: { anchor: number; head?: number };
+    scrollIntoView?: boolean;
+  }): void;
 }
 
-/** 为光标所在行（或选区覆盖各行）设置 N 级标题：剥旧前缀再加新前缀（幂等），行首语义正确 */
-function setHeading(level: number): void {
+/** 逐行施加块级格式：行文本计算全在 utils/mdLineFormat（可脱浏览器单测），这里只按行 diff 后局部替换 */
+function applyBlockFormat(kind: BlockKind, options: { level?: number; example?: string } = {}): void {
   const inst = editorRef.value as unknown as EditorWithView | null;
   const view = inst?.getEditorView?.() as unknown as CmHeadingView | null;
   if (!view) return;
   const sel = view.state.selection.main;
   const startLine = view.state.doc.lineAt(Math.min(sel.from, sel.to)).number;
   const endLine = view.state.doc.lineAt(Math.max(sel.from, sel.to)).number;
-  const prefix = `${'#'.repeat(Math.min(6, Math.max(1, level)))} `;
+  const texts: string[] = [];
+  for (let n = startLine; n <= endLine; n++) texts.push(view.state.doc.line(n).text);
+  const next = formatBlockLines(texts, kind, options);
   const changes: Array<{ from: number; to: number; insert: string }> = [];
-  for (let n = startLine; n <= endLine; n++) {
-    const line = view.state.doc.line(n);
-    const stripped = line.text.replace(/^#{1,6}\s*/, '');
-    if (line.text !== `${prefix}${stripped}`) {
-      changes.push({ from: line.from, to: line.to, insert: `${prefix}${stripped}` });
+  for (let i = 0; i < next.length; i++) {
+    if (next[i] === texts[i]) continue;
+    const line = view.state.doc.line(startLine + i);
+    changes.push({ from: line.from, to: line.to, insert: next[i] });
+  }
+  if (changes.length === 0) return;
+  // 单行空段落补了示例文字时，让示例处于选中态：接着打字即替换（与包裹型的 placeholder 一致）
+  const example = options.example ?? '';
+  if (texts.length === 1 && example !== '' && texts[0].trim() === '') {
+    const at = next[0].indexOf(example);
+    if (at >= 0) {
+      const line = view.state.doc.line(startLine);
+      view.dispatch({
+        changes,
+        selection: { anchor: line.from + at, head: line.from + at + example.length },
+      });
+      return;
     }
   }
-  if (changes.length > 0) view.dispatch({ changes });
+  view.dispatch({ changes });
+}
+
+/** 为光标所在行（或选区覆盖各行）设置 N 级标题：剥旧块标记再加新前缀（幂等），行首语义正确。
+ *  目标是空行时补 example 示例文字，格式效果当场可见 */
+function setHeading(level: number, example?: string): void {
+  applyBlockFormat('heading', { level, example });
+}
+
+/** 引用 / 无序 / 有序（自动编号）/ 任务项（保留勾选态）/ 正文——同一条逐行链路 */
+function setBlockFormat(kind: BlockFormatKind, example?: string): void {
+  applyBlockFormat(kind, { example });
+}
+
+// ---- 表格编辑辅助（能力在 utils/mdTable.ts 纯函数层，这里只做 CM 视图桥接） ----
+type TableOp = import('../utils/mdTable').TableOp;
+
+/** 表格操作用的 CM6 视图最小接口（比 setHeading 版多 doc.lines / lineAt 的行内字段） */
+interface CmTableView {
+  state: {
+    /** empty = 插入点（无选区）；包裹型动作据此决定作用对象 */
+    selection: { main: { from: number; to: number; head: number; empty: boolean } };
+    doc: {
+      lines: number;
+      lineAt(pos: number): { number: number; from: number; to: number; text: string };
+      line(n: number): { from: number; to: number; text: string };
+    };
+  };
+  /** changes 省略 = 纯选区变更（右键定位光标）；head 省略 = 收缩为插入点 */
+  dispatch(spec: {
+    changes?: { from: number; to?: number; insert: string } | Array<{ from: number; to: number; insert: string }>;
+    selection?: { anchor: number; head?: number };
+    scrollIntoView?: boolean;
+  }): void;
+  /** 坐标 → doc 偏移（不在文本上返回 null）；右键定位用 */
+  posAtCoords(coords: { x: number; y: number }): number | null;
+  /** 焦点交还编辑区 */
+  focus(): void;
+}
+
+function getTableView(): CmTableView | null {
+  const inst = editorRef.value as unknown as EditorWithView | null;
+  return (inst?.getEditorView?.() ?? null) as unknown as CmTableView | null;
+}
+
+/** 右键菜单项点完焦点停在按钮上：操作后把焦点交还编辑器，保证能直接接着打字 */
+function focusEditor(): void {
+  getTableView()?.focus();
+}
+
+// ---- 专注模式（设置-编辑器「专注模式」）----
+// 行装饰本体在 adapters/cmFocusLine.ts，经 mdRendererConfig 的全局 codeMirrorExtensions 注入；
+// 这里只负责把开关状态写进去并补发一次空事务让插件重算（空事务不触发 onChange 回写）
+watch(
+  () => props.focusMode,
+  (on) => {
+    setFocusMode(!!on);
+    getTableView()?.dispatch({});
+  },
+  { immediate: true },
+);
+
+/** 对光标所在表格执行行/列操作或规整；不在表格内 / 操作不适用返回 false。
+ *  只替换表格块（[from,to)）为新块，光标落回 cursor —— 避免整篇替换触发预览全量重渲 */
+function tableOp(op: TableOp): boolean {
+  const view = getTableView();
+  if (!view) return false;
+  const doc = view.state.doc;
+  const ls: string[] = [];
+  for (let n = 1; n <= doc.lines; n++) ls.push(doc.line(n).text);
+  const text = ls.join('\n');
+  const head = view.state.selection.main.head;
+  const r = editTable(text, head, op);
+  if (!r) return false;
+  view.dispatch({
+    changes: { from: r.from, to: r.to, insert: r.block },
+    // r.cursor 已按替换后的整篇新文本算好，即 CM 应用本次 change 后的绝对偏移
+    selection: { anchor: r.cursor },
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+/** 右键定位：命中表格则把光标落到点击处（表格操作按 selection.main.head 生效），
+ *  并请求上层在点击处弹菜单；等宽档可用性一并算出，供菜单置灰。
+ *  ★ 绑在 rootRef 的原生 contextmenu（捕获阶段），不用内核 domEventHandlers：
+ *    内核实现是 `inst?.view.dispatch({effects: reconfigure(...)})`，CM 视图未就绪时
+ *    整句静默 no-op，且该 compartment 在配置重建时被换回内层默认 handler 集合——
+ *    一次性注册因此时灵时不灵（切换标签后右键弹不出即此因） */
+function onEditorContext(event: MouseEvent): void {
+  if (props.mode === 'read') return; // 阅读态无编辑光标语义，不接管右键
+  // 只接管编辑窗格内的右键：预览窗格、导出宿主等区域维持原状
+  if (!(event.target as HTMLElement | null)?.closest('.cm-editor')) return;
+  const view = getTableView();
+  if (!view) return;
+  // posAtCoords 在 .cm-editor 的滚动条/内边距区返回 null：退回当前光标语义，保证窗格内右键必出菜单
+  const pos = view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.selection.main.head;
+  const doc = view.state.doc;
+  const ls: string[] = [];
+  for (let n = 1; n <= doc.lines; n++) ls.push(doc.line(n).text);
+  const line = doc.lineAt(pos);
+  const t = parseTable(ls, line.number - 1, pos - line.from);
+  event.preventDefault();
+  // 点在既有选区内部 → 保留选区，菜单动作就作用在选中内容上；否则光标落到点击处
+  const sel = view.state.selection.main;
+  const inSelection = pos >= Math.min(sel.from, sel.to) && pos <= Math.max(sel.from, sel.to);
+  if (!inSelection) view.dispatch({ selection: { anchor: pos } });
+  emit('editorContext', {
+    x: event.clientX,
+    y: event.clientY,
+    inTable: !!t,
+    wideAlignable: t ? isWideAlignable(t.header, t.rows) : false,
+  });
+}
+
+/** 在光标处插入表格骨架（独占新行） */
+function insertTable(rows = 2, cols = 3): void {
+  const view = getTableView();
+  if (!view) return;
+  const pos = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(pos);
+  const sep = line.text.trim() === '' ? '' : '\n\n';
+  const insert = `${sep}${buildTableSkeleton(rows, cols)}\n`;
+  view.dispatch({
+    changes: { from: line.to, to: line.to, insert },
+    selection: { anchor: line.to + sep.length + 2 },
+    scrollIntoView: true,
+  });
+}
+
+/** 粘贴拦截：剪贴板为 ≥2行×2列 的 TSV/CSV 时改写为 Markdown 表格再交默认插入 */
+function onPasteTable(event: ClipboardEvent): void {
+  // 仅接管编辑窗格内的粘贴（监听挂在常驻根节点，需自行收窄，防误接管输入框/对话框）
+  if (!(event.target as HTMLElement | null)?.closest('.cm-editor')) return;
+  const data = event.clipboardData;
+  if (!data || data.files.length > 0) return; // 图片粘贴走 on-upload-img
+  const raw = data.getData('text/plain');
+  if (!raw) return;
+  const md = tsvToTable(raw);
+  if (!md) return;
+  // paste 事件内可读可写；preventDefault 使 CM 不插入，随后内置 handler 读到的即改写值
+  event.preventDefault();
+  data.setData('text/plain', md);
+  const view = getTableView();
+  if (view) {
+    const sel = view.state.selection.main;
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: md },
+      selection: { anchor: sel.from + md.length },
+      scrollIntoView: true,
+    });
+  }
 }
 
 /** 切换编辑器页面内全屏（同工具栏 pageFullscreen 图标，F11 快捷键共用） */
@@ -609,7 +799,21 @@ async function getExportPreviewHtml(): Promise<string> {
   }
 }
 
-defineExpose({ scrollToLine, insert, wrapSelection, setHeading, togglePageFullscreen, highlight, clearHighlight, exportPdf, getExportPreviewHtml });
+defineExpose({
+  scrollToLine,
+  insert,
+  wrapSelection,
+  setHeading,
+  setBlockFormat,
+  togglePageFullscreen,
+  highlight,
+  clearHighlight,
+  exportPdf,
+  getExportPreviewHtml,
+  tableOp,
+  insertTable,
+  focusEditor,
+});
 
 // ---- 光标跟踪（状态栏 L:C）：监听原生 selectionchange，经 rAF 节流后从 CM6 state 读取 ----
 interface CmViewLike {
@@ -1025,6 +1229,10 @@ onMounted(() => {
   rootRef.value?.addEventListener('load', onAssetLoad, true);
   // 链接拦截：捕获阶段先于 md-editor 内部与浏览器默认行为
   rootRef.value?.addEventListener('click', onAnchorClick, true);
+  // 表格粘贴转换 + 编辑区右键：绑在常驻根节点的捕获阶段，先于 CM 内置 handler；
+  // 不用内核 domEventHandlers：一次性注册会因 CM 视图未就绪静默失效，见 onEditorContext 注释
+  rootRef.value?.addEventListener('paste', onPasteTable, true);
+  rootRef.value?.addEventListener('contextmenu', onEditorContext, true);
   // 光标跟踪：CM6 光标移动会触发原生 selectionchange，rAF 节流后读取 CM state
   document.addEventListener('selectionchange', onSelectionChange);
   // 行高跟随主题：导出预览宿主渲染有 500ms 防抖，onMounted 时内容可能未渲染
@@ -1039,6 +1247,8 @@ onBeforeUnmount(() => {
   rootRef.value?.removeEventListener('error', onImgError, true);
   rootRef.value?.removeEventListener('load', onAssetLoad, true);
   rootRef.value?.removeEventListener('click', onAnchorClick, true);
+  rootRef.value?.removeEventListener('paste', onPasteTable, true);
+  rootRef.value?.removeEventListener('contextmenu', onEditorContext, true);
   document.removeEventListener('selectionchange', onSelectionChange);
   for (const ev of ['wheel', 'keydown', 'pointerdown'] as const) {
     rootRef.value?.removeEventListener(ev, markUserTouch, { capture: true });
@@ -1204,7 +1414,7 @@ onBeforeUnmount(() => {
   margin-top: 0;
 }
 /* 代码块头部栏（复制/折叠）层级钳制：内核给它的 z-index 会盖过应用浮层
-   （搜索面板 z-index 80），统一压回普通流——浮层永远在上 */
+   （搜索面板曾为 80，现为 10100 层级带），统一压回普通流——浮层永远在上 */
 .engine-root :deep(.md-editor-code-head),
 .engine-root :deep(.md-editor-code-head .md-editor-copy-button),
 .engine-root :deep(.md-editor-code-head .md-editor-code-fold) {
@@ -1244,6 +1454,16 @@ onBeforeUnmount(() => {
    注意：固定值不随设置里的全局字号缩放（用户指定绝对 19px） */
 .engine-root :deep(.cm-line.mk-cm-heading) {
   font-size: 19px;
+}
+/* ---- 专注模式（设置-编辑器）：非当前段落行淡出，光标所在段落保持全亮 ----
+   行类由 cmFocusLine.ts 的 Decoration.line 挂载；只改透明度，字色/背景仍随内核主题，
+   深浅色两套都成立；hover 行恢复显示，避免指针指向淡出行时读不清 */
+.engine-root :deep(.cm-line.mk-line-dim) {
+  opacity: 0.3;
+  transition: opacity 0.15s ease;
+}
+.engine-root :deep(.cm-line.mk-line-dim:hover) {
+  opacity: 0.75;
 }
 .engine-root :deep(.md-editor-preview),
 .engine-root :deep(.md-editor-previewOnly) {

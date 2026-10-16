@@ -23,3 +23,6 @@ export const altHint = (key: string): string => (isMac ? `⌥${key}` : `Alt+${ke
 
 /** Shift+键名提示：Mac=⇧F，其他=Shift+F */
 export const shiftHint = (key: string): string => (isMac ? `⇧${key}` : `Shift+${key}`);
+
+/** 主修饰键+Shift+键名提示：Mac=⌘⇧C，其他=Ctrl+Shift+C */
+export const modShiftHint = (key: string): string => (isMac ? `⌘⇧${key}` : `Ctrl+Shift+${key}`);

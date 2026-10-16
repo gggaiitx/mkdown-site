@@ -11,15 +11,15 @@ const nextId = () => `tab-${++uid}`;
  * - mh：富文本（wangEditor 原生 HTML，.mh 文件族）
  * - text / html / svg：文本类，进编辑器（html/svg 在分栏/阅读态由对应 Frame 接管渲染）
  * - code：代码类文本，由 CodeEditorEngine（纯 CodeMirror 6）接管，恒编辑态
- * - docx / xlsx / image：预览类，只读，由对应预览组件渲染，禁止任何保存路径
+ * - docx / xlsx / image / pdf：预览类，只读，由对应预览组件渲染，禁止任何保存路径
  */
-export type TabKind = 'md' | 'mh' | 'text' | 'code' | 'html' | 'svg' | 'docx' | 'xlsx' | 'image';
+export type TabKind = 'md' | 'mh' | 'text' | 'code' | 'html' | 'svg' | 'docx' | 'xlsx' | 'image' | 'pdf';
 
 /** 预览类标签（只读，无编辑/保存语义） */
-export type PreviewKind = 'docx' | 'xlsx' | 'image';
+export type PreviewKind = 'docx' | 'xlsx' | 'image' | 'pdf';
 
 const isPreviewKind = (k: TabKind): k is PreviewKind =>
-  k === 'docx' || k === 'xlsx' || k === 'image';
+  k === 'docx' || k === 'xlsx' || k === 'image' || k === 'pdf';
 
 /** 按扩展名归类文本标签（预览类不经此函数，由 probe_preview_kind 后端判定）。
  *  只有 Markdown 走 md 引擎渲染；txt/log/csv/tsv 及未知文本一律 'code'

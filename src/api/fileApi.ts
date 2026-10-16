@@ -29,7 +29,7 @@ export const probeTextFile = (path: string) => call<boolean>('probe_text_file', 
  * "docx" | "xlsx" | "image"，null = 不预览（走系统默认程序）
  */
 export const probePreviewKind = (path: string) =>
-  call<'docx' | 'xlsx' | 'image' | null>('probe_preview_kind', { path });
+  call<'docx' | 'xlsx' | 'image' | 'pdf' | null>('probe_preview_kind', { path });
 
 /** 用系统默认程序打开（Office/PDF/图片等；目录则在文件管理器中显示） */
 export const openInSystem = (path: string) => call<void>('open_in_system', { path });

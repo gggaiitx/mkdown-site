@@ -264,7 +264,9 @@ body.mk-col-dragging iframe {
   position: fixed;
   right: 16px;
   bottom: 34px;
-  z-index: 200;
+  /* 10100+ 层级带：编辑器「页面全屏」层是 z-index 10000 的 fixed 铺满层，
+     旧的 200 会全屏后看不见轻提示（见 EditorCtxMenu.vue .ctx-menu 同注释） */
+  z-index: 10120;
   display: flex;
   flex-direction: column;
   align-items: flex-end;

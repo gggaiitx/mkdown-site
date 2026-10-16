@@ -148,6 +148,8 @@ pub struct AppSettings {
     pub word_wrap: bool,
     /// 编辑器顶部功能栏显隐（false = 隐藏，正文区上移）
     pub show_toolbar: bool,
+    /// 专注模式：编辑区当前段落保持原样、其余行淡出（仅 Markdown 引擎编辑/分栏态生效）
+    pub focus_mode: bool,
     /// 新建文件默认格式："markdown"（默认）| "wangeditor"（新建 .mh）
     #[serde(default = "default_editor_engine")]
     pub editor_engine: String,
@@ -186,6 +188,7 @@ impl Default for AppSettings {
             scroll_sync: true,
             word_wrap: true,
             show_toolbar: true,
+            focus_mode: false,
             editor_engine: default_editor_engine(),
             word_font_zh: default_word_font_zh(),
             word_font_en: default_word_font_en(),
