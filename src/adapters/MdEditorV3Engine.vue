@@ -1527,6 +1527,11 @@ onBeforeUnmount(() => {
   margin-right: 1.1em;
   color: var(--mk-fg-muted);
   opacity: 0.62;
+  /* 标题行是 19px 粗体（.mk-cm-heading），伪元素会继承它的字号与字重，
+     导致标题行的数字比正文行大一号、整列看着毛刺——这里一律钉回正文字号与常规字重 */
+  font-size: var(--mk-font-size);
+  font-weight: 400;
+  line-height: 1.75;
   font-variant-numeric: tabular-nums;
   white-space: pre;
   user-select: none;
