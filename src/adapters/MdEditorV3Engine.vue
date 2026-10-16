@@ -1515,7 +1515,7 @@ onBeforeUnmount(() => {
    伪元素用 right:100% 贴着文本左侧，宽度自适应，不必按位数预留固定宽；
    padding-left 留出的槽位需大于最宽行号（4em 覆盖到 4 位数行号）。 */
 .engine-root.show-linenum :deep(.cm-content) {
-  padding-left: 5em;
+  padding-left: 3.5em;
 }
 .engine-root.show-linenum :deep(.cm-line) {
   position: relative;
