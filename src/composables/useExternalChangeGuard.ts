@@ -33,12 +33,16 @@ export function useExternalChangeGuard() {
   /** tabId → 上次比对的磁盘 mtime（本会话内有效，够用了：重启后首轮比对自然重建） */
   const seenMtime = new Map<string, number>();
   let lastCheck = 0;
+  let checking = false;
   let focused = true;
   let timer: ReturnType<typeof setInterval> | null = null;
   let unlistenFocus: (() => void) | null = null;
 
-  /** 采纳磁盘内容（丢弃标签内未保存改动）：走 tabsStore.reloadTab 同一条重读链路 */
+  /** 采纳磁盘内容（丢弃标签内未保存改动）：走 tabsStore.reloadTab 同一条重读链路。
+   *  对话框期间标签可能已被关闭，reloadTab 对不存在的标签静默返回，这里提前拦住——
+   *  否则会弹「已按磁盘新版本载入」的成功提示，而其实什么都没发生 */
   async function adopt(tabId: string): Promise<void> {
+    if (!tabs.tabs.some((t) => t.id === tabId)) return;
     try {
       await tabs.reloadTab(tabId);
       editor.showToast(t('workbench.external.reloaded'), 'success');
@@ -47,7 +51,18 @@ export function useExternalChangeGuard() {
     }
   }
 
+  /** 防重入：窗口聚焦事件与 4s 轮询可能同时触发，交叉跑会白耗一轮 stat+readFile */
   async function checkActive(): Promise<void> {
+    if (checking) return;
+    checking = true;
+    try {
+      await checkOnce();
+    } finally {
+      checking = false;
+    }
+  }
+
+  async function checkOnce(): Promise<void> {
     // 对话框开着 / 正在写盘 / 预览类标签（无文本语义）都不比对
     if (conflict.value || editor.saving || tabs.activeIsPreview) return;
     const tab = tabs.activeTab;
@@ -69,7 +84,10 @@ export function useExternalChangeGuard() {
       return;
     }
     seenMtime.set(tab.id, mtime);
-    if (disk === tab.savedContent) return;
+    // 两种「不算冲突」：等于保存基线（正常态）；或等于当前缓冲区——autoSaveTick 写盘不持
+    // editor.saving 锁，若我的 readFile 续体正好落在「写盘完成、markSaved 尚未执行」的微任务窗口，
+    // 磁盘=新内容而 savedContent=旧内容，会被误判成外部改动并弹框（用户点错就丢改动）
+    if (disk === tab.savedContent || disk === tab.content) return;
     if (!tab.isDirty) {
       await adopt(tab.id);
       return;

@@ -407,7 +407,7 @@ interface CmHeadingView {
   state: {
     selection: { main: { from: number; to: number; head: number } };
     doc: {
-      lineAt(pos: number): { number: number };
+      lineAt(pos: number): { number: number; from: number };
       line(n: number): { from: number; to: number; text: string };
     };
   };
@@ -425,8 +425,13 @@ function applyBlockFormat(kind: BlockKind, options: { level?: number; example?: 
   const view = inst?.getEditorView?.() as unknown as CmHeadingView | null;
   if (!view) return;
   const sel = view.state.selection.main;
-  const startLine = view.state.doc.lineAt(Math.min(sel.from, sel.to)).number;
-  const endLine = view.state.doc.lineAt(Math.max(sel.from, sel.to)).number;
+  const anchorPos = Math.min(sel.from, sel.to);
+  // 选区终点落在某行行首时不算那一行（拖选整行、Shift+↓ 都会正好停在下一行开头，
+  // 直接 lineAt(to) 会多改一行）
+  const headRaw = Math.max(sel.from, sel.to);
+  const headPos = headRaw > anchorPos && view.state.doc.lineAt(headRaw).from === headRaw ? headRaw - 1 : headRaw;
+  const startLine = view.state.doc.lineAt(anchorPos).number;
+  const endLine = view.state.doc.lineAt(headPos).number;
   const texts: string[] = [];
   for (let n = startLine; n <= endLine; n++) texts.push(view.state.doc.line(n).text);
   const next = formatBlockLines(texts, kind, options);
