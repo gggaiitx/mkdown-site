@@ -42,6 +42,8 @@ const keyword = ref('');
 const caseSensitive = ref(false);
 const ipt = ref<HTMLInputElement | null>(null);
 const panelRef = ref<HTMLElement | null>(null);
+/** 结果列表滚动容器（.hub-body）：键盘切换命中时把选中行滚进视口 */
+const bodyRef = ref<HTMLElement | null>(null);
 
 // ================= 文件内查找 =================
 interface Match {
@@ -118,6 +120,14 @@ function landIfPending(): boolean {
 }
 
 const fileCur = ref(0); // 0-based 当前命中
+
+// 键盘/替换推进命中序号时，把选中行滚进列表视口（block:'nearest' 已在视野内就不动，避免抖动）
+watch(fileCur, () => {
+  void nextTick(() => {
+    const el = bodyRef.value?.querySelector('.hit.sel') as HTMLElement | null;
+    el?.scrollIntoView({ block: 'nearest' });
+  });
+});
 
 function clampFileCur(): void {
   const n = fileMatches.value.length;
@@ -515,7 +525,7 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
     </div>
 
     <!-- 结果区 -->
-    <div class="hub-body">
+    <div ref="bodyRef" class="hub-body">
       <!-- 文件内查找 -->
       <template v-if="mode === 'file'">
         <p v-if="!tabs.activeTab" class="hint center">{{ t('search.openDocFirst') }}</p>

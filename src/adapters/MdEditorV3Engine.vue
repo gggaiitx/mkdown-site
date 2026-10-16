@@ -231,7 +231,14 @@ function scrollToLine(line: number, headingIndex = -1): void {
   const root = rootRef.value;
   if (!root) return;
   if (props.mode !== 'read') {
-    // CodeMirror 6：每行一个 .cm-line，按序号定位（行号 1-based）
+    // CodeMirror 6 只渲染可视区行，DOM 下标 ≠ 文档行号（一滚动就定位错行甚至无操作）；
+    // 必须走 doc 取行首偏移，再用 scrollIntoView effect 居中（与 CodeEditorEngine 同口径）
+    const view = getTableView();
+    if (view) {
+      const n = Math.max(1, Math.min(line, view.state.doc.lines));
+      view.dispatch({ effects: EditorView.scrollIntoView(view.state.doc.line(n).from, { y: 'center' }) });
+      return;
+    }
     const lines = root.querySelectorAll<HTMLElement>('.cm-content .cm-line');
     const target = lines[Math.max(0, line - 1)];
     if (target) {
@@ -494,6 +501,8 @@ interface CmTableView {
     changes?: { from: number; to?: number; insert: string } | Array<{ from: number; to: number; insert: string }>;
     selection?: { anchor: number; head?: number };
     scrollIntoView?: boolean;
+    /** 只放 EditorView.scrollIntoView 这类纯数据 effect（跨实例安全，见文件头 CM6 注释） */
+    effects?: unknown;
   }): void;
   /** 坐标 → doc 偏移（不在文本上返回 null）；右键定位用 */
   posAtCoords(coords: { x: number; y: number }): number | null;
