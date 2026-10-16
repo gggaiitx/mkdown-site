@@ -1528,17 +1528,17 @@ onBeforeUnmount(() => {
   --mk-ln-w: 3.5em;
 }
 .engine-root.show-linenum :deep(.cm-line) {
-  position: relative;
   padding-left: var(--mk-ln-w);
 }
 .engine-root.show-linenum :deep(.cm-line::before) {
   content: attr(data-ln);
-  position: absolute;
-  top: 0;
-  left: 0;
+  /* 不用绝对定位：那要求 .cm-line 确实成为包含块（受内核同名规则与样式注入顺序影响，
+     一旦没吃到就整体错位）。改为随文本流排布，再用负 margin 把整块拉进左留白 ——
+     位置只由 --mk-ln-w 决定，数字天然贴列左，且与文字同一基线、无需手工算行高。 */
+  display: inline-block;
   width: var(--mk-ln-w);
-  /* 数字贴列左（不随位数抖动）；正文起点由 .cm-line 的 padding-left 决定，两者互不影响 */
-  padding-left: 6px;
+  margin-left: calc(-1 * var(--mk-ln-w));
+  padding-right: 0.8em;
   box-sizing: border-box;
   text-align: left;
   color: var(--mk-fg-muted);
@@ -1546,17 +1546,9 @@ onBeforeUnmount(() => {
   /* 行号独立字号（不跟全局字号缩放，与右键菜单 12.5px 同口径）；标题行的字号与字重也不继承 */
   font-size: 12.5px;
   font-weight: 400;
-  /* 行框高度要显式按「本行字号 × 1.75」算：内核 line-height 是无因次倍数，继承到伪元素后
-     会被它自己的字号重新乘一遍，标题行里数字只按正文字号排高，相对标题文字就偏上。
-     配合 top:0，数字与该行文字才在同一高度里垂直居中。 */
-  line-height: calc(var(--mk-font-size) * 1.75);
   font-variant-numeric: tabular-nums;
   white-space: pre;
   user-select: none;
-}
-/* 标题行行框更高（19px × 1.75），行号按同一高度居中才与标题文字齐平 */
-.engine-root.show-linenum :deep(.cm-line.mk-cm-heading::before) {
-  line-height: calc(19px * 1.75);
 }
 
 /* 功能栏视觉对齐：底色/边线对齐应用 chrome，图标色与 hover 语言同顶栏 ----
