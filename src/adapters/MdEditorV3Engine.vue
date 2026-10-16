@@ -1538,9 +1538,8 @@ onBeforeUnmount(() => {
   margin-right: 1.9em;
   color: var(--mk-fg-muted);
   opacity: 0.62;
-  /* 标题行是 19px 粗体（.mk-cm-heading），伪元素会继承它的字号与字重，
-     导致标题行的数字比正文行大一号、整列看着毛刺——这里一律钉回正文字号与常规字重 */
-  font-size: var(--mk-font-size);
+  /* 行号独立字号（不跟全局字号缩放，与右键菜单 12.5px 同口径）；标题行的字号与字重也不继承 */
+  font-size: 12.5px;
   font-weight: 400;
   /* 行框高度要显式按「本行字号 × 1.75」算：内核 line-height 是无因次倍数，继承到伪元素后
      会被它自己的字号重新乘一遍，标题行里数字只按正文字号排高，相对标题文字就偏上。
