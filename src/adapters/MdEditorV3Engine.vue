@@ -1537,10 +1537,10 @@ onBeforeUnmount(() => {
   top: 0;
   left: 0;
   width: var(--mk-ln-w);
-  /* 数字右缘与正文的间距：需 ≤ --mk-ln-w − 数字宽，否则最左一位会被裁 */
-  padding-right: 1.9em;
+  /* 数字贴列左（不随位数抖动）；正文起点由 .cm-line 的 padding-left 决定，两者互不影响 */
+  padding-left: 6px;
   box-sizing: border-box;
-  text-align: right;
+  text-align: left;
   color: var(--mk-fg-muted);
   opacity: 0.62;
   /* 行号独立字号（不跟全局字号缩放，与右键菜单 12.5px 同口径）；标题行的字号与字重也不继承 */
