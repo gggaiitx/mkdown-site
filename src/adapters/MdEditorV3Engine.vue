@@ -1523,6 +1523,7 @@ onBeforeUnmount(() => {
 .engine-root.show-linenum :deep(.cm-line::before) {
   content: attr(data-ln);
   position: absolute;
+  top: 0;
   right: 100%;
   margin-right: 1.1em;
   color: var(--mk-fg-muted);
@@ -1531,10 +1532,17 @@ onBeforeUnmount(() => {
      导致标题行的数字比正文行大一号、整列看着毛刺——这里一律钉回正文字号与常规字重 */
   font-size: var(--mk-font-size);
   font-weight: 400;
-  line-height: 1.75;
+  /* 行框高度要显式按「本行字号 × 1.75」算：内核 line-height 是无因次倍数，继承到伪元素后
+     会被它自己的字号重新乘一遍，标题行里数字只按正文字号排高，相对标题文字就偏上。
+     配合 top:0，数字与该行文字才在同一高度里垂直居中。 */
+  line-height: calc(var(--mk-font-size) * 1.75);
   font-variant-numeric: tabular-nums;
   white-space: pre;
   user-select: none;
+}
+/* 标题行行框更高（19px × 1.75），行号按同一高度居中才与标题文字齐平 */
+.engine-root.show-linenum :deep(.cm-line.mk-cm-heading::before) {
+  line-height: calc(19px * 1.75);
 }
 
 /* 功能栏视觉对齐：底色/边线对齐应用 chrome，图标色与 hover 语言同顶栏 ----
