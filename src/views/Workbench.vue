@@ -201,8 +201,8 @@ function onContentChange(v: string) {
   tabs.markDirty(tab.id, v);
 }
 
-/** wangEditor 内容写回：引擎常驻挂载后，隐藏态会因 model-value 喂空串而误发事件——
- *  仅当 .mh 标签激活时才写回，防止空串污染当前标签 */
+/** wangEditor 内容写回门控：引擎常驻（v-show），隐藏期间它承载的是上一份 mh 文档，
+ *  此时冒出来的 change 不能写进当前激活标签（多半是 md/code）的内容里 */
 function onMhContentChange(v: string) {
   if (!isMhTab.value) return;
   onContentChange(v);
@@ -343,6 +343,18 @@ const wangEverMounted = ref(false);
 watch(isMhTab, (v) => {
   if (v) wangEverMounted.value = true;
 });
+/** 交给常驻 wangEditor 的内容：只在「激活的是 mh 标签」时更新。
+ *  旧写法在非 mh 标签时喂空串，切回 mh 就被引擎判定为外部变更而整篇 setHtml 重建 Slate；
+ *  方案骨架（八章节 + 多个预填表格）下这是数百毫秒起的主线程阻塞，表现为切不动也关不掉。
+ *  保持原值后：md ↔ mh 往返不再 setHtml，只有换到另一份 mh 文档才必需重建。 */
+const mhEditorHtml = ref('');
+watch(
+  () => (isMhTab.value ? tabs.activeTab?.content ?? null : null),
+  (content) => {
+    if (content != null) mhEditorHtml.value = content;
+  },
+  { immediate: true },
+);
 /** 编辑区由 CodeMirror 代码引擎接管的标签：code 恒编辑；html/svg 三模式中的源码侧；
  *  'text' 为旧会话快照兼容（新打开不再产生，txt/log/csv 等已归 'code'）——
  *  即除 Markdown/富文本外的一切文本都走代码引擎，杜绝 txt 被当 Markdown 渲染 */
@@ -1526,7 +1538,9 @@ watch(() => editor.mode, (m) => {
             />
             <!-- .mh 富文本：wangEditor 引擎。★ 首次激活 mh 后常驻挂载（v-show 显隐）——
                  createEditor 成本高（数百 ms），随标签切换反复销毁重建是 md→mh 卡顿根因；
-                 隐藏时 model-value 喂空串，事件由 onMhContentChange 门控丢弃。
+                 model-value 走 mhEditorHtml：隐藏期间保持上一份 mh 内容，不再喂空串
+                 （喂空串会让切回变成「外部变更」从而整篇 setHtml，方案骨架下直接卡死主线程），
+                 隐藏态误发的事件仍由 onMhContentChange 门控丢弃。
                DOM 顺序必须在 md 引擎之后：.text-area > :first-child 的 flex 规则
                依赖可见引擎排第一（wang 隐藏时 display:none 不参与 flex 流） -->
             <MdEditorV3Engine
@@ -1557,7 +1571,7 @@ watch(() => editor.mode, (m) => {
               v-if="wangEverMounted"
               v-show="isMhTab"
               ref="wangEngineRef"
-              :model-value="isMhTab ? tabs.activeTab?.content ?? '' : ''"
+              :model-value="mhEditorHtml"
               :mode="editor.mode"
               :theme="settings.settings.theme"
               :focus-mode="settings.settings.focusMode"

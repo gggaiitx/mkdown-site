@@ -210,16 +210,16 @@ watch(
 );
 
 // 外部内容替换（切文件/会话恢复）：仅在与当前内容不同时回写。
-// lastEmitted 恒为磁盘态（父级持有值），故父级回写不会被误判为外部变更（P0-2）
+// lastEmitted 恒为磁盘态（父级持有值），故父级回写不会被误判为外部变更（P0-2）。
+// 只改 valueHtml 即可：@wangeditor/editor-for-vue 自己 watch modelValue 并 setHtml
+// （dist/index.esm.js:147-150），这里再显式 setHtml 等于把同一份文档解析两遍
 watch(
   () => props.modelValue,
   (v) => {
     const disk = v || '<p><br></p>';
     if (disk === lastEmitted) return;
-    // valueHtml 与 setHtml 均走显示态口径（htmlToDisplay），回写分支同样转换（P0-2）
     valueHtml.value = htmlToDisplay(disk);
     lastEmitted = disk;
-    editorRef.value?.setHtml(htmlToDisplay(disk));
   },
 );
 
@@ -237,8 +237,10 @@ function onChange(): void {
 function onCreated(editor: IDomEditor): void {
   editorRef.value = editor;
   applyMode(editor, props.mode);
-  editor.setHtml(htmlToDisplay(props.modelValue || '<p><br></p>'));
-  void nextTick(applyFocusBlocks); // 首挂即上色（语言切换重建实例也走这里）
+  // 初值内容不用管：wrapper 的 createEditor({ html: props.modelValue }) 已灌过
+  // （dist/index.esm.js:69）。这里再 setHtml 等于把方案骨架这类大文档重复解析一遍
+  bindFocusListener(!!props.focusMode); // 语言切换重建实例后重新挂监听
+  void nextTick(applyFocusBlocks); // 首挂即上色
   emitOutlineSoon();
 }
 
@@ -368,30 +370,71 @@ function editableRoot(): HTMLElement | null {
 }
 
 // ---- 专注模式（设置-编辑器「专注模式」）----
-/** 给 Slate 顶层块挂淡出类，光标所在块保持清晰（md/code 用的是 CM6 行装饰，这里没有 CM 视图）。
- *  只动 class、不碰 Slate 数据；Slate 重渲染会丢类，故内容 / 模式 / 光标变动都要重挂。 */
+/** 淡出类名（样式在 global.css，md/code/.mh 三引擎共用） */
+const FOCUS_DIM = 'mk-focus-dim';
+/** 自激保护：我们自己写 class 可能触发编辑器的 DOM 观察与选区恢复，
+ *  进而回调 selectionchange —— 这一趟执行期间到来的一切重入直接丢弃，否则可能形成死循环 */
+let applyingFocus = false;
+/** 上一次上色的光标所在块；同一块内继续打字不必再动 DOM */
+let lastFocusBlock: HTMLElement | null | undefined;
+/** selectionchange 监听只在开关打开期间存在：关闭时本特性对 DOM 零接触 */
+let focusBound = false;
+
+/** 只在「期望状态 ≠ 当前状态」时写 class：无差异就不碰 attribute，稳态零 DOM 写入 */
+function paintFocusBlocks(blocks: HTMLElement[], shouldDim: (b: HTMLElement) => boolean): void {
+  applyingFocus = true;
+  try {
+    for (const b of blocks) {
+      const dim = shouldDim(b);
+      if (b.classList.contains(FOCUS_DIM) === dim) continue;
+      b.classList.toggle(FOCUS_DIM, dim);
+    }
+  } finally {
+    applyingFocus = false;
+  }
+}
+
+/** 给 Slate 顶层块挂淡出类，光标所在块保持清晰。只动 class、不碰 Slate 数据。 */
 function applyFocusBlocks(): void {
+  if (applyingFocus) return;
   const root = editableRoot();
   if (!root) return;
   const blocks = Array.from(root.children) as HTMLElement[];
   if (!props.focusMode || props.mode === 'read') {
-    for (const b of blocks) b.classList.remove('mk-focus-dim');
+    if (lastFocusBlock !== null) {
+      lastFocusBlock = null;
+      paintFocusBlocks(blocks, () => false);
+    }
     return;
   }
   const anchorNode = window.getSelection()?.anchorNode ?? null;
   const current = anchorNode ? blocks.find((b) => b.contains(anchorNode)) ?? null : null;
-  for (const b of blocks) b.classList.toggle('mk-focus-dim', b !== current);
+  if (current === lastFocusBlock) return; // 光标没跨块：一个字都不改
+  lastFocusBlock = current;
+  paintFocusBlocks(blocks, (b) => b !== current);
 }
 
-/** 内容 / 模式 / 开关变化后重挂（nextTick 等 Slate 渲染落地）；
- *  光标移动靠 selectionchange——wangEditor 不暴露选区事件，只能借 document 全局监听 */
+/** 监听按需挂载：关闭专注模式时不注册，避免给 Slate 增加一条 DOM 事件源 */
+function bindFocusListener(on: boolean): void {
+  if (on === focusBound) return;
+  focusBound = on;
+  if (on) document.addEventListener('selectionchange', applyFocusBlocks);
+  else document.removeEventListener('selectionchange', applyFocusBlocks);
+}
+
+/** 内容 / 模式 / 开关变化后重挂（nextTick 等 Slate 渲染落地，并重置跨块缓存） */
 watch(
   () => [props.focusMode, props.mode, props.modelValue],
-  () => {
+  ([on]) => {
+    bindFocusListener(!!on);
+    lastFocusBlock = undefined;
     void nextTick(applyFocusBlocks);
   },
 );
-onMounted(() => document.addEventListener('selectionchange', applyFocusBlocks));
+onMounted(() => {
+  bindFocusListener(!!props.focusMode);
+  void nextTick(applyFocusBlocks);
+});
 
 /** 查找滚动根：与 scrollToLine 同口径（.w-e-scroll 是 container 的【子】元素，向下找） */
 function findScrollRoot(): HTMLElement | null {
@@ -532,7 +575,7 @@ defineExpose({
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener('selectionchange', applyFocusBlocks);
+  bindFocusListener(false);
   if (outlineTimer) clearTimeout(outlineTimer);
   clearHighlight(); // 清 CSS.highlights 注册，防泄漏到后续标签
   editorRef.value?.destroy();
