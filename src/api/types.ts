@@ -98,6 +98,8 @@ export interface AppSettings {
   /** 专注模式：当前段落保持原样、其余淡出。md/code 走 CM6 行装饰（按空行分段），
    *  .mh 给 Slate 顶层块挂类；阅读态一律不生效 */
   focusMode: boolean;
+  /** 显示行号：Markdown 编辑窗格左侧画一列行号（数字取自每行 data-ln 属性，代码引擎由 basicSetup 自带） */
+  showLineNumbers: boolean;
   /** 新建文件默认格式：markdown→.md（默认）/ wangeditor→.mh；不影响已打开文件 */
   editorEngine: EditorKernel;
   /** 导出 Word 正文字体基线（D2）：中文字体 */
@@ -129,6 +131,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   wordWrap: true,
   showToolbar: true,
   focusMode: false,
+  showLineNumbers: false,
   editorEngine: 'markdown',
   wordFontZh: '等线',
   wordFontEn: 'Calibri',

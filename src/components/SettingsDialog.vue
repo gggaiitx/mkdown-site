@@ -334,6 +334,17 @@ onBeforeUnmount(onDragEnd);
                 <span class="track" />
               </label>
             </div>
+            <div class="row">
+              <label>{{ t('settings.showLineNumbers') }}</label>
+              <label class="switch" :title="t('settings.showLineNumbersHint')">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.showLineNumbers"
+                  @change="patch({ showLineNumbers: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
           </template>
 
           <!-- 导出（D2：Word 正文字体基线） -->

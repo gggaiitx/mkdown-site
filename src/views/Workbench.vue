@@ -1138,6 +1138,12 @@ function onToggleFocusMode(): void {
   settings.update({ focusMode: !settings.settings.focusMode });
 }
 
+/** 右键「行号」：同上，切换只影响 engine-root 上的 class，不打断输入与撤销栈 */
+function onToggleLineNumbers(): void {
+  editorCtx.value = null;
+  settings.update({ showLineNumbers: !settings.settings.showLineNumbers });
+}
+
 // ---------- 快捷键 ----------
 /** CM6 编辑器是否持有焦点（v7 内核 = .cm-editor.cm-focused；CM5 的 .CodeMirror-focused 类已不存在） */
 const isEditorFocused = () => !!document.querySelector('.cm-editor.cm-focused');
@@ -1553,6 +1559,7 @@ watch(() => editor.mode, (m) => {
               :read-layout="settings.settings.readLayout"
               :show-toolbar="settings.settings.showToolbar"
               :focus-mode="settings.settings.focusMode"
+              :show-line-numbers="settings.settings.showLineNumbers"
               :scroll-sync="settings.settings.scrollSync"
               :doc-path="activeDocPath"
               :language="settings.settings.language"
@@ -1715,10 +1722,12 @@ watch(() => editor.mode, (m) => {
       :ctx="editorCtx"
       :can-reload="!!tabs.activeTab?.path"
       :focus-mode="settings.settings.focusMode"
+      :show-line-numbers="settings.settings.showLineNumbers"
       @op="onTableOp"
       @format="onFormatFromMenu"
       @refresh="onCtxRefresh"
       @toggle-focus="onToggleFocusMode"
+      @toggle-line-numbers="onToggleLineNumbers"
       @dismiss="editorCtx = null"
     />
 

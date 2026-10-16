@@ -40,6 +40,8 @@ const props = defineProps<{
   editorId: string;
   /** 编辑器顶部功能栏显隐（设置-编辑器）：false = 隐藏（正文区上移） */
   showToolbar?: boolean;
+  /** 显示行号（设置-编辑器）：编辑窗格左侧画一列行号，开关只切 class 不重配 CM 扩展 */
+  showLineNumbers?: boolean;
   /** 专注模式（设置-编辑器）：当前段落保持原样，其余行淡出。仅编辑/分栏态的 CM 窗格生效 */
   focusMode?: boolean;
   /** 分栏态编辑区↔预览区滚动同步（设置-编辑器「滚动同步」，默认开）。
@@ -1327,7 +1329,7 @@ onBeforeUnmount(() => {
   <div
     ref="rootRef"
     class="engine-root"
-    :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false }]"
+    :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false, 'show-linenum': showLineNumbers === true }]"
     :style="{ '--mk-editor-lh': editLineHeight }"
   >
     <!-- 阅读态：独立滚动容器 + 居中阅读栏，内容可正常滚动；key 绑定 docPath+language，
@@ -1505,6 +1507,29 @@ onBeforeUnmount(() => {
    类挂在 engine-root 上，选择器带 .no-toolbar 限定，不影响导出预览宿主 */
 .engine-root.no-toolbar :deep(.md-editor-toolbar-wrapper) {
   display: none;
+}
+
+/* ---- 行号（设置-编辑器「显示行号」）----
+   数字来自 cmLineNumber.ts 挂在每行的 data-ln 属性（只覆盖可视区）。开关只切 engine-root 上的
+   show-linenum 类：不重配 CM 扩展、不补发事务，因此切换不会打断输入与撤销栈。
+   伪元素用 right:100% 贴着文本左侧，宽度自适应，不必按位数预留固定宽；
+   padding-left 留出的槽位需大于最宽行号（4em 覆盖到 4 位数行号）。 */
+.engine-root.show-linenum :deep(.cm-content) {
+  padding-left: 4em;
+}
+.engine-root.show-linenum :deep(.cm-line) {
+  position: relative;
+}
+.engine-root.show-linenum :deep(.cm-line::before) {
+  content: attr(data-ln);
+  position: absolute;
+  right: 100%;
+  margin-right: 1.1em;
+  color: var(--mk-fg-muted);
+  opacity: 0.62;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+  user-select: none;
 }
 
 /* 功能栏视觉对齐：底色/边线对齐应用 chrome，图标色与 hover 语言同顶栏 ----

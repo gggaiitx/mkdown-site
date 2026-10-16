@@ -166,6 +166,7 @@ hljs.registerLanguage('coffeescript', coffeescript);
 import { mkFindExtension } from './findHighlight';
 import { headingLineExtension } from './cmHeadingLine';
 import { focusLineExtension } from './cmFocusLine';
+import { lineNumberAttrExtension } from './cmLineNumber';
 import { isMac } from '../utils/keyHint';
 
 let currentDocDir = '';
@@ -363,6 +364,7 @@ export function setupMdRenderer(): void {
         { type: 'mk-find-highlight', extension: mkFindExtension },
         { type: 'mk-heading-line', extension: headingLineExtension },
         { type: 'mk-focus-line', extension: focusLineExtension },
+        { type: 'mk-line-number-attr', extension: lineNumberAttrExtension },
       ];
     },
   });

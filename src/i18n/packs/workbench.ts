@@ -14,6 +14,7 @@ export default {
       ctx: {
         reload: '刷新',
         focusMode: '专注模式',
+        lineNumbers: '行号',
         table: '表格',
         heading: '标题',
         plain: '正文',
@@ -163,6 +164,7 @@ export default {
       ctx: {
         reload: 'Reload',
         focusMode: 'Focus mode',
+        lineNumbers: 'Line numbers',
         table: 'Table',
         heading: 'Heading',
         plain: 'Normal text',

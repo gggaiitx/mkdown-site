@@ -9,7 +9,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
 import {
   Table, ArrowUpLeft, ArrowDownRight, ArrowLeft, ArrowRight, Minus,
-  WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check,
+  WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check, ListEnd,
   Text, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Bold, Italic, Quote, Code, SquareCode, List, ListOrdered, ListTodo, Link,
 } from '@lucide/vue';
@@ -26,6 +26,8 @@ const props = defineProps<{
   canReload?: boolean;
   /** 专注模式当前状态（决定菜单项的勾选标记） */
   focusMode?: boolean;
+  /** 行号当前状态（同上） */
+  showLineNumbers?: boolean;
 }>();
 const emit = defineEmits<{
   (e: 'op', op: 'insert' | TableOp): void;
@@ -33,8 +35,9 @@ const emit = defineEmits<{
   (e: 'format', id: FormatId): void;
   /** 刷新当前标签：脏确认对话框与 reloadTab 全在 TabBar 内，这里只转达意图 */
   (e: 'refresh'): void;
-  /** 切换专注模式：状态存在设置里，由 Workbench 写 settings.update */
+  /** 切换视图类开关（专注模式 / 行号）：状态存在设置里，由 Workbench 写 settings.update */
   (e: 'toggleFocus'): void;
+  (e: 'toggleLineNumbers'): void;
   (e: 'dismiss'): void;
 }>();
 
@@ -137,6 +140,10 @@ onBeforeUnmount(() => {
     <button class="ctx-item" @click="emit('toggleFocus')">
       <Focus class="ctx-ico" /><span>{{ t('workbench.ctx.focusMode') }}</span>
       <Check v-if="focusMode" class="ctx-check" />
+    </button>
+    <button class="ctx-item" @click="emit('toggleLineNumbers')">
+      <ListEnd class="ctx-ico" /><span>{{ t('workbench.ctx.lineNumbers') }}</span>
+      <Check v-if="showLineNumbers" class="ctx-check" />
     </button>
     <div class="ctx-sep" />
 

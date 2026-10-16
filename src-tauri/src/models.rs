@@ -150,6 +150,8 @@ pub struct AppSettings {
     pub show_toolbar: bool,
     /// 专注模式：当前段落保持原样、其余淡出（md/code 走 CM6 行装饰，.mh 给 Slate 块挂类）
     pub focus_mode: bool,
+    /// 显示行号：Markdown 编辑窗格左侧一列行号（data-ln 属性 + CSS 伪元素）
+    pub show_line_numbers: bool,
     /// 新建文件默认格式："markdown"（默认）| "wangeditor"（新建 .mh）
     #[serde(default = "default_editor_engine")]
     pub editor_engine: String,
@@ -189,6 +191,7 @@ impl Default for AppSettings {
             word_wrap: true,
             show_toolbar: true,
             focus_mode: false,
+            show_line_numbers: false,
             editor_engine: default_editor_engine(),
             word_font_zh: default_word_font_zh(),
             word_font_en: default_word_font_en(),
