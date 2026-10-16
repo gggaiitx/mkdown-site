@@ -13,10 +13,10 @@
 
 ## 二、P0（2 项）
 
-| # | 位置 | 问题 | 建议 |
-|---|------|------|------|
-| P0-1 | src-tauri/src/commands/update_cmd.rs:156,107 | `apply_update(installer_path)` 仅校验 `exists()` 即执行，参数完全来自前端；与 `download_update(download_url)` 不校验 URL 协议叠加，构成"前端可控 → 执行任意本地 exe / 明文 http 下载并运行"的原语，违背工程自设 ADR-01（前端不可借 IPC 触达任意路径）的威胁模型 | `download_url` 限定 https 且 host 以 `objects.githubusercontent.com`/`github.com` 结尾；`installer_path` 限定必须等于本次 `download_update` 返回的 `%TEMP%\mkdown-update-setup.exe`（或该前缀路径） |
-| P0-2 | src/adapters/WangEditorEngine.vue:211-219（对照 82-102、200-209、538） | **功能性缺陷（含本地图片的 .mh 文档编辑态被逐键重置）**：`onChange` 中 `lastEmitted = html`（显示态 HTML，图片为 asset:// 形态）却 `emit('update:modelValue', htmlToDisk(html))`（磁盘态相对路径）——文档含本地图片时二者必然不等，父级回写 modelValue 后 watch（:204）误判为"外部变更"，**每次按键都执行 `setHtml` 全量重置编辑器**：光标跳回文档头、撤销历史丢失；且回写分支 `valueHtml.value = disk`（:205）把磁盘态赋给编辑器 v-model（:538，显示态口径）亦属口径错位，打印导出（onExportCreated 取 valueHtml）随之丢图片。无图片文档两态相等故不触发，这也是此前未被发现的原因 | `lastEmitted` 存实际 emit 的值（`lastEmitted = htmlToDisk(html)`）；watch 回写分支改 `valueHtml.value = htmlToDisplay(disk)`，与 :207 的 setHtml 口径对齐 |
+| # | 位置 | 问题 | 列4 | 建议 |
+| --- | --- | --- | --- | --- |
+| P0-1 | src-tauri/src/commands/update_cmd.rs:156,107 | `apply_update(installer_path)` 仅校验 `exists()` 即执行，参数完全来自前端；与 `download_update(download_url)` 不校验 URL 协议叠加，构成"前端可控 → 执行任意本地 exe / 明文 http 下载并运行"的原语，违背工程自设 ADR-01（前端不可借 IPC 触达任意路径）的威胁模型 |  | `download_url` 限定 https 且 host 以 `objects.githubusercontent.com`/`github.com` 结尾；`installer_path` 限定必须等于本次 `download_update` 返回的 `%TEMP%\mkdown-update-setup.exe`（或该前缀路径） |
+| P0-2 | src/adapters/WangEditorEngine.vue:211-219（对照 82-102、200-209、538） | **功能性缺陷（含本地图片的 .mh 文档编辑态被逐键重置）**：`onChange` 中 `lastEmitted = html`（显示态 HTML，图片为 asset:// 形态）却 `emit('update:modelValue', htmlToDisk(html))`（磁盘态相对路径）——文档含本地图片时二者必然不等，父级回写 modelValue 后 watch（:204）误判为"外部变更"，**每次按键都执行 `setHtml` 全量重置编辑器**：光标跳回文档头、撤销历史丢失；且回写分支 `valueHtml.value = disk`（:205）把磁盘态赋给编辑器 v-model（:538，显示态口径）亦属口径错位，打印导出（onExportCreated 取 valueHtml）随之丢图片。无图片文档两态相等故不触发，这也是此前未被发现的原因 |  | `lastEmitted` 存实际 emit 的值（`lastEmitted = htmlToDisk(html)`）；watch 回写分支改 `valueHtml.value = htmlToDisplay(disk)`，与 :207 的 setHtml 口径对齐 |
 
 ## 三、P1（13 项）
 

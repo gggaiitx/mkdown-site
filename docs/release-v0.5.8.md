@@ -39,6 +39,6 @@
 
 ## 下载
 
-- Windows：NSIS 安装包（自动注册到「应用与功能」，卸载保留用户数据）
+- Windows：NSIS 安装包（自动注册到「*应用与功能*」，卸载保留用户数据）
 - macOS：Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需绕过 Gatekeeper）
 - 详见 https://github.com/gggaiitx/mkdown-site/releases

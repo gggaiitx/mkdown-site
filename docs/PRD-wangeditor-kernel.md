@@ -22,7 +22,7 @@
 ### 2.1 目标
 
 | # | 目标 | 说明 |
-|---|------|------|
+| --- | --- | --- |
 | G1 | 设置提供"编辑内核 / 默认文档格式"切换 | 选项至少含：**Markdown（md-editor-v3，默认）**、**富文本（wangEditor）** |
 | G2 | 富文本以独立原生格式本地保存 | 新增 `.mh` 文件（wangEditor 原生 HTML），复用现有 `write_file_atomic`，零转换损耗 |
 | G3 | 对业务层透明 | 延续 `IMarkdownEngine` 适配层契约（`EngineHandle`），不破坏既有 md-editor-v3 / CodeEditorEngine 行为 |
@@ -46,7 +46,7 @@
 ## 3. 用户角色与场景
 
 | 角色 | 诉求 | 行为 |
-|------|------|------|
+| --- | --- | --- |
 | U1 习惯 Markdown 的用户 | 维持现状 | 默认内核即为 Markdown，`.md` 行为零变化 |
 | U2 偏好 WYSIWYG 的用户 | 不想写 `#`/`**` | 设置选 wangEditor（默认新文件为 `.mh`），新建即所见即所得 |
 | U3 两者兼顾 | 同一工作区混合 | `.md` 走 Markdown 内核，`.mh` 走 wangEditor，按扩展名自动分流 |

@@ -10,7 +10,7 @@
 ## 0. 项目信息
 
 | 项 | 内容 |
-|---|---|
+| --- | --- |
 | Language | 中文/英文 |
 | Programming Language | 外壳 Rust + Tauri 2.x；前端 Vue 3 + Vite + TypeScript（推荐，见选型结论） |
 | Project Name | `mkdown` |
@@ -48,7 +48,7 @@
 ### 1.2 核心功能矩阵
 
 | 功能 | md-editor-v3 | editor.md |
-|---|---|---|
+| --- | --- | --- |
 | 编辑模式 | 分栏预览 + 可扩展（非所见即所得） | 分栏实时预览 |
 | 渲染模式 | 提供 `MdPreview` 纯预览组件 | 只读模式 |
 | 代码高亮 | ✅ | ✅（prettify.js） |

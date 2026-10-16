@@ -18,7 +18,7 @@ MkDown 是一个**纯本地、零联网**的 Windows 桌面 Markdown「审查 + 
 ### 关键架构决策（6 条）
 
 | # | 决策 | 一句话理由 |
-|---|------|-----------|
+| --- | --- | --- |
 | D1 | **文件 IO 走自写 `#[tauri::command]`，仅系统对话框/设置存储用官方插件** | 用户工作区是任意路径，`tauri-plugin-fs` 的静态 scope 无法覆盖；自写 command 内部做路径校验，比放全开 scope 更安全、更灵活。 |
 | D2 | **大文件：Rust 侧一次性读取 + 前端 100ms debounce** | 300KB/1万行文本读取 <50ms，一次 IPC 成本远低于流式分片；流式只用于**搜索结果**（`ipc::Channel`）。 |
 | D3 | **全文搜索：MVP 不建索引，用 `ignore` + `grep-searcher` 遍历** | 单工作区通常数百文件，遍历 1 万行级文档 ≤1s 达标；索引会引入持久化/失效复杂度，收益在 MVP 不成立。 |
@@ -28,7 +28,7 @@ MkDown 是一个**纯本地、零联网**的 Windows 桌面 Markdown「审查 + 
 
 ---
 
-# Part A：系统设计
+##  Part A：系统设计
 
 ## 1. 架构总览
 
@@ -79,18 +79,18 @@ flowchart TB
 
 ### 1.2 「什么逻辑放 Rust、什么放前端」判定原则
 
-| 判定维度 | 放 Rust（Core） | 放前端（WebView） |
-|---------|----------------|-------------------|
-| **触碰文件系统** | ✅ 全部（读/写/移/删/遍历/探测编码） | ❌ 绝不直接碰 FS |
-| **触碰系统对话框** | ✅ `tauri-plugin-dialog` | ❌ |
-| **路径拼接 / 规范化** | ✅ 统一 `PathBuf`，跨平台分隔符/长路径/UNC | ❌ 只透传字符串，不拼接 |
-| **编码处理** | ✅ UTF-8 / BOM / GBK 探测（`encoding_rs`） | ❌ |
-| **CPU 密集 / 遍历型** | ✅ 全文搜索、目录树、正则 | ❌ |
-| **纯 UI 状态** | ❌ | ✅ 标签页、展开态、选中、滚动位置 |
-| **渲染 / 预览 / 高亮** | ❌ | ✅ 全部在 WebView |
-| **偏好记忆** | ✅ 落 `settings.json`（store 插件） | ✅ 内存态 + debounce 回写 |
-| **快捷键** | ❌（仅系统级菜单加速键声明的注册） | ✅ keymap 分发 |
-| **单向派生数据** | 提供原始数据 | 做视图模型映射 |
+| 判定维度               | 放 Rust（Core）                           | 放前端（WebView）                |
+| ---------------------- | ----------------------------------------- | -------------------------------- |
+| **触碰文件系统**       | ✅ 全部（读/写/移/删/遍历/探测编码）       | ❌ 绝不直接碰 FS                  |
+| **触碰系统对话框**     | ✅ `tauri-plugin-dialog`                   | ❌                                |
+| **路径拼接 / 规范化**  | ✅ 统一 `PathBuf`，跨平台分隔符/长路径/UNC | ❌ 只透传字符串，不拼接           |
+| **编码处理**           | ✅ UTF-8 / BOM / GBK 探测（`encoding_rs`） | ❌                                |
+| **CPU 密集 / 遍历型**  | ✅ 全文搜索、目录树、正则                  | ❌                                |
+| **纯 UI 状态**         | ❌                                         | ✅ 标签页、展开态、选中、滚动位置 |
+| **渲染 / 预览 / 高亮** | ❌                                         | ✅ 全部在 WebView                 |
+| **偏好记忆**           | ✅ 落 `settings.json`（store 插件）        | ✅ 内存态 + debounce 回写         |
+| **快捷键**             | ❌（仅系统级菜单加速键声明的注册）         | ✅ keymap 分发                    |
+| **单向派生数据**       | 提供原始数据                              | 做视图模型映射                   |
 
 > 一句话准则：**「凡是会失败于权限/编码/平台差异的操作，都放进 Rust 用 `Result` 表达」；「凡是像素与交互，都留在前端」。**
 
@@ -103,7 +103,7 @@ flowchart TB
 > 版本策略：Tauri 系用 `2` 主版本浮动（Cargo 会自动解析到最新 2.x）。标注「需核实」的请在 `cargo add` 时确认最新小版本。
 
 | crate | 版本 | 用途 | 取舍理由 |
-|-------|------|------|---------|
+| --- | --- | --- | --- |
 | `tauri` | `2`（features: `protocol-asset`, `devtools`） | 应用外壳 / IPC | 硬约束 |
 | `tauri-plugin-dialog` | `2` | 打开/保存/消息对话框 | 官方维护，跨平台一致；避免自己调 Win32 |
 | `tauri-plugin-store` | `2` | `settings.json` 持久化 KV | 免自己实现配置文件读写与并发 |
@@ -132,36 +132,36 @@ flowchart TB
 
 ### 2.2 前端 npm 依赖
 
-| 包 | 版本 | 用途 |
-|----|------|------|
-| `vue` | `^3.5` | 框架 |
-| `vite` | `^7`（需核实） | 构建 |
-| `typescript` | `^5.6` | 类型 |
-| `@vitejs/plugin-vue` | 最新 | SFC 支持 |
-| `pinia` | `^3`（需核实） | 状态管理 |
-| `vue-router` | `^4`（可选） | 若设置页独立路由；MVP 亦可用抽屉 |
-| `md-editor-v3` | `^7.0.0` | **编辑内核**（`MdEditor` / `MdPreview` / `MdCatalog`） |
-| `@vavt/v3-extension` | 最新（需核实） | 语言包 / 扩展（i18n zh-CN、图标等） |
-| `tdesign-icons-vue-next` 或 `@iconify/vue` | 最新 | 图标（二选一，建议 iconify 按需） |
-| `prettier` | `^3` | P1：Markdown 格式化 |
-| `mermaid` | `^11`（需核实） | P1：流程图（**懒加载**） |
-| `katex` | `^0.16` | P1：公式（**懒加载**） |
-| `highlight.js` / `shiki` | 由 md-editor-v3 内置 | 代码高亮（**懒加载主题**） |
-| `vitest` + `@vue/test-utils` | 最新 | 单元测试 |
-| `@tauri-apps/api` | `^2` | `invoke` / `convertFileSrc` / `event` |
-| `@tauri-apps/plugin-dialog` | `^2` | 对话框 JS 绑定 |
-| `@tauri-apps/plugin-store` | `^2` | 设置 JS 绑定（若走前端直接存取） |
+| 包                                         | 版本                 | 用途                                                   |
+| ------------------------------------------ | -------------------- | ------------------------------------------------------ |
+| `vue`                                      | `^3.5`               | 框架                                                   |
+| `vite`                                     | `^7`（需核实）       | 构建                                                   |
+| `typescript`                               | `^5.6`               | 类型                                                   |
+| `@vitejs/plugin-vue`                       | 最新                 | SFC 支持                                               |
+| `pinia`                                    | `^3`（需核实）       | 状态管理                                               |
+| `vue-router`                               | `^4`（可选）         | 若设置页独立路由；MVP 亦可用抽屉                       |
+| `md-editor-v3`                             | `^7.0.0`             | **编辑内核**（`MdEditor` / `MdPreview` / `MdCatalog`） |
+| `@vavt/v3-extension`                       | 最新（需核实）       | 语言包 / 扩展（i18n zh-CN、图标等）                    |
+| `tdesign-icons-vue-next` 或 `@iconify/vue` | 最新                 | 图标（二选一，建议 iconify 按需）                      |
+| `prettier`                                 | `^3`                 | P1：Markdown 格式化                                    |
+| `mermaid`                                  | `^11`（需核实）      | P1：流程图（**懒加载**）                               |
+| `katex`                                    | `^0.16`              | P1：公式（**懒加载**）                                 |
+| `highlight.js` / `shiki`                   | 由 md-editor-v3 内置 | 代码高亮（**懒加载主题**）                             |
+| `vitest` + `@vue/test-utils`               | 最新                 | 单元测试                                               |
+| `@tauri-apps/api`                          | `^2`                 | `invoke` / `convertFileSrc` / `event`                  |
+| `@tauri-apps/plugin-dialog`                | `^2`                 | 对话框 JS 绑定                                         |
+| `@tauri-apps/plugin-store`                 | `^2`                 | 设置 JS 绑定（若走前端直接存取）                       |
 
 ### 2.3 插件方案：官方插件 vs 自写 command
 
-| 需求 | 方案 | 理由 |
-|------|------|------|
-| 打开/保存/另存为对话框 | ✅ `tauri-plugin-dialog` | 原生体验、跨平台 |
-| 设置读写 | ✅ `tauri-plugin-store` | 免造轮子，落 `$APPCONFIG/settings.json` |
-| 单实例 | ✅ `tauri-plugin-single-instance` | 官方 |
-| 日志（可选） | ✅ `tauri-plugin-log` | 本地文件日志 |
-| 全部文件读写/遍历/搜索/导出/图片落盘 | ❌ **自写 command** | scope 无法覆盖任意工作区；需原子写、编码探测、回收站等自定义语义 |
-| 本地图片显示 | ✅ **asset 协议 + 运行时动态 scope** | 官方能力，无需插件 |
+| 需求                                 | 方案                                | 理由                                                             |
+| ------------------------------------ | ----------------------------------- | ---------------------------------------------------------------- |
+| 打开/保存/另存为对话框               | ✅ `tauri-plugin-dialog`             | 原生体验、跨平台                                                 |
+| 设置读写                             | ✅ `tauri-plugin-store`              | 免造轮子，落 `$APPCONFIG/settings.json`                          |
+| 单实例                               | ✅ `tauri-plugin-single-instance`    | 官方                                                             |
+| 日志（可选）                         | ✅ `tauri-plugin-log`                | 本地文件日志                                                     |
+| 全部文件读写/遍历/搜索/导出/图片落盘 | ❌ **自写 command**                  | scope 无法覆盖任意工作区；需原子写、编码探测、回收站等自定义语义 |
+| 本地图片显示                         | ✅ **asset 协议 + 运行时动态 scope** | 官方能力，无需插件                                               |
 
 ---
 
@@ -482,15 +482,15 @@ export function createEngine(kind: EngineKind = 'md-editor-v3'): IMarkdownEngine
 
 ### 4.3 为什么这样封装能把「换内核」成本降到最低
 
-| 隔离点 | 对应接口成员 | 若换 md-editor-rt / 自研时的改动量 |
-|--------|-------------|-----------------------------------|
-| 依赖只出现在实现类 | `MdEditorV3Engine.ts` import 处 | 新写一个 `MdEditorRtEngine.ts`，业务零改动 |
-| 模式切换语义统一 | `toggleMode/getMode` | 各内核用自有机制实现，业务不关心 |
-| 数据读写统一 | `getValue/setValue/insertText/insertImage` | 屏蔽 v-model / imperative API 差异 |
-| 事件模型统一 | `onChange/onScroll/onSaveRequest` | 屏蔽内核私有事件名（如 `onSave`/`onUploadImg`） |
-| 能力协商 | `capabilities()` | UI 按能力显示/隐藏 Mermaid、公式工具 |
-| 组装点单点 | `EngineFactory` | 改 1 行即完成全局切换 |
-| 生命周期隔离 | `mount/destroy` | 内核 DOM 泄漏风险集中在实现类内 |
+| 隔离点             | 对应接口成员                               | 若换 md-editor-rt / 自研时的改动量              |
+| ------------------ | ------------------------------------------ | ----------------------------------------------- |
+| 依赖只出现在实现类 | `MdEditorV3Engine.ts` import 处            | 新写一个 `MdEditorRtEngine.ts`，业务零改动      |
+| 模式切换语义统一   | `toggleMode/getMode`                       | 各内核用自有机制实现，业务不关心                |
+| 数据读写统一       | `getValue/setValue/insertText/insertImage` | 屏蔽 v-model / imperative API 差异              |
+| 事件模型统一       | `onChange/onScroll/onSaveRequest`          | 屏蔽内核私有事件名（如 `onSave`/`onUploadImg`） |
+| 能力协商           | `capabilities()`                           | UI 按能力显示/隐藏 Mermaid、公式工具            |
+| 组装点单点         | `EngineFactory`                            | 改 1 行即完成全局切换                           |
+| 生命周期隔离       | `mount/destroy`                            | 内核 DOM 泄漏风险集中在实现类内                 |
 
 > 关键约束：**业务代码 grep 不到 `md-editor-v3` 字样**（除适配层实现文件外）。CI 可加一条 lint 规则强制。
 
