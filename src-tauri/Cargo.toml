@@ -9,6 +9,11 @@ rust-version = "1.77"
 name = "mkdown_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# 本地排障开关：`cargo build --features webview-devtools` 出来的 debug 包才能 F12 开开发者工具。
+# 刻意不做成默认 feature，也不写进 tauri.conf.json —— CI 的 release 包会跟着把 devtools 打进产品里。
+[features]
+webview-devtools = ["tauri/devtools"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
