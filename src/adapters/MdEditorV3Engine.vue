@@ -129,7 +129,77 @@ function scheduleColPad(): void {
   void nextTick(() => requestAnimationFrame(measureColPad));
 }
 let colPadRO: ResizeObserver | null = null;
+/**
+ * 观察「真正变宽的盒子」，而不是只有 engine-root。
+ * engine-root 的尺寸只跟应用布局走（拖窗、收展侧栏、分栏）；而编辑器「页面全屏」是内核给
+ * .md-editor 挂 position:fixed; inset:0 让它铺满视口，进出全屏时 engine-root 盒子分毫不动
+ * ⇒ RO 不触发 ⇒ --mk-ln-pad 停在旧值：进全屏拉得不够（数字贴不到左边界），退全屏拉得过量
+ * （负 margin 把数字拽出窗格左沿，被 overflow:hidden 裁掉，表现为行号看不见）。
+ * 关掉再打开行号会重测（watch(showLineNumbers)），所以那一轮"好了"其实是补测了一下。
+ * .md-editor 变宽必然带动 .cm-scroller 变宽，两个都观察：后者正是量测取左缘的那个盒子，
+ * 分栏/预览列宽变化时只有它动。目标随 CM 重建而增减，每次回调重新对齐。
+ */
+const colPadTargets = new Set<Element>();
+/**
+ * 兜底触发：全屏就是内核往 .md-editor 上挂/摘 md-editor-fullscreen 这一个 class，
+ * 直接盯住它重测，不依赖 RO 是否在该环境及时上报（WebView2 缩放、滚动条延迟结算都试过）。
+ * 挂类与量测在同一元素上，切换文档/模式换节点时重新接。
+ */
+let colPadMO: MutationObserver | null = null;
+let colPadMonitored: Element | null = null;
+function syncColPadTargets(): void {
+  const root = rootRef.value;
+  if (!colPadRO || !root) return;
+  const want = new Set<Element>([
+    root,
+    ...Array.from(root.querySelectorAll<HTMLElement>('.md-editor, .cm-scroller')),
+  ]);
+  for (const el of colPadTargets) {
+    if (want.has(el)) continue;
+    colPadRO.unobserve(el);
+    colPadTargets.delete(el);
+  }
+  for (const el of want) {
+    if (colPadTargets.has(el)) continue;
+    colPadRO.observe(el);
+    colPadTargets.add(el);
+  }
+  const editor = root.querySelector<HTMLElement>('.md-editor');
+  if (editor && editor !== colPadMonitored) {
+    colPadMO?.disconnect();
+    colPadMonitored = editor;
+    colPadMO = new MutationObserver(() => {
+      syncColPadTargets();
+      measureColPad();
+      // 全屏后版式还会二次结算（滚动条出现/消失改正文宽），再补一帧量一次
+      requestAnimationFrame(measureColPad);
+    });
+    colPadMO.observe(editor, { attributes: true, attributeFilter: ['class'] });
+  }
+}
+function onColPadResize(): void {
+  syncColPadTargets();
+  measureColPad();
+}
+/**
+ * 最后一道保险：行号开着就按 800ms 校一次几何。
+ * 现场实测（飞总机器，WebView2）：只观察 engine-root 时全屏进出值完全不动；换成 RO + class
+ * 监听后观感已正常，但「RO 与 class 监听谁真正生效」在关掉轮询的那次判定里没跑完（窗口被关），
+ * 故轮询先留着：只在量到的值真变了才写 CSS 变量，代价两次 getBoundingClientRect，
+ * 且仅行号开启且非阅读态时跑。要判死它：把 ensureColPadPoll 的 watch 注掉，全屏进出两次看
+ * 行号是否仍贴边（repro/ln-fs-probe.html 能在无头侧复现同一序列）。
+ */
+let colPadTimer: ReturnType<typeof setInterval> | null = null;
+function ensureColPadPoll(): void {
+  const on = props.showLineNumbers === true && props.mode !== 'read';
+  if (on && !colPadTimer) colPadTimer = setInterval(onColPadResize, 800);
+  else if (!on && colPadTimer) {
+    clearInterval(colPadTimer);
+    colPadTimer = null;
+  }
+}
 watch([() => props.readLayout, () => props.mode, () => props.showLineNumbers], scheduleColPad);
+watch([() => props.showLineNumbers, () => props.mode], ensureColPadPoll, { immediate: true });
 
 /**
  * v7 的 preview prop 只作为挂载初值写入内部 store（挂载后无 props 同步），
@@ -1311,11 +1381,12 @@ onMounted(() => {
   // 行高跟随主题：导出预览宿主渲染有 500ms 防抖，onMounted 时内容可能未渲染
   // （量到容器 normal 行高会被守卫拦下），以 @on-html-changed 为准，这里仅兜底空文档
   void nextTick(() => setTimeout(measureEditLineHeight, 700));
-  // 行号反拉量：窗格宽度变化（拖窗/收展侧栏/切分栏）一律重算左留白
-  colPadRO = new ResizeObserver(measureColPad);
-  if (rootRef.value) colPadRO.observe(rootRef.value);
+  // 行号反拉量：窗格宽度变化（拖窗/收展侧栏/切分栏/页面全屏）一律重算左留白
+  colPadRO = new ResizeObserver(() => onColPadResize());
+  syncColPadTargets();
   scheduleColPad();
-  void nextTick(() => setTimeout(measureColPad, 700));
+  // CM 的 .cm-scroller 比编辑器根挂载晚，兜一次把它补进观察目标并重测
+  void nextTick(() => setTimeout(onColPadResize, 700));
   // 用户主动操作标记：定位重试窗口内滚轮/按键/点击则放弃补位，防止"刚滚完又被拽回去"
   for (const ev of ['wheel', 'keydown', 'pointerdown'] as const) {
     rootRef.value?.addEventListener(ev, markUserTouch, { capture: true, passive: true });
@@ -1330,6 +1401,14 @@ onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', onSelectionChange);
   colPadRO?.disconnect();
   colPadRO = null;
+  colPadTargets.clear();
+  if (colPadTimer) {
+    clearInterval(colPadTimer);
+    colPadTimer = null;
+  }
+  colPadMO?.disconnect();
+  colPadMO = null;
+  colPadMonitored = null;
   for (const ev of ['wheel', 'keydown', 'pointerdown'] as const) {
     rootRef.value?.removeEventListener(ev, markUserTouch, { capture: true });
   }
