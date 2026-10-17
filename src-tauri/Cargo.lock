@@ -2466,7 +2466,7 @@ dependencies = [
 
 [[package]]
 name = "mkdown"
-version = "0.5.9"
+version = "0.5.9-beta.1"
 dependencies = [
  "base64 0.22.1",
  "chardetng",
