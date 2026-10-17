@@ -8,6 +8,7 @@
 <meta name="keywords" content="Markdown,编辑器,富文本编辑器,Markhtml,Markdown Editor,Tauri,Rust,本地优先,代码高亮,文档工具" />
 <link rel="icon" type="image/png" href="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/logo.png" />
 <link rel="apple-touch-icon" href="https://cdn.jsdelivr.net/gh/gggaiitx/mkdown-site@main/site/images/logo.png" />
+  
 <style>
   :root{
     --bg:#080a10;
@@ -24,6 +25,7 @@
     --accent:#5ad1c4;
     --radius:18px;
     --maxw:1160px;
+    --tl-h:420px;   /* 更新卡片统一高度，超出走卡内滚动 */
     --font:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -265,13 +267,17 @@
     background:var(--bg);border:2px solid var(--brand);box-shadow:0 0 0 4px rgba(55,138,221,.14)}
   .tl-item.is-latest .tl-dot{background:var(--brand);
     box-shadow:0 0 0 5px rgba(55,138,221,.22),0 0 18px rgba(55,138,221,.7)}
-  .tl-card{flex:1;margin-top:32px;
+  .tl-card{flex:none;height:var(--tl-h);margin-top:32px;position:relative;display:flex;flex-direction:column;
     background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.015));
     border:1px solid var(--border);border-radius:14px;padding:22px 24px;
     transition:border-color .25s,transform .25s,box-shadow .25s}
   .tl-card:hover{border-color:rgba(55,138,221,.4);transform:translateY(-4px);
     box-shadow:0 22px 44px -20px rgba(55,138,221,.45)}
-  .tl-more{flex:1;margin-top:32px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+  /* 条目超出固定卡高时卡片内滚动，底部渐隐提示还有未显示内容 */
+  .tl-card::after{content:"";position:absolute;left:1px;right:9px;bottom:1px;height:38px;border-radius:0 0 13px 13px;
+    background:linear-gradient(180deg,rgba(12,16,25,0),rgba(12,16,25,.94));opacity:0;pointer-events:none;transition:opacity .25s}
+  .tl-card.is-scrollable::after{opacity:1}
+  .tl-more{flex:none;height:var(--tl-h);margin-top:32px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
     border:1px dashed rgba(255,255,255,.22);border-radius:14px;padding:22px 24px;text-align:center;color:var(--muted);
     transition:border-color .25s,color .25s,transform .25s,background .25s,box-shadow .25s}
   .tl-more svg{width:28px;height:28px;color:var(--brand)}
@@ -279,15 +285,26 @@
   .tl-more small{font-size:12px;letter-spacing:.3px}
   .tl-more:hover{border-color:var(--brand);background:var(--brand-soft);transform:translateY(-4px);
     box-shadow:0 22px 44px -20px rgba(55,138,221,.45)}
-  .tl-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .tl-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;flex:none;margin-bottom:12px}
   .tl-ver{font-size:18px;font-weight:800;color:var(--text)}
   .tl-date{font-size:12.5px;color:var(--muted)}
   .tl-badge{font-size:11px;font-weight:700;color:var(--brand);border:1px solid var(--border);border-radius:999px;padding:2px 10px;background:var(--brand-soft)}
-  .tl-card ul{list-style:none;display:grid;gap:8px}
+  .tl-card ul{list-style:none;display:grid;gap:8px;flex:1;min-height:0;overflow-y:auto;
+    overscroll-behavior:contain;touch-action:pan-y;padding-right:8px;scrollbar-gutter:stable}
   .tl-card li{position:relative;padding-left:20px;font-size:14px;color:#c2ccdf}
   .tl-card li::before{content:"";position:absolute;left:2px;top:9px;width:7px;height:7px;border-radius:2px;
     background:linear-gradient(135deg,var(--accent),var(--brand));transform:rotate(45deg)}
   .tl-card li b{color:var(--text);font-weight:600}
+  .tl-card code{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:5px;font-size:12.5px;color:#bcd3ee;
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace}
+  /* 区块外的静态 GitHub 入口：不随轨道滚动，永远点得到 */
+  .tl-foot{display:flex;align-items:center;justify-content:center;gap:10px 22px;flex-wrap:wrap;margin-top:26px}
+  .tl-foot .btn{padding:11px 22px}
+  .tl-foot .btn svg{width:16px;height:16px}
+  .tl-foot .tl-repo{display:inline-flex;align-items:center;gap:7px;font-size:14px;color:var(--muted);
+    transition:color .2s}
+  .tl-foot .tl-repo svg{width:17px;height:17px}
+  .tl-foot .tl-repo:hover{color:var(--text)}
 
   /* tech */
   .tech-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:8px}
@@ -423,6 +440,7 @@
     footer{padding:36px 0;font-size:13px}
     footer .wrap > div:first-child{line-height:1.7}
     .foot-links{flex-wrap:wrap;justify-content:center;gap:8px 18px}
+    .tl-foot{flex-direction:column;gap:14px}
     .foot-links a{white-space:nowrap}
   }
 </style>
@@ -663,11 +681,11 @@
     <div class="section-head reveal">
       <div class="kicker">Changelog</div>
       <h2>版本更新时间线</h2>
-      <p>持续迭代，每一版都让本地写作更顺手。轨道自动滚动，支持拖拽与滚轮横向查看，悬停暂停。</p>
+      <p>持续迭代，每一版都让本地写作更顺手。轨道自动滚动，支持拖拽与滚轮横向查看，悬停暂停；单版条目较多时可在卡片内上下滚动。</p>
     </div>
-    <div class="timeline">
+    <div class="timeline reveal">
       <div class="tl-track" id="tlTrack">
-        <div class="tl-item reveal is-latest">
+        <div class="tl-item is-latest">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.5.9</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
@@ -680,7 +698,7 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.5.8</span><span class="tl-date">2026.10</span></div>
@@ -695,7 +713,34 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.5.7</span><span class="tl-date">2026.10</span></div>
+            <ul>
+              <li><b>Word 文档互通</b>：Word ↔ Markdown 双向转换打通，Word → Markhtml 高保真导入保留排版，文档级与对话级导入导出都可用</li>
+              <li><b>公式渲染增强</b>：KaTeX 接入 mhchem（<code>\ce</code> / <code>\pu</code> 化学式）、strict 容错与 legacy 公式归一，复杂公式渲染更完整</li>
+              <li><b>三引擎位置同步</b>：代码编辑引擎并入阅读 / 分栏 / 编辑三模式位置同步，字号交互（顶栏 ± 与 Ctrl / ⌘ + 滚轮）全局生效</li>
+              <li><b>稳定性</b>：适配层与状态层数据丢失修复、外部图片 CSP 放行、PDF 导出与打印稳定性提升</li>
+              <li><b>安装包</b>：Windows NSIS 自动注册到「应用与功能」且卸载保留用户数据，macOS 出 Apple 芯片 / Intel 双架构 dmg</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.5.6</span><span class="tl-date">2026.10</span></div>
+            <ul>
+              <li><b>更新器安全加固</b>：下载 URL 强制 https 并校验域名白名单，安装包路径双重校验；CSP 追加 object-src / base-uri / form-action 限制</li>
+              <li><b>数据丢失防护</b>：关窗「保存并退出」逐标签落盘，任一失败即中止关闭并提示；自动保存失败即时提示，不再误标已保存</li>
+              <li><b>Markhtml 光标修复</b>：含本地图片的文档按键不再触发整编辑器重置，光标不跳文首、撤销历史不再丢</li>
+              <li><b>搜索与预览更稳</b>：修复正则命中行首空白时崩溃、快速输入串结果；Office 文本抽取加三重上限，防畸形文档拖垮内存</li>
+              <li><b>启动更轻</b>：Docx 与表格预览改按需加载，入口包体积 1.69MB → 1.18MB（约 -30%），代码高亮补回 jinja2 / z80 / asn1</li>
+              <li><b>工程化</b>：CI 第三方 Action 锁定至版本 SHA，新增 npm / cargo 依赖审计门禁</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.5.5</span><span class="tl-date">2026.10</span></div>
@@ -709,7 +754,7 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.5.4</span><span class="tl-date">2026.10</span></div>
@@ -720,7 +765,7 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.5.3</span><span class="tl-date">2026.10</span></div>
@@ -734,7 +779,7 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.5.2</span><span class="tl-date">2026.10</span></div>
@@ -747,7 +792,7 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.5.1</span><span class="tl-date">2026.10</span></div>
@@ -760,7 +805,7 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.4.0</span><span class="tl-date">2026.10</span></div>
@@ -772,7 +817,7 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.3.6</span><span class="tl-date">2026.09</span></div>
@@ -784,7 +829,7 @@
             </ul>
           </div>
         </div>
-        <div class="tl-item reveal">
+        <div class="tl-item">
           <span class="tl-dot"></span>
           <div class="tl-card">
             <div class="tl-head"><span class="tl-ver">v0.3.5</span><span class="tl-date">2026.09</span></div>
@@ -804,6 +849,16 @@
           </a>
         </div>
       </div>
+    </div>
+    <div class="tl-foot reveal">
+      <a class="btn btn-ghost" href="https://github.com/gggaiitx/mkdown-site/releases" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 12h7M13 9.5l2.5 2.5-2.5 2.5"/></svg>
+        查看全部版本更新（GitHub Releases）
+      </a>
+      <a class="tl-repo" href="https://github.com/gggaiitx/mkdown-site" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.78 0 12.29c0 5.21 3.44 9.63 8.21 11.19.6.11.82-.25.82-.57 0-.28-.01-1.02-.02-2.01-3.34.72-4.04-1.58-4.04-1.58-.55-1.36-1.34-1.73-1.34-1.73-1.09-.73.08-.72.08-.72 1.2.08 1.84 1.22 1.84 1.22 1.07 1.8 2.81 1.28 3.5.98.11-.76.42-1.28.76-1.58-2.67-.3-5.47-1.31-5.47-5.83 0-1.29.46-2.34 1.23-3.16-.13-.3-.54-1.5.1-3.12 0 0 1.01-.32 3.3 1.21.96-.26 1.98-.39 3-.4 1.02.01 2.04.14 3 .4 2.28-1.53 3.29-1.21 3.29-1.21.64 1.62.23 2.82.11 3.12.77.82 1.23 1.87 1.23 3.16 0 4.53-2.8 5.53-5.47 5.82.43.36.81 1.08.81 2.17 0 1.58-.01 2.85-.01 3.23 0 .31.21.68.82.56C20.57 21.92 24 17.5 24 12.29 24 5.78 18.63.5 12 .5z"/></svg>
+        GitHub 仓库主页
+      </a>
     </div>
   </div>
 </section>
@@ -1051,58 +1106,82 @@
       track.appendChild(c);
     });
 
+    // 卡片等高（--tl-h），条目超出时卡内滚动；底部渐隐只在真能滚的时候出现
+    const cards=Array.from(track.querySelectorAll('.tl-card'));
+    const syncScrollable=()=>cards.forEach(card=>{
+      const ul=card.querySelector('ul');
+      card.classList.toggle('is-scrollable', !!ul && ul.scrollHeight-ul.clientHeight>2);
+    });
+    syncScrollable();
+    window.addEventListener('load',syncScrollable);   // 字体/布局稳定后再判一次
+
     const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let half=track.getBoundingClientRect().width/2;
     let offset=0;                 // 始终归一在 [-half, 0)，循环无缝
     let last=performance.now();
     let hovering=false;           // 仅鼠标悬停暂停（触屏不触发）
     let lastInteract=0;           // 交互后延迟恢复自动滚动
-    let dragging=false,moved=false,suppressClick=false;
-    let dragStartX=0,dragStartOffset=0,velX=0,lastX=0,lastMoveT=0;
+    let dragging=false,moved=false,lastDragEnd=-1e9;   // lastDragEnd：真拖动后的一小段屏蔽点击窗口
+    let dragStartX=0,dragStartY=0,dragStartOffset=0,velX=0,lastX=0,lastMoveT=0;
     const SPEED=45;               // 自动滚动 px/s
     const wrap=v=>((v%half)+half)%half-half;
     const apply=()=>{track.style.transform='translate3d('+offset+'px,0,0)';};
     apply();
 
-    window.addEventListener('resize',()=>{half=track.getBoundingClientRect().width/2;offset=wrap(offset);apply();});
+    window.addEventListener('resize',()=>{half=track.getBoundingClientRect().width/2;offset=wrap(offset);apply();syncScrollable();});
 
-    // —— 拖拽（鼠标 / 触屏通吃，纵向滑动仍归页面）——
+    // —— 拖拽（鼠标 / 触屏通吃，纵向滑动仍归页面与卡内列表）——
+    // 注意：pointerdown 里不能 setPointerCapture，否则 click 事件被重定向到 .timeline，
+    // 卡内「查看更多版本」这个 a 永远收不到激活（表现为点了没反应）。只在真拖起来后捕获。
     root.addEventListener('pointerdown',e=>{
       if(e.button!==0)return;
       dragging=true;moved=false;
-      dragStartX=e.clientX;dragStartOffset=offset;
+      dragStartX=e.clientX;dragStartY=e.clientY;dragStartOffset=offset;
       velX=0;lastX=e.clientX;lastMoveT=performance.now();
-      if(root.setPointerCapture){try{root.setPointerCapture(e.pointerId);}catch(_){}}
     });
     root.addEventListener('pointermove',e=>{
       if(!dragging)return;
       const now=performance.now();
-      const dx=e.clientX-dragStartX;
-      if(!moved&&Math.abs(dx)>5){moved=true;root.classList.add('dragging');}
-      if(moved){
-        offset=wrap(dragStartOffset+dx);
-        const dt=Math.max(1,now-lastMoveT);
-        velX=0.8*velX+0.2*((e.clientX-lastX)/dt);   // 低通平滑，惯性更稳
-        lastX=e.clientX;lastMoveT=now;
-        lastInteract=now;
-        apply();
+      const dx=e.clientX-dragStartX,dy=e.clientY-dragStartY;
+      if(!moved){
+        if(Math.hypot(dx,dy)<=8)return;                 // 8px 内仍算点击，手抖不吃跳转
+        const ul=e.target.closest&&e.target.closest('.tl-card ul');
+        if(Math.abs(dy)>Math.abs(dx)&&ul&&ul.scrollHeight-ul.clientHeight>2){dragging=false;return;}
+        moved=true;root.classList.add('dragging');
+        if(root.setPointerCapture&&e.pointerId!==undefined){try{root.setPointerCapture(e.pointerId);}catch(_){}}
       }
+      offset=wrap(dragStartOffset+dx);
+      const dt=Math.max(1,now-lastMoveT);
+      velX=0.8*velX+0.2*((e.clientX-lastX)/dt);         // 低通平滑，惯性更稳
+      lastX=e.clientX;lastMoveT=now;
+      lastInteract=now;
+      apply();
     });
     const endDrag=()=>{
       if(!dragging)return;
       dragging=false;root.classList.remove('dragging');
       lastInteract=performance.now();
-      if(moved)suppressClick=true;   // 拖拽结束落在链接上时不触发跳转
+      if(moved)lastDragEnd=lastInteract;                // 只有真拖过才屏蔽紧随其后的点击
     };
     root.addEventListener('pointerup',endDrag);
     root.addEventListener('pointercancel',endDrag);
     root.addEventListener('click',e=>{
-      if(suppressClick){e.preventDefault();e.stopPropagation();suppressClick=false;}
+      if(performance.now()-lastDragEnd<250){e.preventDefault();e.stopPropagation();}
     },true);
 
-    // —— 滚轮 / 触控板横滚 ——
+    // —— 滚轮 / 触控板横滚（卡内列表优先吃竖向滚动）——
     root.addEventListener('wheel',e=>{
-      let d=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+      const horiz=Math.abs(e.deltaX)>Math.abs(e.deltaY);
+      if(!horiz){
+        const ul=e.target.closest&&e.target.closest('.tl-card ul');
+        if(ul&&ul.scrollHeight-ul.clientHeight>2){
+          const max=ul.scrollHeight-ul.clientHeight;
+          const passTop=e.deltaY<0&&ul.scrollTop<=0;
+          const passBottom=e.deltaY>0&&ul.scrollTop>=max-1;
+          if(!passTop&&!passBottom)return;              // 中间段交给卡内滚动
+        }
+      }
+      let d=horiz?e.deltaX:e.deltaY;
       if(!d)return;
       if(e.deltaMode===1)d*=16;      // Firefox 按行
       e.preventDefault();
