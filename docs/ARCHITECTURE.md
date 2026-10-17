@@ -671,7 +671,7 @@ pub struct RecentFile {
 > 全部命令返回 `Result<T, AppError>`；Tauri 会把 `Ok` 值 / `Err(AppError)` 序列化为 Promise resolve/reject。
 
 | # | 命令 | Rust 签名 | TS 调用签名 |
-|---|------|-----------|-------------|
+| --- | --- | --- | --- |
 | 1 | 读文件 | `#[tauri::command] async fn read_file(path: String) -> Result<FileContent, AppError>` | `readFile(path: string): Promise<FileContent>` |
 | 2 | 原子写 | `#[tauri::command] async fn write_file_atomic(path: String, content: String, keep_bom: bool) -> Result<SaveResult, AppError>` | `writeFileAtomic(path, content, keepBom): Promise<SaveResult>` |
 | 3 | 另存为 | `#[tauri::command] async fn save_as(app: AppHandle, default_name: String, content: String) -> Result<Option<SaveResult>, AppError>` | `saveAs(defaultName, content): Promise<SaveResult \| null>` |

@@ -22,7 +22,7 @@
 ## 二、候选总览（数据核实于 2026-10-13，GitHub API）
 
 | 库 | 方向 | Stars | License | 最近推送 | 环境 | 核心能力 |
-|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- |
 | [MohtashamMurshid/md-to-docx](https://github.com/MohtashamMurshid/md-to-docx) `@mohtasham/md-to-docx` | MD→DOCX | 106 | MIT | 2026-09-10 | Node+浏览器 ESM | **原生可编辑 Word 公式（OMML，TeX 子集）**、lowlight 语法高亮（GitHub-light 主题可定制 token 色）、TOC、图表题注、多 section、参考 docx 继承样式、RTL；v4.0.1（2026-09） |
 | [vace/markdown-docx](https://github.com/vace/markdown-docx) `markdown-docx` | MD→DOCX | 373 | MIT | 2026-10-11 | Node+浏览器（有在线 demo） | marked 系解析，GFM、任务列表、脚注、超链接、KaTeX 数学（fractions/roots/矩阵等）、样式可定制（styles/colors/numbering 导出）、图片 adapter；中文文档，v1.7.0（2026-06） |
 | [md2docx/md2docx-legacy](https://github.com/md2docx/md2docx-legacy) `@m2d/md2docx` | MD→DOCX | 主仓库 404 | MPL-2.0 | — | Node+浏览器 | remark 生态 + math/mermaid/emoji 插件；**主仓库 404 疑似迁移中，暂不推荐** |
