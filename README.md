@@ -138,12 +138,6 @@ vendor/            # schemars 依赖补丁（勿删）
 4. **预览本地资源必须走 `convertFileSrc`（asset://）**，打开工作区时由 `allow_asset_dir` 运行时动态授权。
 5. 错误处理按稳定错误码分支（`IpcError.code`），禁止匹配 message 文本。
 
-## 已知边界
-
-- 文档元数据（标签 / 收藏）、Word 导出、全文替换、版本历史未实现（见 `docs/PRD.md` P2）。
-- 预览标签内 Ctrl+F 查找高亮不可用（无编辑器实例）；docx 内嵌 wmf/emf 图片渲染占位。
-- 单实例、文件监视（notify）为架构预留，未启用。
-- md-editor chunk 约 980KB（gzip 344KB）。
 
 ## 文档
 
