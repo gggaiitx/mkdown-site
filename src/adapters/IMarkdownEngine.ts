@@ -25,6 +25,9 @@ export interface EditorCtxPayload {
   inTable: boolean;
   /** 等宽对齐是否可用：长文本表补列宽会撑出数百字符行，故置灰 */
   wideAlignable: boolean;
+  /** 上报来源引擎（缺省 = Markdown 引擎，保持既有调用点不变）。
+   *  富文本（.mh）没有 Markdown 源码语义，菜单只保留「刷新 / 专注模式」两项视图级动作。 */
+  engine?: 'md' | 'mh' | 'code';
 }
 
 /** 语言无关的通用引擎能力（所有引擎必实现） */
@@ -41,6 +44,16 @@ export interface CommonEngineHandle {
   /** 滚动到第 index 个查找命中并标记为当前命中（可选能力，仅富文本引擎实现——
    *  CSS Custom Highlight API 方案，不触碰 Slate 托管 DOM） */
   scrollToMatch?(index: number): void;
+  /**
+   * 取当前滚动位置（引擎常驻 v-show 后按标签保存，2026-10-17）。
+   * 无滚动宿主（未挂载 / 阅读态容器缺失）返回 0，调用方据此跳过恢复。
+   */
+  captureScroll?(): number;
+  /**
+   * 恢复滚动位置。引擎刚从 display:none 切回可见时布局尚未结算（display:none 期间
+   * 滚动位置会被浏览器清零），故内部自带重试，调用方 fire-and-forget。
+   */
+  restoreScroll?(top: number): void;
 }
 
 /** Markdown 专属能力（仅 MdEditorV3Engine 实现；代码引擎不暴露） */

@@ -5,8 +5,9 @@
  * 设计：
  * - StateField 保存查找态（关键词 + 大小写），经 StateEffect 派发更新；
  * - ViewPlugin 按可视区增量构建 mark Decoration（大文档也不会全量扫描）；
- * - 模块级单例跟踪当前活跃的 EditorView（md-editor read 态会卸载编辑器，
- *   返回编辑态重建后自动重新绑定），外部经 setCmFind() 派发关键词。
+ * - 模块级**不保留**「当前活跃视图」单例：三引擎常驻并存后（2026-10-17），md 与代码引擎的
+ *   CM 实例可同时存活，「谁最后挂载谁占用全局指针」会把高亮派发到看不见的实例上。
+ *   改为调用方（引擎）显式把自己的 view 传给 setCmFind()，本模块只做装饰与派发。
  */
 import { RangeSetBuilder, StateEffect, StateField, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view';
@@ -73,32 +74,21 @@ const findHighlightPlugin = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
-// ---- 活跃视图跟踪：read 态卸载编辑器后置空，重建后自动重绑 ----
-let activeView: EditorView | null = null;
-const viewTracker = ViewPlugin.fromClass(
-  class {
-    constructor(public view: EditorView) {
-      activeView = view;
-    }
-    destroy() {
-      if (activeView === this.view) activeView = null;
-    }
-  },
-);
+// ---- 无全局视图跟踪：目标视图由调用方显式传入（见文件头设计说明） ----
 
 /** 注入 md-editor-v3 codeMirrorExtensions 的扩展集（其包装类型要求 { type, extension }） */
-export const mkFindExtension: Extension = [findField, findHighlightPlugin, viewTracker];
+export const mkFindExtension: Extension = [findField, findHighlightPlugin];
 
 /**
- * 设置编辑态查找高亮。返回 false 表示当前没有活跃编辑器
- * （阅读态 MdEditor 未挂载，属正常情况，预览侧由引擎的 DOM 高亮承担）。
+ * 设置指定编辑器实例的查找态。返回 false = 传入视图缺失
+ * （md 引擎阅读态没有编辑器实例，属正常情况，预览侧由引擎的 DOM 高亮承担）。
  */
-export function setCmFind(state: FindState): boolean {
-  if (!activeView) return false;
-  const cur = activeView.state.field(findField, false);
+export function setCmFind(view: EditorView | null, state: FindState): boolean {
+  if (!view) return false;
+  const cur = view.state.field(findField, false);
   if (cur && cur.keyword === state.keyword && cur.caseSensitive === state.caseSensitive) {
     return true;
   }
-  activeView.dispatch({ effects: setFindEffect.of(state) });
+  view.dispatch({ effects: setFindEffect.of(state) });
   return true;
 }

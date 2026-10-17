@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
- * 编辑区右键菜单（Markdown 引擎编辑/分栏态唤起，取代此前的顶栏「表格」下拉）。
- * 一级：刷新 / 表格▸（光标在表内）或 插入表格 / 标题▸ / 常用行内与块级格式。
+ * 编辑区右键菜单（Markdown 引擎与富文本引擎编辑/分栏态唤起，取代此前的顶栏「表格」下拉）。
+ * 一级：刷新 / 专注模式 / 行号 / 表格▸（光标在表内）或 插入表格 / 标题▸ / 常用行内与块级格式。
  * 二级飞窗：hover 组行展开，绝对定位贴右侧；右缘或下缘不够时翻转、上移。
  * 主菜单观感与标签栏 / 文件树右键菜单一致：useCtxMenu 视口夹紧 + 点击外部或 Esc 关闭。
+ * 富文本（.mh）只给视图级两项：Markdown 源码语义的表格/标题/格式项对它无意义。
  */
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
 import {
   Table, ArrowUpLeft, ArrowDownRight, ArrowLeft, ArrowRight, Minus,
@@ -43,6 +44,10 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const { menu, setMenuRef, open, close } = useCtxMenu();
+
+/** 富文本引擎上报的右键：只留「刷新 / 专注模式」两项视图级动作
+ *  （行号是 CodeMirror 画在行上的，Slate 没有这个概念；表格/标题/格式是 Markdown 源码语义） */
+const mhOnly = computed(() => props.ctx?.engine === 'mh');
 
 /** 同时只可能展开一个飞窗，故用独立 ref 而非同名 ref（避免卸载/挂载次序影响测量） */
 type GroupId = 'table' | 'heading';
@@ -141,10 +146,12 @@ onBeforeUnmount(() => {
       <Focus class="ctx-ico" /><span>{{ t('workbench.ctx.focusMode') }}</span>
       <Check v-if="focusMode" class="ctx-check" />
     </button>
-    <button class="ctx-item" @click="emit('toggleLineNumbers')">
+    <button v-if="!mhOnly" class="ctx-item" @click="emit('toggleLineNumbers')">
       <ListEnd class="ctx-ico" /><span>{{ t('workbench.ctx.lineNumbers') }}</span>
       <Check v-if="showLineNumbers" class="ctx-check" />
     </button>
+    <!-- 富文本只到上面两项为止：以下全是 Markdown 源码语义的动作 -->
+    <template v-if="!mhOnly">
     <div class="ctx-sep" />
 
     <!-- 表格：光标在表内收进二级，表外只留「插入表格」一条 -->
@@ -246,6 +253,7 @@ onBeforeUnmount(() => {
     <button class="ctx-item" @click="run('link')">
       <Link class="ctx-ico" /><span>{{ t('workbench.ctx.link') }}</span><kbd class="ctx-key">{{ modHint('K') }}</kbd>
     </button>
+    </template>
   </div>
 </template>
 

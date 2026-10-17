@@ -29,6 +29,7 @@ import ImagePreview from '../components/preview/ImagePreview.vue';
 import HtmlFrame from '../components/preview/HtmlFrame.vue';
 import SvgFrame from '../components/preview/SvgFrame.vue';
 import { MdEditorV3Engine, CodeEditorEngine, WangEditorEngine, type EngineHandle } from '../adapters';
+import { cancelScrollRestore } from '../adapters/scrollRestore';
 import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
 import { formatMarkdown } from '../utils/mdFormat';
 import {
@@ -208,6 +209,18 @@ function onMhContentChange(v: string) {
   onContentChange(v);
 }
 
+/** md / 代码引擎同样常驻，门控口径与上面一致：只认「当前激活标签确实归我管」。
+ *  隐藏期事件主要来自切档时的内容替换（引擎把新 doc 当成 change 上报），
+ *  不拦住就会把 A 文档的正文写进 B 标签，或把只读预览标签写成脏标签。 */
+function onMdContentChange(v: string) {
+  if (!isMdTab.value) return;
+  onContentChange(v);
+}
+function onCodeContentChange(v: string) {
+  if (!usesCodeEngine.value) return;
+  onContentChange(v);
+}
+
 /** Ctrl+Shift+F：规则式美化当前文档（标脏走统一写回链路，大纲/字数自动同步） */
 function beautifyActive() {
   const tab = tabs.activeTab;
@@ -244,8 +257,27 @@ watch(
   { immediate: true },
 );
 
+/** 大纲上报（仅 md 引擎绑定）：常驻后隐藏引擎也会因内容替换重发，非当前标签的一律丢弃 */
 function onOutline(items: OutlineItem[]) {
+  if (!isMdTab.value) return;
   editor.outline = items;
+}
+
+/** 预览 HTML 上报（Word 导出真相源）：同上，只认当前 md 标签 */
+function onMdHtmlChanged(html: string) {
+  if (!isMdTab.value) return;
+  editor.previewHtml = html;
+}
+
+/** 引擎内 Ctrl+S：隐藏实例理论上收不到按键，门控只是把「谁都能触发保存」这条路堵死 */
+function onMdSave() {
+  if (isMdTab.value) void saveActive();
+}
+function onCodeSave() {
+  if (usesCodeEngine.value) void saveActive();
+}
+function onMhSave() {
+  if (isMhTab.value) void saveActive();
 }
 
 /** 引擎光标上报（md / code 引擎共用）：写状态栏行列。
@@ -253,6 +285,15 @@ function onOutline(items: OutlineItem[]) {
  *    vue-tsc 对该组件模板绑定丢失上下文推断（解构参数变隐式 any），此处自带类型即不受影响 */
 function onEngineCursor({ line, col }: { line: number; col: number }) {
   editor.setCursor(line, col);
+}
+
+/** 常驻后按「谁发的」各自门控：隐藏引擎在切档时也会重发一次光标（内容替换归零），
+ *  不拦住状态栏行列会被别的文档的值盖掉 */
+function onMdCursor(pos: { line: number; col: number }) {
+  if (isMdTab.value) onEngineCursor(pos);
+}
+function onCodeCursor(pos: { line: number; col: number }) {
+  if (usesCodeEngine.value) onEngineCursor(pos);
 }
 
 // ---------- 打开 / 新建 ----------
@@ -332,17 +373,94 @@ const canPrintPdf = computed(() => {
 const isCodeTab = computed(() => tabs.activeTab?.kind === 'code');
 /** 富文本标签（.mh）：由 WangEditorEngine 接管，三模式全支持 */
 const isMhTab = computed(() => tabs.activeTab?.kind === 'mh');
-/** 按激活标签种类路由到的引擎句柄（code/md/wang 三引擎并存时的统一出口） */
+/** Markdown 标签：由 md-editor-v3 引擎接管（与代码/富文本引擎并列常驻，见下方挂载注释） */
+const isMdTab = computed(() => tabs.activeTab?.kind === 'md');
+/** 按激活标签种类路由到的引擎句柄（code/md/wang 三引擎并存时的统一出口）。
+ *  ★ 预览类（docx/xlsx/image/pdf）必须显式返回 null：三引擎改为常驻后，
+ *  隐藏的实例仍挂在 ref 上，路由错对象会让 Ctrl+F / 大纲跳转落到看不见的编辑器里
+ *  （常驻前 v-if 保证预览态三个 ref 全为 null，这是那层保护消失后补的等价判断） */
 const engineRef = computed<EngineHandle | null>(() => {
+  if (!tabs.activeTab || tabs.activeIsPreview) return null;
   if (isMhTab.value) return wangEngineRef.value;
   if (usesCodeEngine.value) return codeEngineRef.value;
   return mdEngineRef.value;
 });
-/** wangEditor 引擎是否已挂载过：首次激活 .mh 标签置 true，此后常驻（v-show 显隐） */
+/** ---- 三引擎常驻（2026-10-17）----
+ * 每个引擎「首次被用到才挂，挂了就不再销毁」，可见性走 v-show。
+ * 动机：原先 md 引擎是 v-if，md ↔ .mh ↔ 代码 每切一次都销毁重建整个内核
+ * （md-editor 连撤销栈、滚动位置、已渲染的 mermaid/katex 一起丢），
+ * wangEditor 的 createEditor 更是数百毫秒级——.mh 切换卡顿修完只剩这一半。
+ * 常驻后必须同时守住三条，否则会立刻出问题：
+ *  1) 隐藏期间不吃外部值（下面的 frozen props）——否则切回来被判定为「外部变更」整篇重建；
+ *  2) 隐藏期间冒出来的事件一律丢弃（onMdContentChange / onCodeContentChange 等门控）；
+ *  3) 隐藏会把 DOM 滚动位置清 0，位置改由 tabScroll 按标签存、切回时逐帧写回。 */
+const mdEverMounted = ref(false);
+const codeEverMounted = ref(false);
 const wangEverMounted = ref(false);
-watch(isMhTab, (v) => {
-  if (v) wangEverMounted.value = true;
+watch(
+  () => tabs.activeTab?.kind,
+  (k) => {
+    if (!k || tabs.activeIsPreview) return;
+    if (k === 'md') mdEverMounted.value = true;
+    else if (k === 'mh') wangEverMounted.value = true;
+    else codeEverMounted.value = true; // code / html / svg / 旧快照 'text'
+  },
+  { immediate: true },
+);
+/** 编辑区由 CodeMirror 代码引擎接管的标签：code 恒编辑；html/svg 三模式中的源码侧；
+ *  'text' 为旧会话快照兼容（新打开不再产生，txt/log/csv 等已归 'code'）——
+ *  即除 Markdown/富文本外的一切文本都走代码引擎，杜绝 txt 被当 Markdown 渲染。
+ *  ★ 预览类显式排除：常驻后它们没有 v-if 帮忙挡了，留着会让事件门控放脏数据进只读标签 */
+const usesCodeEngine = computed(() => {
+  const k = tabs.activeTab?.kind;
+  return !!k && !tabs.activeIsPreview && k !== 'md' && k !== 'mh';
 });
+/** 交给常驻 md 引擎的内容：只在「激活的是 Markdown 标签」时更新（口径同 mhEditorHtml）。
+ *  mode / docPath 同理冻结——隐藏期间跟着别的标签改视图模式会白白触发一次内核重排，
+ *  而 docPath 一变动还牵动图片目录全局量。主题、字号、行号、专注模式等应用级设置不冻，
+ *  它们只是 class/Compartment 切换，代价可忽略且切回时状态天然正确。 */
+const mdEditorContent = ref('');
+const mdEditorMode = ref<EditorMode>('edit');
+const mdEditorDocPath = ref<string | null>(null);
+watch(
+  () => (isMdTab.value ? tabs.activeTab?.content ?? null : null),
+  (v) => {
+    if (v != null) mdEditorContent.value = v;
+  },
+  { immediate: true },
+);
+watch(
+  () => (isMdTab.value ? editor.mode : null),
+  (m) => {
+    if (m) mdEditorMode.value = m;
+  },
+  { immediate: true },
+);
+watch(
+  () => (isMdTab.value ? activeDocPath.value : null),
+  (p) => {
+    if (p !== null) mdEditorDocPath.value = p;
+  },
+  { immediate: true },
+);
+/** 交给常驻代码引擎的内容与文件名：同上，只在代码/标记类标签激活时更新
+ *  （文件名决定语言包热切，冻结后切到 md 标签不会把语言洗成 null） */
+const codeEditorContent = ref('');
+const codeEditorPath = ref<string | null>(null);
+watch(
+  () => (usesCodeEngine.value ? tabs.activeTab?.content ?? null : null),
+  (v) => {
+    if (v != null) codeEditorContent.value = v;
+  },
+  { immediate: true },
+);
+watch(
+  () => (usesCodeEngine.value ? tabs.activeTab?.path ?? null : null),
+  (p) => {
+    if (p !== null) codeEditorPath.value = p;
+  },
+  { immediate: true },
+);
 /** 交给常驻 wangEditor 的内容：只在「激活的是 mh 标签」时更新。
  *  旧写法在非 mh 标签时喂空串，切回 mh 就被引擎判定为外部变更而整篇 setHtml 重建 Slate；
  *  方案骨架（八章节 + 多个预填表格）下这是数百毫秒起的主线程阻塞，表现为切不动也关不掉。
@@ -355,13 +473,6 @@ watch(
   },
   { immediate: true },
 );
-/** 编辑区由 CodeMirror 代码引擎接管的标签：code 恒编辑；html/svg 三模式中的源码侧；
- *  'text' 为旧会话快照兼容（新打开不再产生，txt/log/csv 等已归 'code'）——
- *  即除 Markdown/富文本外的一切文本都走代码引擎，杜绝 txt 被当 Markdown 渲染 */
-const usesCodeEngine = computed(() => {
-  const k = tabs.activeTab?.kind;
-  return !!k && k !== 'md' && k !== 'mh';
-});
 // 激活代码标签时全局视图强制编辑态（不写回设置偏好；切回 md 标签用户可再切回）
 watch(isCodeTab, (isCode) => {
   if (isCode && editor.mode !== 'edit') editor.setMode('edit');
@@ -379,6 +490,36 @@ watch(
     if (m && editor.mode !== m) {
       editor.setMode(m);
     }
+  },
+);
+/** ---- 按标签保存/恢复滚动位置（常驻的配套件，2026-10-17）----
+ * 元素被 display:none 时浏览器会丢掉它的滚动位置，切回来读到 0；三引擎改常驻后
+ * 不再销毁实例，但显隐仍然是 display:none，所以位置必须由上层按标签存。
+ * 顺带把「同类文档互切」也管上了：以前 md A→md B 复用同一实例、scrollTop 原样留着，
+ * B 就开在 A 的高度上；现在各回各位。
+ * capture 走 flush:'pre'（DOM 变更前），此时上一个引擎还在屏幕上，读到的是真值。 */
+const tabScroll = new Map<string, number>();
+function engineOfTab(tab: { kind: string } | undefined): EngineHandle | null {
+  if (!tab) return null;
+  if (tab.kind === 'docx' || tab.kind === 'xlsx' || tab.kind === 'image' || tab.kind === 'pdf') return null;
+  if (tab.kind === 'md') return mdEngineRef.value;
+  if (tab.kind === 'mh') return wangEngineRef.value;
+  return codeEngineRef.value;
+}
+watch(
+  () => tabs.activeId,
+  (id, oldId) => {
+    if (oldId) {
+      const top = engineOfTab(tabs.tabs.find((t) => t.id === oldId))?.captureScroll?.() ?? 0;
+      if (top) tabScroll.set(oldId, top);
+      else tabScroll.delete(oldId); // 停在文档头：删存档，切回来本就从顶部开始
+    }
+    // 关掉的标签不留档（Map 只随标签数增长）
+    for (const key of [...tabScroll.keys()]) {
+      if (!tabs.tabs.some((t) => t.id === key)) tabScroll.delete(key);
+    }
+    const target = id ? tabScroll.get(id) ?? 0 : 0;
+    if (target) engineOfTab(tabs.activeTab)?.restoreScroll?.(target);
   },
 );
 /** 标记文档所在目录（相对资源经 asset:// base 解析） */
@@ -794,6 +935,7 @@ function onFontWheel(e: WheelEvent) {
 
 // ---------- 大纲跳转 ----------
 function gotoOutline(item: OutlineItem) {
+  cancelScrollRestore(); // 显式定位优先：停掉切标签时那次的滚动恢复重试
   engineRef.value?.scrollToLine(item.line, item.index);
   editor.cursorLine = item.line;
 }
@@ -811,6 +953,7 @@ function onOpenLink(href: string) {
  *  kw 约定：undefined = 不动当前高亮；'' = 清除；非空 = 设置高亮。
  *  （面板每次跳转都会 emit goto，若 goto 无条件清除会秒删 emit('find') 刚画的高亮） */
 function gotoLine(line: number, kw?: string, cs = false, matchIndex?: number) {
+  cancelScrollRestore(); // 同上：点击搜索结果时切档的滚动恢复与本次定位同 tick，必须让位
   engineRef.value?.scrollToLine(line);
   if (kw !== undefined) {
     if (kw) engineRef.value?.highlight(kw, cs);
@@ -1526,34 +1669,36 @@ watch(() => editor.mode, (m) => {
           <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
           <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
           <PdfPreview v-else-if="tabs.activeTab.kind === 'pdf'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
-          <!-- 文本类标签：md/text/svg 由 md 引擎接管；html 与 code 由代码引擎接管源码侧。
-               html/svg 三模式：edit=代码编辑器，split=代码编辑器+Frame，read=Frame
-               （编辑器恒挂载不卸载，html-mode 布局类控显隐，:first-child 规则命中编辑器） -->
+          <!-- 文本类标签：md 由 Markdown 引擎、html/svg/code/txt 由代码引擎、.mh 由富文本引擎接管。
+               html/svg 三模式：edit=代码编辑器，split=代码编辑器+Frame，read=Frame。
+               ★ 三引擎均为「首次用到才挂、此后常驻」，显隐走 v-show（script 段有整套约束说明）；
+               布局不再用 .text-area > :first-child 认主引擎（三个根节点会同时在 DOM 里，
+               隐藏的那个依然是 first-child），改按各自根类命中，见 global.css 文本区规则 -->
           <div v-else class="text-area" :class="[{ 'html-mode': isMarkupTab }, editor.mode]">
             <!-- code / html / svg 标签：CodeMirror 6 代码引擎（html/svg 的 split/read 渲染由 Frame 承担） -->
             <CodeEditorEngine
-              v-if="usesCodeEngine"
+              v-if="codeEverMounted"
+              v-show="usesCodeEngine"
               ref="codeEngineRef"
-              :model-value="tabs.activeTab.content"
+              :model-value="codeEditorContent"
               :theme="settings.settings.theme"
               :focus-mode="settings.settings.focusMode"
-              :path="tabs.activeTab.path"
-              @update:model-value="onContentChange"
-              @save="() => saveActive()"
-              @cursor="onEngineCursor"
+              :path="codeEditorPath"
+              @update:model-value="onCodeContentChange"
+              @save="onCodeSave"
+              @cursor="onCodeCursor"
             />
-            <!-- .mh 富文本：wangEditor 引擎。★ 首次激活 mh 后常驻挂载（v-show 显隐）——
-                 createEditor 成本高（数百 ms），随标签切换反复销毁重建是 md→mh 卡顿根因；
-                 model-value 走 mhEditorHtml：隐藏期间保持上一份 mh 内容，不再喂空串
-                 （喂空串会让切回变成「外部变更」从而整篇 setHtml，方案骨架下直接卡死主线程），
-                 隐藏态误发的事件仍由 onMhContentChange 门控丢弃。
-               DOM 顺序必须在 md 引擎之后：.text-area > :first-child 的 flex 规则
-               依赖可见引擎排第一（wang 隐藏时 display:none 不参与 flex 流） -->
+            <!-- Markdown 引擎：与代码/富文本引擎并列常驻。model-value / mode / doc-path 走
+                 mdEditor* 三个冻结值（隐藏期间不吃外部值，切回来才不被误判成外部变更整篇重建），
+                 active 供引擎自己跳过隐藏期的几何重测与打印宿主挂载（Teleport 出的宿主
+                 不受父级 v-show 管，靠它从 @media print 里摘出去） -->
             <MdEditorV3Engine
-              v-if="!usesCodeEngine && !isMhTab"
+              v-if="mdEverMounted"
+              v-show="isMdTab"
               ref="mdEngineRef"
-              :model-value="tabs.activeTab.content"
-              :mode="editor.mode"
+              :model-value="mdEditorContent"
+              :mode="mdEditorMode"
+              :active="isMdTab"
               :theme="settings.settings.theme"
               :preview-theme="settings.settings.previewTheme"
               :read-layout="settings.settings.readLayout"
@@ -1561,14 +1706,14 @@ watch(() => editor.mode, (m) => {
               :focus-mode="settings.settings.focusMode"
               :show-line-numbers="settings.settings.showLineNumbers"
               :scroll-sync="settings.settings.scrollSync"
-              :doc-path="activeDocPath"
+              :doc-path="mdEditorDocPath"
               :language="settings.settings.language"
               editor-id="mkdown-editor"
-              @update:model-value="onContentChange"
-              @save="() => saveActive()"
+              @update:model-value="onMdContentChange"
+              @save="onMdSave"
               @outline="onOutline"
-              @cursor="onEngineCursor"
-              @html-changed="(h: string) => (editor.previewHtml = h)"
+              @cursor="onMdCursor"
+              @html-changed="onMdHtmlChanged"
               @toast="(t: string) => editor.showToast(t, 'error')"
               @open-link="onOpenLink"
               @open-doc="onOpenDoc"
@@ -1587,7 +1732,8 @@ watch(() => editor.mode, (m) => {
               :read-layout="settings.settings.readLayout"
               :show-toolbar="settings.settings.showToolbar"
               @update:model-value="onMhContentChange"
-              @save="() => saveActive()"
+              @save="onMhSave"
+              @editor-context="onEditorContext"
               @toast="(msg: string) => editor.showToast(msg, 'error')"
               @open-link="onOpenLink"
             />

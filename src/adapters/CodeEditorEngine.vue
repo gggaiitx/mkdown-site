@@ -12,6 +12,7 @@ import { basicSetup } from 'codemirror';
 
 import { mkFindExtension, setCmFind } from './findHighlight';
 import { focusLineExtension, setFocusMode } from './cmFocusLine';
+import { captureScrollTop, restoreScrollTop } from './scrollRestore';
 import { codeDarkTheme, codeLightTheme } from './codeTheme';
 import { buildLanguageExtensions } from './codeLanguage';
 import type { ThemeKind } from '../api/types';
@@ -147,7 +148,7 @@ function insert(text: string): void {
 }
 
 function highlight(keyword: string, caseSensitive = false): void {
-  setCmFind({ keyword, caseSensitive });
+  setCmFind(view, { keyword, caseSensitive });
 }
 
 /** 替换一处（偏移以全文为基准，与 tab.content 同源）；先比对 expect 再动手 */
@@ -173,10 +174,19 @@ function replaceDocText(nextText: string, baseText: string): boolean {
 }
 
 function clearHighlight(): void {
-  setCmFind({ keyword: '', caseSensitive: false });
+  setCmFind(view, { keyword: '', caseSensitive: false });
 }
 
-defineExpose({ scrollToLine, insert, highlight, clearHighlight, replaceRange, replaceDocText });
+/** 按标签保存/恢复滚动位置（引擎常驻 v-show：隐藏会清 0，位置得由上层存） */
+function captureScroll(): number {
+  return captureScrollTop(() => view?.scrollDOM ?? null);
+}
+
+function restoreScroll(top: number): void {
+  restoreScrollTop(() => view?.scrollDOM ?? null, top);
+}
+
+defineExpose({ scrollToLine, insert, highlight, clearHighlight, replaceRange, replaceDocText, captureScroll, restoreScroll });
 
 onBeforeUnmount(() => {
   view?.destroy();

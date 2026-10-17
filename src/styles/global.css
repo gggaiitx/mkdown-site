@@ -228,23 +228,28 @@ body.mk-col-dragging iframe {
   background: var(--mk-accent);
 }
 
-/* ---- 文本类标签容器（md/text/html 共用）----
-   引擎恒占满；html 三模式时容器加 html-mode + 模式类：
-   edit = 仅引擎；split = 引擎 50% + iframe 50%；read = 引擎隐藏（不卸载），iframe 独占 */
+/* ---- 文本类标签容器（md / 代码 / 富文本三引擎 + html/svg Frame）----
+   三引擎自 2026-10-17 起常驻（首次用到才挂，此后 v-show 显隐），DOM 里会同时存在
+   两到三个引擎根节点。所以「主编辑区」不能再按 `.text-area > :first-child` 认：
+   结构伪类不看显示状态，隐藏（display:none）的那个依然是 first-child。
+   改按三个引擎各自的根类命中——隐藏的那个不参与 flex 流，同一条规则天然只作用在可见者上。
+   html 三模式：edit = 仅引擎；split = 引擎 50% + iframe 50%；read = 引擎不显示、iframe 独占。 */
 .workbench .text-area {
   display: flex;
   width: 100%;
   height: 100%;
   min-width: 0;
 }
-.workbench .text-area > :first-child {
+.workbench .text-area > .code-editor-engine,
+.workbench .text-area > .engine-root,
+.workbench .text-area > .wang-engine-root {
   flex: 1 1 100%;
   min-width: 0;
 }
-.workbench .text-area.html-mode.split > :first-child {
+.workbench .text-area.html-mode.split > .code-editor-engine {
   flex: 0 0 50%;
 }
-.workbench .text-area.html-mode.read > :first-child {
+.workbench .text-area.html-mode.read > .code-editor-engine {
   display: none;
 }
 .workbench .text-area .html-frame-host {

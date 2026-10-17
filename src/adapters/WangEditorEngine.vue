@@ -22,9 +22,11 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import '@wangeditor/editor/dist/css/style.css';
 import { savePastedImage } from '../api/imageApi';
 import type { EditorMode, ThemeKind } from '../api/types';
+import type { EditorCtxPayload } from './IMarkdownEngine';
 import type { OutlineItem } from '../stores/editorStore';
 import { useI18n } from '../i18n';
 import { modKey } from '../utils/keyHint';
+import { captureScrollTop, restoreScrollTop } from './scrollRestore';
 
 const props = defineProps<{
   /** .mh 原始 HTML（磁盘口径：相对路径）；未保存新建为空串 */
@@ -49,6 +51,8 @@ const emit = defineEmits<{
   (e: 'toast', msg: string): void;
   /** http(s) 超链接：交由应用开 Web 标签（webview 内嵌浏览） */
   (e: 'openLink', href: string): void;
+  /** 编辑区正文右键：应用层在同一坐标弹编辑菜单（刷新 / 专注模式） */
+  (e: 'editorContext', pos: EditorCtxPayload): void;
 }>();
 
 const { t } = useI18n();
@@ -264,6 +268,25 @@ function onKeydown(e: KeyboardEvent): void {
     e.preventDefault();
     emit('save');
   }
+}
+
+/** 编辑区右键：接管富文本正文区，上报给应用层菜单（刷新 / 专注模式）。
+ *  取向与 Markdown 引擎一致——监听挂在引擎根节点的捕获阶段（不经内核事件通路，
+ *  那条路在实例重建后会静默 no-op），且只在真正落在正文容器内时才接管：
+ *  工具条下拉、图片/链接弹层里的右键留给系统菜单，否则那些控件的粘贴等操作会被削掉。
+ *  阅读态不接管（专注模式在只读态不生效，菜单点了没反馈）。 */
+function onContextMenuCapture(e: MouseEvent): void {
+  if (props.mode !== 'edit') return;
+  const target = e.target as HTMLElement | null;
+  if (!target?.closest?.('.w-e-text-container')) return;
+  e.preventDefault();
+  emit('editorContext', {
+    x: e.clientX,
+    y: e.clientY,
+    inTable: false,
+    wideAlignable: false,
+    engine: 'mh',
+  });
 }
 
 /** 链接点击拦截（仅阅读态；编辑态由 wangEditor 自身链接 UI 管理）。
@@ -563,6 +586,15 @@ function getDisplayHtml(): string {
   return htmlToDisplay(props.modelValue || '');
 }
 
+/** 按标签保存/恢复滚动位置（引擎常驻 v-show：隐藏会清 0，位置得由上层存） */
+function captureScroll(): number {
+  return captureScrollTop(findScrollRoot);
+}
+
+function restoreScroll(top: number): void {
+  restoreScrollTop(findScrollRoot, top);
+}
+
 defineExpose({
   scrollToLine,
   scrollToMatch,
@@ -572,6 +604,8 @@ defineExpose({
   exportPdf,
   togglePageFullscreen,
   getDisplayHtml,
+  captureScroll,
+  restoreScroll,
 });
 
 onBeforeUnmount(() => {
@@ -591,6 +625,7 @@ onBeforeUnmount(() => {
     :class="[`mode-${props.mode}`, { dark: props.theme === 'dark', 'page-full': isPageFull }, `layout--${props.readLayout ?? 'medium'}`]"
     @keydown.capture="onKeydown"
     @click.capture="onClickCapture"
+    @contextmenu.capture="onContextMenuCapture"
   >
     <div class="wang-edit-pane">
       <div v-if="props.showToolbar !== false" class="wang-toolbar-row">

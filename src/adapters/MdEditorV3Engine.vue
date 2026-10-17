@@ -23,6 +23,7 @@ import type { OutlineItem } from '../stores/editorStore';
 import type { EditorCtxPayload } from './IMarkdownEngine';
 import { setCurrentDocDir, setupMdRenderer, renderMermaidSvg } from './mdRendererConfig';
 import { setCmFind } from './findHighlight';
+import { captureScrollTop, restoreScrollTop } from './scrollRestore';
 import { buildTableSkeleton, editTable, isWideAlignable, parseTable, tsvToTable } from '../utils/mdTable';
 import { formatBlockLines, type BlockFormatKind, type BlockKind } from '../utils/mdLineFormat';
 import { setFocusMode } from './cmFocusLine';
@@ -51,6 +52,10 @@ const props = defineProps<{
   /** 内核界面语言（'zh-CN' | 'en-US'，设置-外观「界面语言」）。
    *  内核语言同为挂载初值型 prop，变更经 editorRemountKey 重挂载生效 */
   language?: string;
+  /** 本引擎是否为当前可见引擎（Workbench 三引擎常驻 v-show 时传入，缺省视为可见）。
+   *  只用于三件「隐藏期间不该做」的事：几何重测不再写 0、行高量测跳过、
+   *  打印/导出宿主从 @media print 里摘出去（常驻后两个引擎的宿主会同时在 DOM 里）。 */
+  active?: boolean;
 }>();
 
 const { t } = useI18n();
@@ -84,6 +89,9 @@ const editorClass = computed(() => 'engine-editor');
 // CM 行高走该变量（见样式段）。比值转移对字号无关——两侧字号同源于 --mk-font-size。
 const editLineHeight = ref('1.6');
 function measureEditLineHeight(): void {
+  // 常驻后本引擎可能在别的标签背后：宿主 id 与富文本引擎的打印宿主同名，
+  // 隐藏期不量，免得取到对方的节点（值本来就是给编辑区用的，切回来再量）
+  if (props.active === false) return;
   const scope = document
     .getElementById('export-pdf-preview')
     ?.querySelector<HTMLElement>('.md-editor-preview');
@@ -117,6 +125,10 @@ function measureColPad(): void {
   const scroller = root?.querySelector<HTMLElement>('.cm-scroller');
   const line = root?.querySelector<HTMLElement>('.cm-line');
   if (!scroller || !line) return;
+  // 常驻 v-show：引擎被隐藏（display:none）时几何全为 0，此时写入会把有效值污染成 '0px'，
+  // 切回可见的那一帧行号列就先贴不到边、等重测才跳回来。故隐藏期直接保留上一个有效值，
+  // 重测由 ResizeObserver（0→实宽必然触发）与 watch(active) 双向兜住。
+  if (scroller.clientWidth <= 0) return;
   const k =
     line.getBoundingClientRect().left -
     scroller.getBoundingClientRect().left +
@@ -200,6 +212,16 @@ function ensureColPadPoll(): void {
 }
 watch([() => props.readLayout, () => props.mode, () => props.showLineNumbers], scheduleColPad);
 watch([() => props.showLineNumbers, () => props.mode], ensureColPadPoll, { immediate: true });
+/** 由隐藏转可见：补齐隐藏期间被跳过的那两次量测（行号列留白、编辑区行高比值）。
+ *  RO 在 0→实宽时也会触发，但那一帧行号先按旧值画，主动补测把闪烁消掉。 */
+watch(
+  () => props.active,
+  (on) => {
+    if (on === false) return;
+    scheduleColPad();
+    void nextTick(() => measureEditLineHeight());
+  },
+);
 
 /**
  * v7 的 preview prop 只作为挂载初值写入内部 store（挂载后无 props 同步），
@@ -444,7 +466,12 @@ let lastFind: { keyword: string; caseSensitive: boolean } | null = null;
 /** 设置查找高亮（编辑态 CM6 无视图时返回 false，属正常，由预览侧承担） */
 function highlight(keyword: string, caseSensitive = false): void {
   lastFind = keyword ? { keyword, caseSensitive } : null;
-  setCmFind({ keyword, caseSensitive });
+  // ★ 派发给自己的视图：三引擎常驻后 md 与代码引擎的 CM 实例会同时存活，
+  //   旧的「模块级活跃视图」指针会被后挂载者占走，高亮就落到看不见的那个实例上
+  const view = (editorRef.value as unknown as EditorWithView | null)?.getEditorView?.() as unknown as
+    | EditorView
+    | null;
+  setCmFind(view, { keyword, caseSensitive });
   if (keyword) applyPreviewMarks(keyword, caseSensitive);
   else clearPreviewMarks();
 }
@@ -940,6 +967,21 @@ async function getExportPreviewHtml(): Promise<string> {
   }
 }
 
+/** 当前滚动宿主：阅读态是自建容器 `.read-scroll`，编辑/分栏态是内核的 `.cm-scroller` */
+function scrollHost(): HTMLElement | null {
+  return rootRef.value?.querySelector<HTMLElement>(props.mode === 'read' ? '.read-scroll' : '.cm-scroller') ?? null;
+}
+
+/** 按标签保存滚动位置（引擎常驻 v-show，隐藏会把 scrollTop 清 0，故由上层存） */
+function captureScroll(): number {
+  return captureScrollTop(scrollHost);
+}
+
+/** 恢复滚动位置：逐帧重试直到落地（见 scrollRestore.ts） */
+function restoreScroll(top: number): void {
+  restoreScrollTop(scrollHost, top);
+}
+
 defineExpose({
   scrollToLine,
   insert,
@@ -956,6 +998,8 @@ defineExpose({
   focusEditor,
   replaceRange,
   replaceDocText,
+  captureScroll,
+  restoreScroll,
 });
 
 // ---- 光标跟踪（状态栏 L:C）：监听原生 selectionchange，经 rAF 节流后从 CM6 state 读取 ----
@@ -1493,7 +1537,7 @@ onBeforeUnmount(() => {
          屏幕上隐藏，打印时由文件末尾 @media print 规则（移植自官方 ExportPDF.css）单独显示。
          theme 恒 light：打印产物固定白底黑字，不跟随应用暗色主题 -->
     <Teleport to="body">
-      <div class="mk-export-host" aria-hidden="true">
+      <div class="mk-export-host" :class="{ 'mk-host-off': active === false }" aria-hidden="true">
         <MdPreview
           id="export-pdf-preview"
           :key="language ?? 'zh-CN'"
@@ -1750,6 +1794,12 @@ mark.mk-pv-find {
   }
   .mk-export-host {
     display: block !important;
+  }
+  /* ★ 三引擎常驻（2026-10-17）后，Markdown 引擎与富文本引擎的打印宿主会同时在 body 直下：
+     引擎本体被 v-show 隐藏管不到 Teleport 出去的宿主，非当前引擎的那份必须自己退出打印，
+     否则打印 .mh 文档会先叠一份背后那篇 Markdown 预览。双类 + !important 压过上条单类规则。 */
+  .mk-export-host.mk-host-off {
+    display: none !important;
   }
   /* 代码块打印时自动换行（官方同款规则） */
   .mk-export-host .md-editor-code pre code .md-editor-code-block {
