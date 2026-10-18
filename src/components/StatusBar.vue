@@ -61,9 +61,21 @@ const modeText = computed(() => ({ edit: t('statusbar.modeEdit'), split: t('stat
   border-top: 1px solid var(--mk-border);
   flex: none;
   user-select: none;
+  overflow: hidden;
 }
-.item { white-space: nowrap; }
-.item.strong { color: var(--mk-fg); font-weight: 500; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+/* 右侧读数（字数/行/光标/模式/编码）不参与收缩：此前所有项都可收缩，
+   长文件名 + 窄窗时整排被挤出右边界，utf-8 直接裁在窗口边上 */
+.item { white-space: nowrap; flex: none; }
+.item.strong {
+  color: var(--mk-fg);
+  font-weight: 500;
+  /* 唯一可收缩项：空间不够时省略文件名，保住右侧读数 */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .item.ok { color: var(--mk-ok); }
 .item.warn { color: var(--mk-warn); }
 .sep { width: 1px; height: 10px; background: var(--mk-border); }

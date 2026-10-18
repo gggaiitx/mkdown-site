@@ -99,13 +99,13 @@ watch(
   justify-content: center;
   gap: 6px;
   padding: 6px;
-  border-bottom: 1px solid var(--mk-border, #e0e0e0);
+  border-bottom: 1px solid var(--mk-border);
 }
 .tb {
   appearance: none;
-  border: 1px solid var(--mk-border, #e0e0e0);
-  background: var(--mk-panel, #fff);
-  color: var(--mk-fg, #24292f);
+  border: 1px solid var(--mk-border);
+  background: var(--mk-panel);
+  color: var(--mk-fg);
   border-radius: 6px;
   padding: 4px 6px;
   cursor: pointer;
@@ -114,14 +114,14 @@ watch(
 }
 .tb.on,
 .tb:hover {
-  border-color: var(--mk-accent, #4a89dc);
-  color: var(--mk-accent, #4a89dc);
+  border-color: var(--mk-accent);
+  color: var(--mk-accent);
 }
 .tb-val {
   min-width: 64px;
   text-align: center;
   font-size: 12px;
-  color: var(--mk-fg-soft, #666);
+  color: var(--mk-fg-soft);
 }
 .img-stage {
   flex: 1;
@@ -147,10 +147,10 @@ watch(
 .pv-hint,
 .pv-error {
   margin: auto; /* 容器改用子项 margin:auto 居中后，提示同样保持居中 */
-  color: var(--mk-fg-soft, #666);
+  color: var(--mk-fg-soft);
   font-size: 14px;
 }
 .pv-error {
-  color: var(--mk-danger, #d9534f);
+  color: var(--mk-danger);
 }
 </style>

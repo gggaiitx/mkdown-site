@@ -25,7 +25,7 @@ import type { EditorMode, ThemeKind } from '../api/types';
 import type { EditorCtxPayload } from './IMarkdownEngine';
 import type { OutlineItem } from '../stores/editorStore';
 import { useI18n } from '../i18n';
-import { modKey } from '../utils/keyHint';
+import { modKey, altHint } from '../utils/keyHint';
 import { captureScrollTop, restoreScrollTop } from './scrollRestore';
 
 const props = defineProps<{
@@ -53,6 +53,10 @@ const emit = defineEmits<{
   (e: 'openLink', href: string): void;
   /** 编辑区正文右键：应用层在同一坐标弹编辑菜单（刷新 / 专注模式） */
   (e: 'editorContext', pos: EditorCtxPayload): void;
+  /** 页面全屏状态上报：上层据此决定阅读态右缘大纲浮标的显隐 */
+  (e: 'pageFullscreen', on: boolean): void;
+  /** 功能栏模式按钮上报：模式真相源在应用层（顶栏三档、Alt+E/W/R、标签级记忆同源） */
+  (e: 'requestMode', mode: EditorMode): void;
 }>();
 
 const { t } = useI18n();
@@ -257,8 +261,13 @@ function onExportCreated(editor: IDomEditor): void {
 // ---------- 页面内全屏（F11，对齐 md 内核 pageFullscreen：编辑区铺满视口） ----------
 
 const isPageFull = ref(false);
+watch(isPageFull, (on) => emit('pageFullscreen', on));
 function togglePageFullscreen(): void {
   isPageFull.value = !isPageFull.value;
+}
+/** 全屏态里的模式入口：顶栏被全屏层盖住，这里给出 read⇄edit 的对向切换。只上报，不在引擎内改模式 */
+function requestModeSwitch(): void {
+  emit('requestMode', props.mode === 'read' ? 'edit' : 'read');
 }
 
 // ---------- Ctrl+S（wangEditor 无内置保存，容器层捕获） ----------
@@ -467,6 +476,27 @@ function findScrollRoot(): HTMLElement | null {
   return down ?? up ?? container?.parentElement ?? null;
 }
 
+/**
+ * 当前阅读位置对应的标题序号（滚动联动）。标题集合与过滤口径同 scrollToLine，
+ * 两边序号必须严格一致，否则大纲点第 3 条会跳到第 4 条那种错位。
+ */
+function activeHeadingIndex(): number {
+  const host = findScrollRoot();
+  const container = editorRef.value?.getEditableContainer();
+  if (!host || !container) return -1;
+  const heads = Array.from(container.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')).filter(
+    (h) => (h.textContent ?? '').trim(),
+  );
+  if (!heads.length) return -1;
+  const line = host.getBoundingClientRect().top + 12; // 顶边下 12px：标题刚露头不算读到
+  let idx = 0;
+  for (let i = 0; i < heads.length; i++) {
+    if (heads[i].getBoundingClientRect().top <= line) idx = i;
+    else break;
+  }
+  return idx;
+}
+
 /** TreeWalker 收集文本节点 → 拼接全文本做 indexOf 匹配 → 反算每处命中的 Range（支持跨节点） */
 function collectRanges(root: HTMLElement, kw: string, cs: boolean): Range[] {
   const needle = cs ? kw : kw.toLowerCase();
@@ -606,6 +636,7 @@ defineExpose({
   getDisplayHtml,
   captureScroll,
   restoreScroll,
+  activeHeadingIndex,
 });
 
 onBeforeUnmount(() => {
@@ -636,35 +667,77 @@ onBeforeUnmount(() => {
           :default-config="toolbarConfig"
           mode="default"
         />
-        <!-- 全屏按钮（对齐 md pageFullscreen：编辑/阅读两态可用，F11 同一状态） -->
-        <button
-          type="button"
-          class="wang-fs-btn"
-          :title="isPageFull ? t('engine.exitPageFullscreen') : t('engine.pageFullscreen')"
-          :aria-label="isPageFull ? t('engine.exitPageFullscreen') : t('engine.pageFullscreen')"
-          @click="togglePageFullscreen"
-        >
-          <svg v-if="!isPageFull" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-            <path
-              d="M1 5.5V1h4.5M11 1h4v4.5M15 10.5V15h-4.5M5 15H1v-4.5"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-          <svg v-else viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-            <path
-              d="M5.5 1v4.5H1M10.5 1v4.5H15M15 10.5h-4.5V15M1 10.5h4.5V15"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
+        <!-- 右侧按钮组。全屏态顶栏被全屏层盖住，这里给一个模式对向切换（阅读态⇄编辑态）。
+             同 md 内核功能栏的分栏按钮：只上报 requestMode，模式真相源仍在应用层 -->
+        <div class="wang-actions">
+          <button
+            v-if="isPageFull"
+            type="button"
+            class="wang-fs-btn"
+            :title="
+              props.mode === 'read'
+                ? t('engine.enterEdit', { k: altHint('E') })
+                : t('engine.enterRead', { k: altHint('R') })
+            "
+            :aria-label="
+              props.mode === 'read'
+                ? t('engine.enterEdit', { k: altHint('E') })
+                : t('engine.enterRead', { k: altHint('R') })
+            "
+            @click="requestModeSwitch"
+          >
+            <svg v-if="props.mode === 'read'" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path
+                d="M10.6 2 14 5.4 5.6 13.8H2.2v-3.4zM8.9 3.7l3.4 3.4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <svg v-else viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path
+                d="M1.4 8S3.9 4.2 8 4.2 14.6 8 14.6 8 12.1 11.8 8 11.8 1.4 8 1.4 8z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="8" cy="8" r="1.9" fill="none" stroke="currentColor" stroke-width="1.4" />
+            </svg>
+          </button>
+          <!-- 全屏按钮（对齐 md pageFullscreen：编辑/阅读两态可用，F11 同一状态） -->
+          <button
+            type="button"
+            class="wang-fs-btn"
+            :title="isPageFull ? t('engine.exitPageFullscreen') : t('engine.pageFullscreen')"
+            :aria-label="isPageFull ? t('engine.exitPageFullscreen') : t('engine.pageFullscreen')"
+            @click="togglePageFullscreen"
+          >
+            <svg v-if="!isPageFull" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path
+                d="M1 5.5V1h4.5M11 1h4v4.5M15 10.5V15h-4.5M5 15H1v-4.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <svg v-else viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path
+                d="M5.5 1v4.5H1M10.5 1v4.5H15M15 10.5h-4.5V15M1 10.5h4.5V15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
       <Editor
         :key="`ed-${mountKey}`"
@@ -743,7 +816,7 @@ onBeforeUnmount(() => {
 .wang-engine-root.page-full {
   position: fixed;
   inset: 0;
-  z-index: 9600;
+  z-index: var(--mk-z-engine-full);
   height: 100vh;
   width: 100vw;
 }
@@ -770,7 +843,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   flex-wrap: nowrap;
 }
-/* 工具条行：内核工具条 + 右侧全屏按钮；下边线统一画在行上 */
+/* 工具条行：内核工具条 + 右侧按钮组；下边线统一画在行上 */
 .wang-toolbar-row {
   display: flex;
   align-items: center;
@@ -778,14 +851,20 @@ onBeforeUnmount(() => {
   background: var(--mk-panel);
   border-bottom: 1px solid var(--mk-border);
 }
+/* 按钮组整体钉在行最右：编辑态顶开内核工具条之后的余量，阅读态（工具条隐藏）也保持靠右 */
+.wang-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .wang-fs-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 26px;
-  /* 钉在行最右侧：编辑态顶开内核工具条之后的余量，阅读态（工具条隐藏）也保持靠右 */
-  margin-left: auto;
   margin-right: 4px;
   border: none;
   border-radius: 3px;
@@ -826,7 +905,7 @@ onBeforeUnmount(() => {
 /* 正文字号跟随全局设置（settingsStore 注入 --mk-font-size） */
 .wang-engine-root :deep(.w-e-text-container) {
   background: var(--mk-bg);
-  color: var(--mk-fg, #24292f);
+  color: var(--mk-fg);
 }
 .wang-engine-root :deep(.w-e-text-container [data-slate-editor]) {
   font-size: var(--mk-font-size, 15px);
@@ -834,6 +913,9 @@ onBeforeUnmount(() => {
   padding-block: 12px;
   /* 正文列限宽：左右 padding = (容器宽 - 版式宽)/2，窄窗回落 20px（同 md 编辑态） */
   padding-inline: max(calc((100% - var(--mk-content-w, 940px)) / 2), 20px);
+  /* 大纲浮标出现时右缘让位（--mk-rail-pad 由 Workbench 挂在 .editor-area 上，浮标不在时=20px）。
+     缩进的只是文字：滚动条仍留在窗口右缘 */
+  padding-inline-end: max(calc((100% - var(--mk-content-w, 940px)) / 2), var(--mk-rail-pad, 20px));
 }
 
 /* ---- 暗色覆盖（R3，2026-10-10 二轮重构）----
@@ -841,13 +923,13 @@ onBeforeUnmount(() => {
    --w-e-* CSS 变量（默认 #fff/#f5f2f0 亮色系）。逐条覆盖选择器易漏（引用块
    背景、表格内 code 等都是漏网项），这里在根节点整体覆写变量，一次治本。 */
 .wang-engine-root.dark {
-  --w-e-toolbar-bg-color: var(--mk-panel, #161b22);
+  --w-e-toolbar-bg-color: var(--mk-panel);
   --w-e-toolbar-color: #c9d1d9;
   --w-e-toolbar-active-color: #e6edf3; /* tooltip 底色（dark 下取亮字色） */
   --w-e-toolbar-active-bg-color: rgba(255, 255, 255, 0.08);
   --w-e-toolbar-disabled-color: #6e7681;
   --w-e-toolbar-border-color: #30363d;
-  --w-e-textarea-bg-color: var(--mk-bg, #0d1117);
+  --w-e-textarea-bg-color: var(--mk-bg);
   --w-e-textarea-color: #c9d1d9;
   --w-e-textarea-border-color: #30363d;
   --w-e-textarea-slight-border-color: #30363d;
@@ -874,7 +956,7 @@ onBeforeUnmount(() => {
 .wang-engine-root.dark :deep(.w-e-text-container [data-slate-editor] h4),
 .wang-engine-root.dark :deep(.w-e-text-container [data-slate-editor] h5),
 .wang-engine-root.dark :deep(.w-e-text-container [data-slate-editor] h6) {
-  color: var(--mk-fg, #e6edf3);
+  color: var(--mk-fg);
 }
 /* 代码块（prism 亮色 token + 白色 text-shadow 在暗底下刺眼） */
 .wang-engine-root.dark :deep(.w-e-text-container [data-slate-editor] pre > code) {
@@ -887,7 +969,7 @@ onBeforeUnmount(() => {
 }
 /* 表格内 todo 复选框/输入控件死白 */
 .wang-engine-root.dark :deep(.w-e-text-container [data-slate-editor] input) {
-  background: var(--mk-bg, #0d1117);
+  background: var(--mk-bg);
   color: #c9d1d9;
   border-color: #30363d;
   accent-color: #58a6ff;

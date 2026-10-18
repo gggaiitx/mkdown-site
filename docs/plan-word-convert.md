@@ -92,7 +92,7 @@
 ## 2. 现状基线（基于源码实证）
 
 | 能力 | 现状 | 证据 |
-|---|---|---|
+| --- | --- | --- |
 | md 预览 HTML 来源 | ✅ 有 | `MdEditorV3Engine.vue` `@html-changed` → `editor.previewHtml`（`Workbench.vue:1263`） |
 | mh 内容形态 | ✅ 原生 HTML | `WangEditorEngine.vue`「.mh 原生 HTML 读写，零转换」；格式审验见 §2.1 |
 | HTML 导出链路 | ✅ 有 | `exportApi.exportHtml` → `export_cmd.rs::export_html`（default_name = stem + **html**，`.mh` → `xxx.html` 自动成立，D8）；v0.4 起放开至 md + mh |
@@ -116,7 +116,7 @@
 **结论：磁盘态 `.mh` = wangEditor `getHtml()` 序列化输出 + 图片相对路径化。** 无 `<html>/<head>/<body>` 骨架，无 `data-w-e-type` 标记（todo 例外）。
 
 | 结构 | 序列化实证 | 对映射层（→docx）/ 净化层（→mh）的含义 |
-|---|---|---|
+| --- | --- | --- |
 | 标题 | `<h1>`–`<h6>`（`elemToHtml: tu(1..5)`，header6 同族） | 直映射 HeadingLevel |
 | 段落 | `""===e ? "<p><br></p>" : "<p>"+e+"</p>"`——**空段落恒 `<p><br></p>`** | →docx：`<br>` 空段落映射空 Paragraph；→mh：空段落必须产出 `<p><br></p>` |
 | 行内标记 | `<strong>/<em>/<u>/<s>/<code>` 标准形态 | 标准映射 |
@@ -139,7 +139,7 @@
 ### 3.1 导出方向：HTML → DOCX
 
 | 候选 | 结论 | 理由 |
-|---|---|---|
+| --- | --- | --- |
 | **npm `docx`（dolanmiu）+ 自建 HTML 映射层** | ✅ **推荐** | TS 原生、活跃、无网络；表格 colspan/rowSpan、多级列表、超链接、图片（SVG+PNG fallback）、heading 样式完整；输出可控 |
 | `html-docx-js` | ❌ | 停更；合并单元格差；无 TS 类型 |
 | Rust `docx-rs` | ❌ | 跨桥传大字符串；生态不及 JS 侧 |
@@ -149,11 +149,11 @@
 
 ### 3.2 反转方向：DOCX → MD / MH
 
-| 环节 | 选型 | 理由 |
-|---|---|---|
-| DOCX → HTML | **mammoth** | 内容抽面向；styleMap 可定制；convertImage 拿二进制 |
-| HTML → MD | **turndown + turndown-plugin-gfm** | 社区标准；GFM 表格/删除线口径一致 |
-| HTML → MH | **自建白名单净化** | wangEditor 子集明确（方言见 §2.1）；零依赖 |
+| 环节        | 选型                               | 理由                                               |
+| ----------- | ---------------------------------- | -------------------------------------------------- |
+| DOCX → HTML | **mammoth**                        | 内容抽面向；styleMap 可定制；convertImage 拿二进制 |
+| HTML → MD   | **turndown + turndown-plugin-gfm** | 社区标准；GFM 表格/删除线口径一致                  |
+| HTML → MH   | **自建白名单净化**                 | wangEditor 子集明确（方言见 §2.1）；零依赖         |
 
 ---
 

@@ -312,15 +312,15 @@ watch(zoomPct, () => void applyZoom());
 .pv-error {
   padding: 48px 24px;
   text-align: center;
-  color: var(--mk-fg-soft, #666);
+  color: var(--mk-fg-soft);
   font-size: 14px;
 }
 .pv-error {
-  color: var(--mk-danger, #d9534f);
+  color: var(--mk-danger);
 }
 .pv-error-sub {
   margin-top: 8px;
-  color: var(--mk-fg-soft, #888);
+  color: var(--mk-fg-soft);
   font-size: 12px;
 }
 .pdf-bar {
@@ -330,7 +330,7 @@ watch(zoomPct, () => void applyZoom());
   justify-content: space-between;
   gap: 12px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--mk-border, rgba(128, 128, 128, 0.2));
+  border-bottom: 1px solid var(--mk-border);
   /* 给右上角悬浮的系统打开按钮让位 */
   padding-right: 110px;
 }
@@ -349,12 +349,12 @@ watch(zoomPct, () => void applyZoom());
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: var(--mk-fg, #333);
+  color: var(--mk-fg);
   cursor: pointer;
   font-size: 12px;
 }
 .tb:hover {
-  background: var(--mk-hover, rgba(128, 128, 128, 0.12));
+  background: var(--mk-hover);
 }
 .tb-val {
   min-width: 52px;
@@ -364,16 +364,16 @@ watch(zoomPct, () => void applyZoom());
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--mk-fg-soft, #666);
+  color: var(--mk-fg-soft);
 }
 .pdf-page-input {
   width: 48px;
   height: 22px;
   text-align: center;
-  border: 1px solid var(--mk-border, rgba(128, 128, 128, 0.3));
+  border: 1px solid var(--mk-border);
   border-radius: 5px;
   background: var(--mk-bg-input, transparent);
-  color: var(--mk-fg, #333);
+  color: var(--mk-fg);
   font-size: 12px;
 }
 .pdf-scroll {

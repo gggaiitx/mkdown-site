@@ -13,6 +13,7 @@ export default {
       clickToClose: '点击关闭',
       ctx: {
         reload: '刷新',
+        fullscreen: '全屏',
         focusMode: '专注模式',
         lineNumbers: '行号',
         table: '表格',
@@ -33,6 +34,9 @@ export default {
         ol: '有序列表',
         task: '任务项',
         link: '链接',
+        searchCode: '搜索代码',
+        copyCode: '复制代码',
+        pasteCode: '粘贴代码',
       },
       external: {
         title: '文件已被外部修改',
@@ -89,6 +93,10 @@ export default {
         openBeforeFind: '请先打开文档，再按 Ctrl+F 查找',
         lastWsUnavailable: '上次工作区不可用，可重新打开',
         skippedNonMd: '已忽略 {n} 个无法在编辑器打开的文件',
+        codeCopied: '代码已复制到剪贴板',
+        codeEmpty: '当前文件没有内容',
+        clipboardBlocked: '剪贴板不可用，请用 {k} 操作',
+        clipboardEmpty: '剪贴板没有文本内容',
       },
       placeholder: {
         bold: '加粗文本',
@@ -163,6 +171,7 @@ export default {
       clickToClose: 'Click to close',
       ctx: {
         reload: 'Reload',
+        fullscreen: 'Fullscreen',
         focusMode: 'Focus mode',
         lineNumbers: 'Line numbers',
         table: 'Table',
@@ -183,6 +192,9 @@ export default {
         ol: 'Numbered list',
         task: 'Task list',
         link: 'Link',
+        searchCode: 'Find in code',
+        copyCode: 'Copy code',
+        pasteCode: 'Paste code',
       },
       external: {
         title: 'File changed outside MkDown',
@@ -241,6 +253,10 @@ export default {
         openBeforeFind: 'Open a document first, then press Ctrl+F to find',
         lastWsUnavailable: 'Last workspace is unavailable; you can reopen it',
         skippedNonMd: 'Skipped {n} file(s) that cannot be opened in the editor',
+        codeCopied: 'Code copied to clipboard',
+        codeEmpty: 'This file has no content',
+        clipboardBlocked: 'Clipboard is unavailable — use {k} instead',
+        clipboardEmpty: 'No text on the clipboard',
       },
       placeholder: {
         bold: 'Bold text',

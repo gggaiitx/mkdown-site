@@ -8,11 +8,12 @@ import {
   Copy,
   FileText,
   Layers,
+  Maximize,
   PenLine,
   RefreshCw,
   X,
 } from '@lucide/vue';
-import { useTabsStore, type DocumentTab } from '../stores/tabsStore';
+import { isPreviewKind, useTabsStore, type DocumentTab } from '../stores/tabsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEditorStore } from '../stores/editorStore';
 import { useCtxMenu } from '../composables/useCtxMenu';
@@ -30,6 +31,8 @@ const emit = defineEmits<{
   (e: 'close-batch', ids: string[]): void;
   /** 刷新完成：父级在内容区播放刷新动效 */
   (e: 'reloaded'): void;
+  /** 页面全屏：目标标签可能不是当前标签，激活与全屏的分发都在 Workbench */
+  (e: 'fullscreen', id: string): void;
 }>();
 
 // ---- 标签栏横向滚动：在该区域滚动鼠标滚轮即可平移标签 ----
@@ -303,6 +306,15 @@ const ctxIdx = computed(() =>
 const ctxTabPath = computed(() =>
   ctxIdx.value >= 0 ? tabs.tabs[ctxIdx.value]?.path ?? null : null,
 );
+/** 预览类标签（docx/xlsx/图片/pdf）没有编辑引擎，全屏无从谈起 → 菜单里不摆死项 */
+const ctxIsPreview = computed(() => {
+  const tab = ctxIdx.value >= 0 ? tabs.tabs[ctxIdx.value] : null;
+  return tab ? isPreviewKind(tab.kind) : true;
+});
+
+function menuFullscreen() {
+  if (ctxTabId.value) emit('fullscreen', ctxTabId.value);
+}
 
 function onTabContext(e: MouseEvent, id: string) {
   e.preventDefault();
@@ -447,7 +459,7 @@ function menuCloseAll() {
       class="tab"
       :class="tabClass(tab)"
       :data-tab-id="tab.id"
-      :data-tip="tab.path ?? t('tabbar.untitled')"
+      v-tip="tab.path ?? t('tabbar.untitled')"
       :draggable="true"
       @click="tabs.activate(tab.id)"
       @auxclick.middle="emit('close', tab.id)"
@@ -462,8 +474,8 @@ function menuCloseAll() {
     >
       <FileText class="t-icon" />
       <span class="title">{{ tab.title }}</span>
-      <span class="dirty" v-if="tab.isDirty" :data-tip="t('tabbar.dirtyTip')" />
-      <button class="close" @click.stop="emit('close', tab.id)" :data-tip="t('tabbar.closeTabTip')">
+      <span class="dirty" v-if="tab.isDirty" v-tip="t('tabbar.dirtyTip')" />
+      <button class="close" @click.stop="emit('close', tab.id)" v-tip="t('tabbar.closeTabTip')">
         <X class="x-icon" />
       </button>
     </div>
@@ -472,7 +484,7 @@ function menuCloseAll() {
     <div
       v-if="ovMenu"
       :ref="setOvMenuRef"
-      class="ov-menu"
+      class="mk-menu ov-menu"
       :style="ovMenuStyle"
       @mouseenter="clearOvCloseTimer"
       @mouseleave="scheduleOvClose"
@@ -480,7 +492,7 @@ function menuCloseAll() {
       <button
         v-for="t in ovMenuTabs"
         :key="t.id"
-        class="ov-item"
+        class="mk-menu-item ov-item"
         :class="{ active: t.id === tabs.activeId }"
         @click="ovActivate(t.id)"
       >
@@ -491,31 +503,34 @@ function menuCloseAll() {
     </div>
 
     <!-- 标签右键菜单：图标 + 名称 + 快捷键（仅标注真实存在的绑定，见 Workbench.onKeydown） -->
-    <div v-if="menu" :ref="setMenuRef" class="ctx-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
-      <button class="ctx-item" @click="menuCopyName">
-        <Copy class="ctx-ico" /><span>{{ t('tabbar.copyName') }}</span>
+    <div v-if="menu" :ref="setMenuRef" class="mk-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
+      <button class="mk-menu-item" @click="menuCopyName">
+        <Copy class="mk-menu-ico" /><span>{{ t('tabbar.copyName') }}</span>
       </button>
-      <button class="ctx-item" :disabled="!ctxTabPath" @click="menuRename">
-        <PenLine class="ctx-ico" /><span>{{ t('tabbar.renameTitle') }}</span><kbd class="ctx-key">F2</kbd>
+      <button class="mk-menu-item" :disabled="!ctxTabPath" @click="menuRename">
+        <PenLine class="mk-menu-ico" /><span>{{ t('tabbar.renameTitle') }}</span><kbd class="mk-menu-key">F2</kbd>
       </button>
-      <div class="ctx-sep" />
-      <button class="ctx-item" :disabled="!ctxTabPath" @click="menuReload">
-        <RefreshCw class="ctx-ico" /><span>{{ t('tabbar.reload') }}</span>
+      <div class="mk-menu-sep" />
+      <button class="mk-menu-item" :disabled="!ctxTabPath" @click="menuReload">
+        <RefreshCw class="mk-menu-ico" /><span>{{ t('tabbar.reload') }}</span>
       </button>
-      <button class="ctx-item" @click="menuClose">
-        <X class="ctx-ico" /><span>{{ t('tabbar.closeTab') }}</span><kbd class="ctx-key">Ctrl+W</kbd>
+      <button v-if="!ctxIsPreview" class="mk-menu-item" @click="menuFullscreen">
+        <Maximize class="mk-menu-ico" /><span>{{ t('tabbar.fullscreen') }}</span><kbd class="mk-menu-key">F11</kbd>
       </button>
-      <button class="ctx-item" :disabled="ctxIdx <= 0" @click="menuCloseLeft">
-        <ArrowLeftToLine class="ctx-ico" /><span>{{ t('tabbar.closeLeft') }}</span>
+      <button class="mk-menu-item" @click="menuClose">
+        <X class="mk-menu-ico" /><span>{{ t('tabbar.closeTab') }}</span><kbd class="mk-menu-key">Ctrl+W</kbd>
       </button>
-      <button class="ctx-item" :disabled="ctxIdx < 0 || ctxIdx >= tabs.tabs.length - 1" @click="menuCloseRight">
-        <ArrowRightToLine class="ctx-ico" /><span>{{ t('tabbar.closeRight') }}</span>
+      <button class="mk-menu-item" :disabled="ctxIdx <= 0" @click="menuCloseLeft">
+        <ArrowLeftToLine class="mk-menu-ico" /><span>{{ t('tabbar.closeLeft') }}</span>
       </button>
-      <button class="ctx-item" :disabled="tabs.tabs.length <= 1" @click="menuCloseOthers">
-        <Layers class="ctx-ico" /><span>{{ t('tabbar.closeOthers') }}</span>
+      <button class="mk-menu-item" :disabled="ctxIdx < 0 || ctxIdx >= tabs.tabs.length - 1" @click="menuCloseRight">
+        <ArrowRightToLine class="mk-menu-ico" /><span>{{ t('tabbar.closeRight') }}</span>
       </button>
-      <button class="ctx-item danger" @click="menuCloseAll">
-        <CircleX class="ctx-ico" /><span>{{ t('tabbar.closeAll') }}</span><kbd class="ctx-key">Ctrl+Shift+W</kbd>
+      <button class="mk-menu-item" :disabled="tabs.tabs.length <= 1" @click="menuCloseOthers">
+        <Layers class="mk-menu-ico" /><span>{{ t('tabbar.closeOthers') }}</span>
+      </button>
+      <button class="mk-menu-item danger" @click="menuCloseAll">
+        <CircleX class="mk-menu-ico" /><span>{{ t('tabbar.closeAll') }}</span><kbd class="mk-menu-key">Ctrl+Shift+W</kbd>
       </button>
     </div>
 
@@ -620,88 +635,22 @@ function menuCloseAll() {
 .close:hover { background: var(--mk-active); color: var(--mk-danger); }
 .x-icon { width: 12px; height: 12px; }
 
-/* ---- 右键菜单（与 FileTree 同款） ---- */
-.ctx-menu {
-  position: fixed;
-  z-index: 90;
-  min-width: 150px;
-  /* max-content：fixed 未设宽时 shrink-to-fit 会被「视口宽-left」压缩——
-     右键点在标签栏右缘时菜单被压窄，「关闭全部 Ctrl+Shift+W」折行，
-     且 useCtxMenu 夹紧公式用的正是这个被压窄的测量值。锁定内容宽后测量即真实宽 */
-  width: max-content;
-  background: var(--mk-panel);
-  color: var(--mk-fg);
-  border: 1px solid var(--mk-border);
-  border-radius: var(--mk-radius);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-}
-.ctx-item {
-  border: none;
-  background: transparent;
-  text-align: left;
-  color: var(--mk-fg);
-  font-size: 12.5px;
-  padding: 6px 10px;
-  border-radius: var(--mk-radius-sm);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 168px;
-  white-space: nowrap; /* 兜底：菜单文案任何情况下不折行 */
-}
-.ctx-ico { width: 13px; height: 13px; flex: none; opacity: 0.75; }
-.ctx-key {
-  margin-left: auto;
-  padding-left: 14px;
-  font-family: inherit;
-  font-size: 11px;
-  color: var(--mk-fg-muted);
-  pointer-events: none;
-  white-space: nowrap;
-}
-.ctx-item:hover:not(:disabled) { background: var(--mk-hover); }
-.ctx-item.danger { color: var(--mk-danger); }
-.ctx-item:disabled { opacity: 0.4; cursor: default; }
-.ctx-sep { height: 1px; background: var(--mk-border); margin: 4px 6px; }
+/* ---- 右键菜单 / 溢出菜单：外观统一走 global.css 的 .mk-menu / .mk-menu-item ----
+   这里只留溢出菜单独有的滚动上限与"未激活标签用次级色"两点差异 */
 .err { color: var(--mk-danger); font-size: 12px; margin: 6px 0 0; }
 
-/* ---- 溢出隐藏标签菜单（观感与右键菜单一致，锚定可视标签下方） ---- */
 .ov-menu {
-  position: fixed;
-  z-index: 90;
   min-width: 160px;
   max-width: 280px;
   max-height: 260px;
   overflow-y: auto;
-  background: var(--mk-panel);
-  color: var(--mk-fg);
-  border: 1px solid var(--mk-border);
-  border-radius: var(--mk-radius);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
 }
 /* 滚动条不自定义：回落全局 ::-webkit-scrollbar 规格（10px、hover 加深），与预览/阅读区一致 */
-.ov-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: none;
-  background: transparent;
+.mk-menu .ov-item {
   color: var(--mk-fg-muted);
   font-size: 12px;
-  padding: 6px 8px;
-  border-radius: var(--mk-radius-sm);
-  cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
 }
-.ov-item:hover { background: var(--mk-hover); color: var(--mk-fg); }
+.ov-item:hover { color: var(--mk-fg); }
 .ov-item.active { color: var(--mk-fg); }
 .ov-ico { width: 13px; height: 13px; flex: none; opacity: 0.8; }
 .ov-title {

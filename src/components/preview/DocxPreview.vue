@@ -94,15 +94,15 @@ watch(() => props.path, load);
 .pv-error {
   padding: 48px 24px;
   text-align: center;
-  color: var(--mk-fg-soft, #666);
+  color: var(--mk-fg-soft);
   font-size: 14px;
 }
 .pv-error {
-  color: var(--mk-danger, #d9534f);
+  color: var(--mk-danger);
 }
 .pv-error-sub {
   margin-top: 8px;
-  color: var(--mk-fg-soft, #888);
+  color: var(--mk-fg-soft);
   font-size: 12px;
 }
 </style>

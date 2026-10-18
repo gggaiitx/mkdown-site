@@ -53,9 +53,9 @@ async function open() {
   align-items: center;
   gap: 5px;
   appearance: none;
-  border: 1px solid var(--mk-border, #e0e0e0);
-  background: var(--mk-panel, #fff);
-  color: var(--mk-fg-soft, #666);
+  border: 1px solid var(--mk-border);
+  background: var(--mk-panel);
+  color: var(--mk-fg-soft);
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 12px;
@@ -63,8 +63,8 @@ async function open() {
   box-shadow: 0 1px 6px rgb(0 0 0 / 0.12);
 }
 .pv-open-sys:hover {
-  border-color: var(--mk-accent, #4a89dc);
-  color: var(--mk-accent, #4a89dc);
+  border-color: var(--mk-accent);
+  color: var(--mk-accent);
 }
 .pv-open-sys:disabled {
   opacity: 0.5;

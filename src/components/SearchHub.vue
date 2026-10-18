@@ -134,14 +134,15 @@ function clampFileCur(): void {
   if (fileCur.value >= n) fileCur.value = n > 0 ? n - 1 : 0;
 }
 
-/** 跳到当前命中：上抛行号+关键词由宿主直调引擎（定位 + 维持高亮）；
- *  mh 额外透传 matchIndex（第 4 参），宿主路由到富文本引擎 scrollToMatch 定位当前命中 */
+/** 跳到当前命中：上抛行号 + 关键词 + 命中序号（第 4 参），由宿主直调引擎（定位 + 维持高亮）。
+ *  序号三引擎通用：CM 系（md / code）据此强化当前命中并落成真实选区，
+ *  富文本（.mh）由宿主另路由到 scrollToMatch */
 function gotoFile(idx: number): void {
   clampFileCur();
   const m = fileMatches.value[idx];
   const tab = tabs.activeTab;
   if (!m || !tab) return;
-  emit('goto', m.line, keyword.value, caseSensitive.value, tab.kind === 'mh' ? idx : undefined);
+  emit('goto', m.line, keyword.value, caseSensitive.value, idx);
   tabs.updateTab(tab.id, { cursorLine: m.line });
 }
 
@@ -594,7 +595,7 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
   position: fixed;
   /* 10100+ 层级带：编辑器「页面全屏」层（内核 z-index 10000 的 fixed 铺满层）
      会盖住旧的 80，全屏状态下 Ctrl+F 面板将完全看不见 */
-  z-index: 10100;
+  z-index: var(--mk-z-panel);
   width: 560px;
   max-width: calc(100vw - 24px);
   height: 420px;

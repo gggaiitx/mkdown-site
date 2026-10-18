@@ -103,6 +103,11 @@ fn default_editor_engine() -> String {
     "markdown".into()
 }
 
+/// 大纲呈现方式："classic" = 右侧面板 | "fresh" = 右缘短横线浮标（出厂默认）
+fn default_outline_style() -> String {
+    "fresh".into()
+}
+
 fn default_word_font_zh() -> String {
     "等线".into()
 }
@@ -152,6 +157,9 @@ pub struct AppSettings {
     pub focus_mode: bool,
     /// 显示行号：Markdown 编辑窗格左侧一列行号（data-ln 属性 + CSS 伪元素）
     pub show_line_numbers: bool,
+    /// 大纲呈现方式："classic"（右侧面板）| "fresh"（右缘短横线浮标，掠过展开）
+    #[serde(default = "default_outline_style")]
+    pub outline_style: String,
     /// 新建文件默认格式："markdown"（默认）| "wangeditor"（新建 .mh）
     #[serde(default = "default_editor_engine")]
     pub editor_engine: String,
@@ -192,6 +200,7 @@ impl Default for AppSettings {
             show_toolbar: true,
             focus_mode: false,
             show_line_numbers: false,
+            outline_style: default_outline_style(),
             editor_engine: default_editor_engine(),
             word_font_zh: default_word_font_zh(),
             word_font_en: default_word_font_en(),

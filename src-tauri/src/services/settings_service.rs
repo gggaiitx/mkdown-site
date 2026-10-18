@@ -72,7 +72,26 @@ mod tests {
         assert_eq!(s.editor_mode, "split");
         assert_eq!(s.auto_save_delay_ms, 800);
         assert_eq!(s.editor_engine, "markdown");
+        assert_eq!(s.outline_style, "fresh");
         assert!(s.recent_files.is_empty());
+    }
+
+    /// 老配置文件（升级前写的）没有 outline_style 这个键：必须落到出厂默认，
+    /// 而不是反序列化失败把整份设置丢回默认值
+    #[test]
+    fn missing_key_falls_back_to_default() {
+        let s: AppSettings = serde_json::from_str(r#"{"theme":"dark","fontSize":14}"#).unwrap();
+        assert_eq!(s.theme, "dark");
+        assert_eq!(s.font_size, 14);
+        assert_eq!(s.outline_style, "fresh");
+    }
+
+    #[test]
+    fn outline_style_roundtrips_camel_case() {
+        let s: AppSettings = serde_json::from_str(r#"{"outlineStyle":"classic"}"#).unwrap();
+        assert_eq!(s.outline_style, "classic");
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"outlineStyle\":\"classic\""));
     }
 
     #[test]

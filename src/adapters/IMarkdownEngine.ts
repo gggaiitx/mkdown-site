@@ -26,7 +26,8 @@ export interface EditorCtxPayload {
   /** 等宽对齐是否可用：长文本表补列宽会撑出数百字符行，故置灰 */
   wideAlignable: boolean;
   /** 上报来源引擎（缺省 = Markdown 引擎，保持既有调用点不变）。
-   *  富文本（.mh）没有 Markdown 源码语义，菜单只保留「刷新 / 专注模式」两项视图级动作。 */
+   *  富文本（.mh）没有 Markdown 源码语义，菜单只保留「刷新 / 专注模式」两项视图级动作；
+   *  代码引擎同样没有，改为给「搜索 / 复制 / 粘贴代码」三项。 */
   engine?: 'md' | 'mh' | 'code';
 }
 
@@ -37,8 +38,10 @@ export interface CommonEngineHandle {
   scrollToLine(line: number, headingIndex?: number): void;
   /** 在光标处插入文本 */
   insert(text: string): void;
-  /** 文件内查找高亮：编辑/分栏态 CM6 装饰 + 阅读态预览 mark；空关键词 = 清除 */
-  highlight(keyword: string, caseSensitive?: boolean): void;
+  /** 文件内查找高亮：编辑/分栏态 CM6 装饰 + 阅读态预览 mark；空关键词 = 清除。
+   *  matchIndex = 当前命中序号（搜索面板列表口径），CM 系引擎据此强化标记并落成真实选区；
+   *  富文本引擎忽略该参数，改用 scrollToMatch 定位 */
+  highlight(keyword: string, caseSensitive?: boolean, matchIndex?: number): void;
   /** 清除全部查找高亮 */
   clearHighlight(): void;
   /** 滚动到第 index 个查找命中并标记为当前命中（可选能力，仅富文本引擎实现——
@@ -54,6 +57,17 @@ export interface CommonEngineHandle {
    * 滚动位置会被浏览器清零），故内部自带重试，调用方 fire-and-forget。
    */
   restoreScroll?(top: number): void;
+  /**
+   * 当前阅读位置对应的标题序号（滚动联动：内容滚到哪个标题，大纲选中哪一条）。
+   * 量的是「读者在看的那一栏」——md 分栏量预览、阅读态量阅读栏，-1 = 无标题/未挂载。
+   */
+  activeHeadingIndex?(): number;
+}
+
+/** 右键菜单的复制取文口径：仅代码引擎实现——Markdown/富文本没有「复制代码」语义 */
+export interface CopyScopeHandle {
+  /** 选区非空取选区，无选区取全文 */
+  copyScopeText(): string;
 }
 
 /** Markdown 专属能力（仅 MdEditorV3Engine 实现；代码引擎不暴露） */
@@ -84,7 +98,8 @@ export interface MarkdownEngineHandle {
 
 /** 引擎组件对外暴露的方法（defineExpose 契约）：通用必选 + Markdown 方法可选 */
 export type EngineHandle =
-  CommonEngineHandle & Partial<MarkdownEngineHandle> & Partial<RichTextEngineHandle> & Partial<CmReplaceHandle>;
+  CommonEngineHandle & Partial<MarkdownEngineHandle> & Partial<RichTextEngineHandle> & Partial<CmReplaceHandle>
+  & Partial<CopyScopeHandle>;
 
 /** 文本级替换能力：只有 CodeMirror 系引擎（md / code）实现。
  *  .mh 富文本的内容模型是 HTML、命中口径与纯文本不同，故不实现（业务层用 `?.` 调用并据此隐藏替换入口）。

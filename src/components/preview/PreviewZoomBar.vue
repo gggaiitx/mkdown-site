@@ -43,13 +43,13 @@ function reset() {
   justify-content: center;
   gap: 6px;
   padding: 6px;
-  border-bottom: 1px solid var(--mk-border, #e0e0e0);
+  border-bottom: 1px solid var(--mk-border);
 }
 .tb {
   appearance: none;
-  border: 1px solid var(--mk-border, #e0e0e0);
-  background: var(--mk-panel, #fff);
-  color: var(--mk-fg, #24292f);
+  border: 1px solid var(--mk-border);
+  background: var(--mk-panel);
+  color: var(--mk-fg);
   border-radius: 6px;
   padding: 4px 6px;
   cursor: pointer;
@@ -57,13 +57,13 @@ function reset() {
   align-items: center;
 }
 .tb:hover {
-  border-color: var(--mk-accent, #4a89dc);
-  color: var(--mk-accent, #4a89dc);
+  border-color: var(--mk-accent);
+  color: var(--mk-accent);
 }
 .tb-val {
   min-width: 56px;
   justify-content: center;
   font-size: 12px;
-  color: var(--mk-fg-soft, #666);
+  color: var(--mk-fg-soft);
 }
 </style>

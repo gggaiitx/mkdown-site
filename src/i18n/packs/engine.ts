@@ -12,6 +12,10 @@ export default {
       createdMh: '已新建 .mh 富文本文档',
       pageFullscreen: '全屏（F11）',
       exitPageFullscreen: '退出全屏（F11）',
+      splitPreview: '分栏预览（{k}）',
+      exitSplit: '退出分栏（{k}）',
+      enterEdit: '切换为编辑态（{k}）',
+      enterRead: '切换为阅读态（{k}）',
     },
   },
   en: {
@@ -24,6 +28,10 @@ export default {
       createdMh: 'New .mh rich text document created',
       pageFullscreen: 'Fullscreen (F11)',
       exitPageFullscreen: 'Exit fullscreen (F11)',
+      splitPreview: 'Split preview ({k})',
+      exitSplit: 'Exit split ({k})',
+      enterEdit: 'Switch to edit ({k})',
+      enterRead: 'Switch to reading ({k})',
     },
   },
 };

@@ -30,6 +30,8 @@ export function extractHtmlOutline(html: string): OutlineItem[] {
 export const useEditorStore = defineStore('editor', {  state: () => ({
     mode: 'split' as EditorMode,
     outline: [] as OutlineItem[],
+    /** 当前阅读位置对应的标题序号（-1 = 未定位）。滚动联动写入，大纲面板与右缘浮标共用 */
+    activeHeading: -1,
     cursorLine: 1,
     cursorCol: 1,
     wordCount: 0,
@@ -47,6 +49,7 @@ export const useEditorStore = defineStore('editor', {  state: () => ({
     },
     syncFromContent(content: string) {
       this.outline = extractOutline(content);
+      this.activeHeading = -1; // 换文档/重算大纲后旧序号无意义，等下一次量测回填
       this.wordCount = countChars(content);
       // 与编辑器（CodeMirror）口径一致：空文档也是 1 行（编辑区显示一个可定位的空行）
       this.lineCount = content.split('\n').length;
@@ -54,6 +57,7 @@ export const useEditorStore = defineStore('editor', {  state: () => ({
     /** 富文本（.mh）口径：HTML 内提取大纲 + 纯文本字数（无行概念，行数保持 1） */
     syncFromHtml(html: string) {
       this.outline = extractHtmlOutline(html);
+      this.activeHeading = -1;
       const text = html
         .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
         .replace(/<[^>]+>/g, ' ')

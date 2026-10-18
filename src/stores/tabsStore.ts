@@ -18,7 +18,8 @@ export type TabKind = 'md' | 'mh' | 'text' | 'code' | 'html' | 'svg' | 'docx' | 
 /** 预览类标签（只读，无编辑/保存语义） */
 export type PreviewKind = 'docx' | 'xlsx' | 'image' | 'pdf';
 
-const isPreviewKind = (k: TabKind): k is PreviewKind =>
+/** 预览类标签（只读，无编辑/保存语义）。导出给「刷新/全屏」这类按标签能力显隐的菜单用 */
+export const isPreviewKind = (k: TabKind): k is PreviewKind =>
   k === 'docx' || k === 'xlsx' || k === 'image' || k === 'pdf';
 
 /** 按扩展名归类文本标签（预览类不经此函数，由 probe_preview_kind 后端判定）。

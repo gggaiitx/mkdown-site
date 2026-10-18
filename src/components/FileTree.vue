@@ -431,30 +431,30 @@ watch(filteredTree, (nodes) => {
     <div class="panel-head">
       <button
       class="root-name"
-      :data-tip="ws.root ?? ''"
+      v-tip="ws.root ?? ''"
         @click.stop="wsMenuOpen = !wsMenuOpen"
       >
         <span class="root-name-text">{{ ws.rootName || t('filetree.explorer') }}</span>
         <ChevronDown class="root-caret" :size="12" />
       </button>
       <span class="tools">
-        <button class="tool" :class="{ on: filterVisible }" :data-tip="t('filetree.filterTip', { key: shiftHint('F') })" @click="toggleFilter"><Search class="t-icon" /></button>
-        <button class="tool" :data-tip="toggleAllTip" @click="toggleAll">
+        <button class="tool" :class="{ on: filterVisible }" v-tip="t('filetree.filterTip', { key: shiftHint('F') })" @click="toggleFilter"><Search class="t-icon" /></button>
+        <button class="tool" v-tip="toggleAllTip" @click="toggleAll">
           <ChevronsDownUp v-if="!allCollapsed" class="t-icon" />
           <ChevronsUpDown v-else class="t-icon" />
         </button>
-        <button class="tool" :data-tip="t('filetree.refresh')" @click="onRefresh"><RefreshCw class="t-icon" :class="{ spinning: refreshing }" /></button>
-        <button class="tool" :data-tip="t('filetree.hideWorkspace')" @click="emit('hide')"><PanelLeftClose class="t-icon" /></button>
+        <button class="tool" v-tip="t('filetree.refresh')" @click="onRefresh"><RefreshCw class="t-icon" :class="{ spinning: refreshing }" /></button>
+        <button class="tool" v-tip="t('filetree.hideWorkspace')" @click="emit('hide')"><PanelLeftClose class="t-icon" /></button>
       </span>
     </div>
 
     <!-- 工作区切换菜单（点击根目录名弹出） -->
-    <div class="ws-menu" v-if="wsMenuOpen" @click.stop>
+    <div class="mk-menu ws-menu" v-if="wsMenuOpen" @click.stop>
       <div class="ws-menu-title">{{ t('filetree.switchTitle') }}</div>
       <button
         v-for="d in recentWorkspaces"
         :key="d"
-        class="ws-item"
+        class="mk-menu-item ws-item"
         :class="{ current: d === ws.root }"
         @click="pickWorkspace(d)"
       >
@@ -462,19 +462,19 @@ watch(filteredTree, (nodes) => {
         <button
           v-if="d !== ws.root"
           class="ws-remove"
-          :data-tip="t('filetree.removeTip')"
+          v-tip="t('filetree.removeTip')"
           @click.stop="removeWorkspace(d)"
         >
           <X :size="14" />
         </button>
         <Check v-else class="ws-check" :size="13" />
       </button>
-      <div class="ws-menu-sep" />
-      <button class="ws-item" @click="pickOther">
+      <div class="mk-menu-sep" />
+      <button class="mk-menu-item ws-item" @click="pickOther">
         <FolderOpen class="ws-ico" :size="14" />
         <span class="ws-item-name">{{ t('filetree.openOther') }}</span>
       </button>
-      <button class="ws-item ws-remove-all" @click="removeAll">
+      <button class="mk-menu-item ws-item ws-remove-all" @click="removeAll">
         <Trash2 class="ws-ico" :size="14" />
         <span class="ws-item-name">{{ t('filetree.removeAll') }}</span>
       </button>
@@ -524,13 +524,13 @@ watch(filteredTree, (nodes) => {
     <div v-else class="empty">{{ t('filetree.noFolder1') }}<br>{{ t('filetree.noFolder2') }}</div>
 
     <!-- 右键菜单 -->
-    <div v-if="menu" :ref="setMenuRef" class="ctx-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
-      <button class="ctx-item" @click="menuNewFile">{{ t('filetree.newFile') }}</button>
-      <button class="ctx-item" @click="menuNewDir">{{ t('filetree.newDir') }}</button>
-      <button class="ctx-item" @click="menuReveal">{{ t('filetree.ctxReveal') }}</button>
-      <div class="ctx-sep" />
-      <button class="ctx-item" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuRename">{{ t('filetree.ctxRename') }}</button>
-      <button class="ctx-item danger" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuDelete">{{ t('filetree.ctxDelete') }}</button>
+    <div v-if="menu" :ref="setMenuRef" class="mk-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
+      <button class="mk-menu-item" @click="menuNewFile">{{ t('filetree.newFile') }}</button>
+      <button class="mk-menu-item" @click="menuNewDir">{{ t('filetree.newDir') }}</button>
+      <button class="mk-menu-item" @click="menuReveal">{{ t('filetree.ctxReveal') }}</button>
+      <div class="mk-menu-sep" />
+      <button class="mk-menu-item" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuRename">{{ t('filetree.ctxRename') }}</button>
+      <button class="mk-menu-item danger" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuDelete">{{ t('filetree.ctxDelete') }}</button>
     </div>
 
     <!-- 新建对话框 -->
@@ -647,36 +647,27 @@ watch(filteredTree, (nodes) => {
 .root-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-caret { flex: none; opacity: 0.7; }
 .tools { display: inline-flex; gap: 3px; flex: none; }
+/* 工作区切换菜单：外观走 global.css 的 .mk-menu / .mk-menu-item，
+   这里只留"锚在面板头部下方、宽度跟着面板走"的定位差异 */
 .ws-menu {
   position: absolute;
-  top: 36px; left: 8px; z-index: 30;
+  top: 36px; left: 8px;
   min-width: 220px; max-width: calc(100% - 16px);
-  padding: 5px;
-  background: var(--mk-bg);
-  border: 1px solid var(--mk-border);
-  border-radius: var(--mk-radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
 }
 .ws-menu-title {
   padding: 4px 8px;
   font-size: 10.5px; font-weight: 600; letter-spacing: 1px;
   color: var(--mk-fg-muted);
 }
-.ws-item {
-  display: flex; align-items: center; gap: 7px;
-  width: 100%; text-align: left;
+.mk-menu .ws-item {
+  width: 100%;
+  gap: 7px;
   padding: 6px 8px;
-  border: none; background: transparent;
-  font-size: 12.5px; color: var(--mk-fg);
-  border-radius: var(--mk-radius-sm);
-  cursor: pointer;
 }
-.ws-item:hover { background: var(--mk-hover); }
 .ws-item.current { color: var(--mk-accent); }
 .ws-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-check { flex: none; }
 .ws-ico { flex: none; color: var(--mk-fg-muted); }
-.ws-menu-sep { height: 1px; margin: 4px 0; background: var(--mk-border); }
 .ws-remove {
   display: inline-flex; align-items: center; justify-content: center;
   flex: none; width: 22px; height: 22px;
@@ -686,8 +677,8 @@ watch(filteredTree, (nodes) => {
   cursor: pointer;
 }
 .ws-remove:hover { border-color: var(--mk-danger); color: var(--mk-danger-fg); background: var(--mk-danger); }
-.ws-remove-all { color: var(--mk-danger, #A32D2D); }
-.ws-remove-all .ws-item-name { color: var(--mk-danger, #A32D2D); }
+.ws-remove-all { color: var(--mk-danger); }
+.ws-remove-all .ws-item-name { color: var(--mk-danger); }
 .ws-remove-all:hover { background: var(--mk-hover); }
 .tool {
   display: inline-flex; align-items: center; justify-content: center;
@@ -776,37 +767,7 @@ watch(filteredTree, (nodes) => {
   line-height: 1.8;
   text-align: center;
 }
-.ctx-menu {
-  position: fixed;
-  z-index: 90;
-  min-width: 160px;
-  /* max-content：fixed 未设宽时 shrink-to-fit 会被「视口宽-left」压缩——
-     右键点在树右缘时菜单被压窄、中文项折行，且夹紧公式用的正是被压窄的测量值（与 TabBar 同修） */
-  width: max-content;
-  background: var(--mk-panel);
-  color: var(--mk-fg);
-  border: 1px solid var(--mk-border);
-  border-radius: var(--mk-radius);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-}
-.ctx-item {
-  border: none;
-  background: transparent;
-  text-align: left;
-  color: var(--mk-fg);
-  font-size: 12.5px;
-  padding: 6px 10px;
-  border-radius: var(--mk-radius-sm);
-  cursor: pointer;
-  white-space: nowrap; /* 兜底：菜单文案任何情况下不折行 */
-}
-.ctx-item:hover:not(:disabled) { background: var(--mk-hover); }
-.ctx-item.danger { color: var(--mk-danger); }
-.ctx-item:disabled { opacity: 0.4; cursor: default; }
-.ctx-sep { height: 1px; background: var(--mk-border); margin: 4px 6px; }
+/* 右键菜单外观统一走 global.css 的 .mk-menu / .mk-menu-item（与 TabBar / 编辑区同一份规格） */
 .target-hint {
   font-size: 11.5px;
   color: var(--mk-fg-muted);

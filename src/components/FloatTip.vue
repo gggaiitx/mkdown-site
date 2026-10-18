@@ -180,7 +180,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .float-tip {
   position: fixed;
-  z-index: 99999;
+  z-index: var(--mk-z-tip);
   width: max-content;
   max-width: 380px;
   padding: 6px 10px;
@@ -189,7 +189,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.45;
   border-radius: 6px;
-  box-shadow: 0 4px 14px rgb(0 0 0 / 0.28);
+  box-shadow: var(--mk-shadow-tip);
   opacity: 0;
   transition: opacity 0.12s ease;
   pointer-events: none;

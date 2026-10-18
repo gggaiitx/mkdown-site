@@ -15,6 +15,7 @@ import { focusLineExtension, setFocusMode } from './cmFocusLine';
 import { captureScrollTop, restoreScrollTop } from './scrollRestore';
 import { codeDarkTheme, codeLightTheme } from './codeTheme';
 import { buildLanguageExtensions } from './codeLanguage';
+import type { EditorCtxPayload } from './IMarkdownEngine';
 import type { ThemeKind } from '../api/types';
 
 const props = defineProps<{
@@ -30,6 +31,8 @@ const emit = defineEmits<{
   (e: 'update:modelValue', v: string): void;
   (e: 'save'): void;
   (e: 'cursor', pos: { line: number; col: number }): void;
+  /** 编辑区右键：上层在同一坐标弹编辑菜单（刷新 / 全屏 / 专注模式 / 搜索·复制·粘贴代码） */
+  (e: 'editorContext', pos: EditorCtxPayload): void;
 }>();
 
 const rootRef = ref<HTMLElement | null>(null);
@@ -147,8 +150,30 @@ function insert(text: string): void {
   view.focus();
 }
 
-function highlight(keyword: string, caseSensitive = false): void {
-  setCmFind(view, { keyword, caseSensitive });
+/** 右键「复制代码」的取文口径：选区优先，无选区取全文 */
+function copyScopeText(): string {
+  if (!view) return '';
+  const sel = view.state.selection.main;
+  return sel.empty ? view.state.doc.toString() : view.state.sliceDoc(sel.from, sel.to);
+}
+
+/** 右键：收掉浏览器原生菜单，把光标落到点击处再上报（与另外两个引擎同一套上层菜单）。
+ *  点击落在已有选区内则保留选区——否则「复制代码」会把要复制的选区自己取消掉 */
+function onContextMenu(e: MouseEvent): void {
+  if (!view) return;
+  e.preventDefault();
+  const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+  if (pos != null) {
+    const sel = view.state.selection.main;
+    if (pos < sel.from || pos > sel.to) view.dispatch({ selection: { anchor: pos } });
+  }
+  view.focus();
+  emit('editorContext', { x: e.clientX, y: e.clientY, inTable: false, wideAlignable: false, engine: 'code' });
+}
+
+/** 查找高亮：matchIndex = 当前命中序号（搜索面板列表口径），带上时强化标记并落成真实选区 */
+function highlight(keyword: string, caseSensitive = false, matchIndex?: number): void {
+  setCmFind(view, { keyword, caseSensitive, matchIndex });
 }
 
 /** 替换一处（偏移以全文为基准，与 tab.content 同源）；先比对 expect 再动手 */
@@ -186,7 +211,7 @@ function restoreScroll(top: number): void {
   restoreScrollTop(() => view?.scrollDOM ?? null, top);
 }
 
-defineExpose({ scrollToLine, insert, highlight, clearHighlight, replaceRange, replaceDocText, captureScroll, restoreScroll });
+defineExpose({ scrollToLine, insert, copyScopeText, highlight, clearHighlight, replaceRange, replaceDocText, captureScroll, restoreScroll });
 
 onBeforeUnmount(() => {
   view?.destroy();
@@ -199,6 +224,7 @@ onBeforeUnmount(() => {
   <div
     ref="rootRef"
     class="code-editor-engine"
+    @contextmenu="onContextMenu"
     :style="{
       '--mk-cm-sel': theme === 'dark' ? '#264f78' : '#add6ff',
       '--mk-cm-caret': theme === 'dark' ? '#58a6ff' : '#0969da',

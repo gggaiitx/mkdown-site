@@ -3,8 +3,9 @@
  * ★ 编辑器内核适配层唯一实现文件（业务代码禁止直接 import md-editor-v3）。
  * 对外契约见 IMarkdownEngine.ts 注释；内核更换时仅改本文件。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineComponent, Fragment, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { MdEditor, MdPreview, type ToolbarNames } from 'md-editor-v3';
+import { Columns2 } from '@lucide/vue';
 // CM6 视图层：仅用 EditorView.scrollIntoView effect（纯数据 effect，跨实例安全，
 // 版本与内核同源扁平安装 6.43.x）。改用 TransactionSpec.scrollIntoView 会依赖 selection，
 // 而内核开了 scrollToSelection，改选区即被拉回视口 —— 滚动等于失效。
@@ -16,7 +17,7 @@ import '../styles/win-theme.css';
 
 import { savePastedImage } from '../api/imageApi';
 import { openUrl } from '../api/fileApi';
-import { modKey } from '../utils/keyHint';
+import { altHint, modKey } from '../utils/keyHint';
 import { extractOutline } from '../utils/outline';
 import type { EditorMode, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
@@ -74,6 +75,10 @@ const emit = defineEmits<{
   /** 编辑区右键：请求上层在 (x, y) 弹表格菜单（inTable=false 时只有「插入表格」）。
    *  引擎已把光标落到点击处，菜单项只需回调 tableOp / insertTable */
   (e: 'editorContext', pos: EditorCtxPayload): void;
+  /** 页面全屏状态上报（阅读态那套引擎根级全屏）：上层据此决定右缘大纲浮标的显隐 */
+  (e: 'pageFullscreen', on: boolean): void;
+  /** 功能栏「分栏预览」上报：模式真相源在应用层（顶栏三档同源），引擎只发请求 */
+  (e: 'requestMode', mode: EditorMode): void;
 }>();
 
 const rootRef = ref<HTMLElement | null>(null);
@@ -239,6 +244,12 @@ watch(
     resyncAnchor = null;
     switchStartedAt = performance.now();
     if (m === 'read') {
+      // 内核全屏挂在 .md-editor 上，而阅读态用 v-if 把编辑器整个换掉 → 全屏会凭空丢失
+      // （编辑态 F11 后按 Alt+R，画面直接退回普通窗口）。此刻实例仍在 DOM：
+      // 把状态接到引擎根节点 .engine-root.page-full，阅读态继续铺满，右缘大纲浮标也随之出现
+      if (!readPageFull.value && rootRef.value?.querySelector('.md-editor-fullscreen')) {
+        readPageFull.value = true;
+      }
       // edit/split → read：此刻编辑器实例仍在 DOM（v-if 未切换），锚定视口顶行；
       // MdPreview 挂载渲染完成后定位（onHtmlChanged 提前命中 + 轮询兜底）
       pendingAnchor = captureViewportAnchor();
@@ -249,6 +260,12 @@ watch(
       // read → edit/split：此刻阅读 DOM 仍在（v-if 未切换），锚定阅读视口位置；
       // MdEditor 重挂载后补位（不移动光标）
       pendingAnchor = captureReadAnchor();
+      // 反向接力：阅读态的根节点全屏交还给内核，功能栏那个全屏按钮的亮起状态才跟得上。
+      // MdEditor 是这次切换才重挂的，实例与 expose 要等几帧，故短轮询（同列宽补测的路子）
+      if (readPageFull.value) {
+        readPageFull.value = false;
+        handKernelFullscreen();
+      }
     } else {
       pendingAnchor = null; // edit ↔ split 同一实例，CM 自身保留滚动位置，无需干预
     }
@@ -278,8 +295,50 @@ const toolbars: ToolbarNames[] = [
   'bold', 'underline', 'italic', 'strikeThrough', 'sub', 'sup', '-',
   'title', 'quote', 'unorderedList', 'orderedList', 'task', '-',
   'codeRow', 'code', 'link', 'image', 'table', 'mermaid', 'katex', '-',
-  'revoke', 'next', 'save', '=', 'pageFullscreen',
+  'revoke', 'next', 'save', '=', 0, 'pageFullscreen',
 ];
+
+/**
+ * 全屏态「分栏预览」按钮。
+ *
+ * 为什么用数字占位：内核的 ToolbarNames = keyof ToolbarTips | number，
+ * toolbars 里出现数字 g 时，内核把 defToolbars[g] 克隆进那个位置（MdEditor.mjs 的
+ * resolve 分支），所以这是唯一能把自定义项钉在「pageFullscreen 之前」的合法途径
+ * ——直接传 defToolbars 插槽只会被追加到整条工具栏末尾。
+ *
+ * 点击只上报 requestMode，不在引擎内改 preview：模式真相源仍是应用层 editorStore，
+ * 顶栏三档、Alt+E/W/R、标签级模式记忆全部跟着走，不出现上面注释说的失同步入口。
+ */
+const SplitPreviewTool = defineComponent({
+  name: 'MkSplitPreviewTool',
+  // 内核克隆自定义工具节点时会塞 theme/previewTheme/language/codeTheme/insert，
+  // 关掉继承避免它们落到 DOM 上变成 language="[object Object]" 一类脏属性
+  inheritAttrs: false,
+  setup() {
+    return () => {
+      const on = props.mode === 'split';
+      // 快捷键提示：Alt+W 是应用层全局分发，全屏态同样有效（见 Workbench.onKeydown）
+      const hint = { k: altHint('W') };
+      const tip = on ? t('engine.exitSplit', hint) : t('engine.splitPreview', hint);
+      return h(
+        'button',
+        {
+          class: ['md-editor-toolbar-item', 'mk-split-tool', { 'md-editor-toolbar-active': on }],
+          type: 'button',
+          title: tip,
+          'aria-label': tip,
+          'aria-pressed': on ? 'true' : 'false',
+          onClick: () => emit('requestMode', on ? 'edit' : 'split'),
+        },
+        [h(Columns2, { class: 'md-editor-icon', 'aria-hidden': 'true' })],
+      );
+    };
+  },
+});
+/* 内核 prop 声明是 string | VNode，但运行时按 defToolbars[g] 取值时同时支持
+   「数组」与「children 为数组的 VNode」两条分支（MdEditor.mjs）。取后者：
+   Fragment 的 children 就是数组，类型上也满足声明，不用 as 绕开检查。 */
+const defToolbars = h(Fragment, [h(SplitPreviewTool)]);
 
 // ---- 大纲提取（跳过代码块内的 # 行；唯一实现在 utils/outline.ts，P2-20 去重）----
 let outlineTimer: ReturnType<typeof setTimeout> | null = null;
@@ -387,6 +446,36 @@ function scrollToLine(line: number, headingIndex = -1): void {
   });
 }
 
+/** 判定「读到哪一节」的基准线：滚动宿主顶边往下 12px，避免标题刚露头就提前选中 */
+const HEAD_ACTIVE_LINE = 12;
+
+/**
+ * 当前阅读位置对应的标题序号（滚动联动）。
+ * 量的是读者实际在看的那一栏：分栏 = 预览栏，阅读态 = 阅读栏；编辑态没有预览可看，
+ * 光标位置也不等于「读到哪」，故一律返回 -1（上层据此不选中任何一条）。
+ * 标题集合与过滤口径同 scrollToLine 的大纲跳转分支，两边序号必须严格一致。
+ */
+function activeHeadingIndex(): number {
+  const root = rootRef.value;
+  if (!root || props.mode === 'edit') return -1;
+  const host =
+    props.mode === 'read'
+      ? root.querySelector<HTMLElement>('.read-scroll')
+      : root.querySelector<HTMLElement>('.md-editor-preview-wrapper');
+  if (!host) return -1;
+  const heads = Array.from(host.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')).filter(
+    (h) => (h.textContent ?? '').trim(),
+  );
+  if (!heads.length) return -1;
+  const line = host.getBoundingClientRect().top + HEAD_ACTIVE_LINE;
+  let idx = 0;
+  for (let i = 0; i < heads.length; i++) {
+    if (heads[i].getBoundingClientRect().top <= line) idx = i;
+    else break;
+  }
+  return idx;
+}
+
 // ---- 文件内查找：关键词高亮（编辑/分栏 = CM6 装饰，阅读/预览 = DOM mark） ----
 const PV_MARK_CAP = 2000;
 
@@ -463,15 +552,17 @@ function applyPreviewMarks(keyword: string, caseSensitive: boolean): void {
 /** 最近一次预览高亮参数：预览内容变化（htmlChanged）后自动重涂 */
 let lastFind: { keyword: string; caseSensitive: boolean } | null = null;
 
-/** 设置查找高亮（编辑态 CM6 无视图时返回 false，属正常，由预览侧承担） */
-function highlight(keyword: string, caseSensitive = false): void {
+/** 设置查找高亮（编辑态 CM 无视图时返回 false，属正常，由预览侧承担）。
+ *  matchIndex = 当前命中序号：CM 侧据此强化标记并落成真实选区；
+ *  阅读态预览的 mark 走 DOM 文本节点，序号与面板的源码序号不同口径，故不参与 */
+function highlight(keyword: string, caseSensitive = false, matchIndex?: number): void {
   lastFind = keyword ? { keyword, caseSensitive } : null;
   // ★ 派发给自己的视图：三引擎常驻后 md 与代码引擎的 CM 实例会同时存活，
   //   旧的「模块级活跃视图」指针会被后挂载者占走，高亮就落到看不见的那个实例上
   const view = (editorRef.value as unknown as EditorWithView | null)?.getEditorView?.() as unknown as
     | EditorView
     | null;
-  setCmFind(view, { keyword, caseSensitive });
+  setCmFind(view, { keyword, caseSensitive, matchIndex });
   if (keyword) applyPreviewMarks(keyword, caseSensitive);
   else clearPreviewMarks();
 }
@@ -772,8 +863,41 @@ function onPasteTable(event: ClipboardEvent): void {
   }
 }
 
+/** 阅读态页面全屏：阅读态没有内核编辑器实例（自建 .read-scroll + MdPreview），
+ *  内核 pageFullscreen 在此无从下手，故由引擎根节点自己铺满视口（与 .mh 同机制同层级带）。
+ *  切回编辑/分栏态时交还给内核状态，两边不会同时生效 */
+const readPageFull = ref(false);
+watch(readPageFull, (on) => emit('pageFullscreen', on));
+
+/** 把阅读态交还回来的全屏补挂到内核实例上：MdEditor 是刚重挂的，实例可能还没就位，
+ *  最多补试 20 帧（约 320ms）。已经是全屏就收工，别把状态反向关掉。 */
+function handKernelFullscreen(attempt = 0): void {
+  if (rootRef.value?.querySelector('.md-editor-fullscreen')) return;
+  const md = editorRef.value as unknown as { togglePageFullscreen?: (v?: boolean) => void } | null;
+  if (md?.togglePageFullscreen) {
+    md.togglePageFullscreen(true);
+    // 这一枪可能正好落在实例尚未接好内部 setting 的那一帧：下一帧核对，没挂上就再叫一次
+    if (attempt < 8) {
+      void nextTick(() =>
+        requestAnimationFrame(() => {
+          if (!rootRef.value?.querySelector('.md-editor-fullscreen')) handKernelFullscreen(attempt + 1);
+        }),
+      );
+    }
+    return;
+  }
+  if (attempt < 20) {
+    void nextTick(() => requestAnimationFrame(() => handKernelFullscreen(attempt + 1)));
+  }
+}
+
 /** 切换编辑器页面内全屏（同工具栏 pageFullscreen 图标，F11 快捷键共用） */
 function togglePageFullscreen(): void {
+  if (props.mode === 'read') {
+    readPageFull.value = !readPageFull.value;
+    return;
+  }
+  readPageFull.value = false;
   const inst = editorRef.value as unknown as InsertApi | null;
   inst?.togglePageFullscreen?.();
 }
@@ -1000,6 +1124,7 @@ defineExpose({
   replaceDocText,
   captureScroll,
   restoreScroll,
+  activeHeadingIndex,
 });
 
 // ---- 光标跟踪（状态栏 L:C）：监听原生 selectionchange，经 rAF 节流后从 CM6 state 读取 ----
@@ -1338,7 +1463,7 @@ function onImgError(e: Event) {
   if (!t || t.tagName !== 'IMG') return;
   t.style.minWidth = '160px';
   t.style.minHeight = '60px';
-  t.style.outline = '2px dashed var(--mk-danger, #d9534f)';
+  t.style.outline = '2px dashed var(--mk-danger)';
   t.style.objectFit = 'contain';
   if (!t.alt) t.alt = '图片加载失败';
   t.title = `图片加载失败：${t.getAttribute('src') ?? ''}`;
@@ -1493,7 +1618,7 @@ onBeforeUnmount(() => {
   <div
     ref="rootRef"
     class="engine-root"
-    :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false, 'show-linenum': showLineNumbers === true }]"
+    :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false, 'show-linenum': showLineNumbers === true, 'page-full': readPageFull }]"
     :style="{ '--mk-editor-lh': editLineHeight, '--mk-ln-pad': colPad }"
   >
     <!-- 阅读态：独立滚动容器 + 居中阅读栏，内容可正常滚动；key 绑定 docPath+language，
@@ -1527,6 +1652,7 @@ onBeforeUnmount(() => {
       :scroll-auto="scrollSync !== false"
       :footers="[]"
       :toolbars="toolbars"
+      :def-toolbars="defToolbars"
       :class="editorClass"
       @on-change="(v: string) => emit('update:modelValue', v)"
       @on-save="(v: string) => emit('save', v)"
@@ -1557,6 +1683,14 @@ onBeforeUnmount(() => {
   height: 100%;
   width: 100%;
   overflow: hidden;
+}
+/* 阅读态页面全屏（见 readPageFull）：铺满视口，层级与 .mh 页面全屏同带——
+   压过顶栏 9500，低于浮层菜单 10110（右键菜单在全屏里仍要能弹出） */
+.engine-root.page-full {
+  position: fixed;
+  inset: 0;
+  z-index: var(--mk-z-engine-full);
+  background: var(--mk-bg);
 }
 .engine-editor {
   height: 100%;
@@ -1594,6 +1728,12 @@ onBeforeUnmount(() => {
   max-width: none;
   padding-inline: max(calc((100% - var(--mk-content-w, 940px)) / 2), 20px);
 }
+/* 分栏预览右缘给大纲浮标让位（--mk-rail-pad 由 Workbench 挂在 .editor-area 上，浮标不在时=原本的内核 20px）。
+   加在 .md-editor-preview 而不是滚动宿主上：滚动条要留在窗口右缘，只能让文字自己缩进。
+   排除 previewOnly——阅读态的留白由下面的 .read-column 管，两边不能叠 */
+.engine-root :deep(.md-editor:not(.md-editor-previewOnly) .md-editor-preview) {
+  padding-inline-end: var(--mk-rail-pad, 20px);
+}
 
 /* 阅读态：整栏滚动，内容居中限宽（列宽与编辑态一致，+80px 左右 padding） */
 .read-scroll {
@@ -1605,6 +1745,8 @@ onBeforeUnmount(() => {
   max-width: calc(var(--mk-content-w, 940px) + 80px);
   margin: 0 auto;
   padding: 0 40px 64px;
+  /* 浮标出现时右缘至少让出它的占位宽度（44px），没出现时保持原本的 40px */
+  padding-inline-end: max(40px, var(--mk-rail-pad, 40px));
 }
 .read-column :deep(.md-editor-preview),
 .read-column :deep(.md-editor-previewOnly) {
@@ -1645,8 +1787,8 @@ onBeforeUnmount(() => {
    暗色取中档 rgb(196,201,210)（#999 偏暗、rgb(232,233,238) 偏亮，两档均被否）。
    仅作用于 .cm-editor 子树，md-editor 工具栏/目录等 chrome 不受影响。 */
 .engine-root :deep(.cm-editor) {
-  color: var(--mk-editor-fg, var(--mk-fg));
-  --md-color: var(--mk-editor-fg, var(--mk-fg));
+  color: var(--mk-editor-fg);
+  --md-color: var(--mk-editor-fg);
 }
 .engine-root :deep(.cm-content) {
   font-family: Consolas, 'Cascadia Mono', 'Microsoft YaHei', monospace;
@@ -1743,28 +1885,20 @@ onBeforeUnmount(() => {
   background-color: var(--mk-hover);
 }
 
+/* 「分栏预览」只在页面全屏态出现：非全屏时顶栏三档已承担同一职责，
+   多摆一个按钮是双入口噪音。内核两种全屏都在 .md-editor 根节点挂 .md-editor-fullscreen */
+.engine-root :deep(.md-editor:not(.md-editor-fullscreen) .mk-split-tool) {
+  display: none;
+}
+
 /* 编辑态滚动条是 v7 自绘的（原生 cm-scroller 滚动条已被隐藏）：
    滑槽默认带 --md-scrollbar-bg-color 底色（亮 #e2e2e2），置透明只留滑块 */
 .engine-root :deep(.md-editor-custom-scrollbar__track) {
   background: transparent;
 }
-
-/* 暗色下的查找高亮底色（mark 在 .md-editor[data-theme] 子树内可继承该变量） */
-.engine-root :deep(.md-editor[data-theme='dark']) {
-  --mk-find-bg: rgba(255, 183, 77, 0.38);
-}
 </style>
 
 <style>
-/* ---- 文件内查找关键词高亮（非 scoped：CM6 装饰与预览 mark 均为动态插入 DOM） ---- */
-.mk-cm-find,
-mark.mk-pv-find {
-  background: var(--mk-find-bg, rgba(255, 200, 0, 0.42));
-  color: inherit;
-  border-radius: 2px;
-  padding: 0;
-}
-
 /* ---- 导出/打印 PDF（@media print 规则移植自 md-editor-v3 官方 ExportPDF.css） ----
    机制同官方：打印时隐藏 body 直下所有节点，仅显示导出宿主（Teleport 到 body 直下）。
    屏幕态宿主恒隐藏；打印态 !important 覆盖为可见。

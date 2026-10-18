@@ -184,6 +184,9 @@ watch(
   () => props.visible,
   (v) => {
     if (v) {
+      // Esc 走 document：@keydown 挂在不可聚焦的 .mask 上时，焦点还留在调用处，
+      // 按键冒泡不经过遮罩 → 键盘关不掉（与 AppDialog 同修）
+      document.addEventListener('keydown', onKey, true);
       resetResult();
       // 预设路径：仅当确为 .docx（防误把其它标签路径当源）；否则进拖拽/选择态
       if (props.sourcePath && /\.docx$/i.test(props.sourcePath)) {
@@ -192,12 +195,16 @@ watch(
         void bindDrop();
       }
     } else {
+      document.removeEventListener('keydown', onKey, true);
       unbindDrop();
     }
   },
 );
 
-onBeforeUnmount(unbindDrop);
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKey, true);
+  unbindDrop();
+});
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
@@ -250,7 +257,7 @@ function onOpenAfter() {
 </script>
 
 <template>
-  <div v-if="visible" class="mask" @keydown="onKey" @click.self="emit('close')">
+  <div v-if="visible" class="mask" @click.self="emit('close')">
     <div class="dialog" role="dialog" aria-modal="true">
       <div class="title">
         {{ titleText }}
@@ -331,8 +338,8 @@ function onOpenAfter() {
 
 <style scoped>
 .mask {
-  position: fixed; inset: 0; z-index: 30010;
-  background: rgba(0, 0, 0, 0.4);
+  position: fixed; inset: 0; z-index: var(--mk-z-dialog);
+  background: var(--mk-mask);
   display: flex; align-items: center; justify-content: center;
 }
 .dialog {
@@ -340,7 +347,7 @@ function onOpenAfter() {
   display: flex; flex-direction: column;
   background: var(--mk-panel); color: var(--mk-fg);
   border: 1px solid var(--mk-border); border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--mk-shadow-dialog);
   padding: 16px;
   box-sizing: border-box;
 }

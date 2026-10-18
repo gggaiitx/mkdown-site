@@ -396,30 +396,30 @@ function onDocKeydown(e: KeyboardEvent) {
       v-if="sidebarHidden"
       class="tb-btn tb-btn--icon tb-first"
       @click="emit('toggle-sidebar')"
-      :data-tip="t('toolbar.expandSidebar')"
+      v-tip="t('toolbar.expandSidebar')"
     >
       <PanelLeftOpen class="icon" />
     </button>
-    <button class="tb-btn tb-btn--text tb-first" @click="emit('open-file')" :data-tip="t('toolbar.openFileTip')">
+    <button class="tb-btn tb-btn--text tb-first" @click="emit('open-file')" v-tip="t('toolbar.openFileTip')">
       <FolderOpen class="icon" />
       <span class="label">{{ t('toolbar.openFile') }}</span>
     </button>
-    <button class="tb-btn tb-btn--text tb-open-ws" @click="emit('open-workspace')" :data-tip="t('toolbar.openWorkspaceTip')">
+    <button class="tb-btn tb-btn--text tb-open-ws" @click="emit('open-workspace')" v-tip="t('toolbar.openWorkspaceTip')">
       <Folder class="icon" />
       <span class="label">{{ t('toolbar.openWorkspace') }}</span>
     </button>
 
     <div class="divider" />
 
-    <button class="tb-btn tb-btn--text" @click="emit('new')" :data-tip="t('toolbar.newFileTip')">
+    <button class="tb-btn tb-btn--text" @click="emit('new')" v-tip="t('toolbar.newFileTip')">
       <FilePlus2 class="icon" />
       <span class="label">{{ t('toolbar.newFile') }}</span>
     </button>
-    <button class="tb-btn tb-btn--text" :disabled="!hasActive" @click="emit('save')" :data-tip="t('toolbar.saveTip')">
+    <button class="tb-btn tb-btn--text" :disabled="!hasActive" @click="emit('save')" v-tip="t('toolbar.saveTip')">
       <Save class="icon" />
       <span class="label">{{ t('toolbar.save') }}</span>
     </button>
-    <button class="tb-btn tb-btn--text tb-save-as" :disabled="!hasActive" @click="emit('save-as')" :data-tip="t('toolbar.saveAsTip')">
+    <button class="tb-btn tb-btn--text tb-save-as" :disabled="!hasActive" @click="emit('save-as')" v-tip="t('toolbar.saveAsTip')">
       <SaveAll class="icon" />
       <span class="label">{{ t('toolbar.saveAs') }}</span>
     </button>
@@ -439,7 +439,8 @@ function onDocKeydown(e: KeyboardEvent) {
         class="tb-btn tb-btn--icon"
         :class="{ 'tb-btn--active': mode === m.key }"
         :disabled="(codeTab && m.key !== 'edit') || (noSplit && m.key === 'split')"
-        :data-tip="(codeTab && m.key !== 'edit') || (noSplit && m.key === 'split') ? undefined : `${m.label} (${m.hint})`"
+        :aria-label="m.label"
+        v-tip="(codeTab && m.key !== 'edit') || (noSplit && m.key === 'split') ? undefined : `${m.label} (${m.hint})`"
         @click="emit('set-mode', m.key)"
       >
         <component :is="m.icon" class="icon" />
@@ -458,7 +459,7 @@ function onDocKeydown(e: KeyboardEvent) {
 
     <div class="flex-spacer" data-tauri-drag-region />
 
-    <button class="tb-btn tb-btn--icon" :class="{ 'tb-btn--active': searchActive }" @click="emit('search')" :data-tip="t('toolbar.searchTip')">
+    <button class="tb-btn tb-btn--icon" :class="{ 'tb-btn--active': searchActive }" @click="emit('search')" v-tip="t('toolbar.searchTip')">
       <Search class="icon" />
       <span v-if="searchActive" class="active-dot" />
     </button>
@@ -474,6 +475,9 @@ function onDocKeydown(e: KeyboardEvent) {
         ref="outBtnRef"
         class="tb-btn tb-btn--icon"
         :class="{ 'tb-btn--active': outOpen }"
+        :aria-label="t('toolbar.output')"
+        aria-haspopup="menu"
+        :aria-expanded="outOpen ? 'true' : 'false'"
         @click="toggleMenu('output')"
       >
         <Loader2 v-if="props.exporting" class="icon icon-spin" />
@@ -484,33 +488,33 @@ function onDocKeydown(e: KeyboardEvent) {
         <div
           v-if="outOpen"
           ref="outMenuRef"
-          class="output-menu"
+          class="mk-menu output-menu"
           :style="outMenuStyle"
         >
           <div class="om-group">{{ t('toolbar.groupExport') }}</div>
-          <button class="om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-html')">
+          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-html')">
             <FileCode2 class="om-ic" />
             <span class="om-label">{{ t('toolbar.exportHtml') }}</span>
           </button>
-          <button class="om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-word')">
+          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-word')">
             <FileText class="om-ic" />
             <span class="om-label">{{ t('toolbar.exportWord') }}</span>
           </button>
-          <button class="om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-pdf')">
+          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-pdf')">
             <FileType class="om-ic" />
             <span class="om-label">{{ t('toolbar.exportPdf') }}</span>
           </button>
           <div class="om-group">{{ t('toolbar.groupPrint') }}</div>
-          <button class="om-item" :disabled="!printable" @click="onOutputItem('print-pdf')">
+          <button class="mk-menu-item om-item" :disabled="!printable" @click="onOutputItem('print-pdf')">
             <Printer class="om-ic" />
             <span class="om-label">{{ t('toolbar.printPdf') }}</span>
           </button>
           <div class="om-group">{{ t('toolbar.groupConvert') }}</div>
-          <button class="om-item" @click="onOutputItem('word-to-md')">
+          <button class="mk-menu-item om-item" @click="onOutputItem('word-to-md')">
             <ArrowRightLeft class="om-ic" />
             <span class="om-label">{{ t('toolbar.wordToMd') }}</span>
           </button>
-          <button class="om-item" @click="onOutputItem('word-to-mh')">
+          <button class="mk-menu-item om-item" @click="onOutputItem('word-to-mh')">
             <ArrowRightLeft class="om-ic" />
             <span class="om-label">{{ t('toolbar.wordToMh') }}</span>
           </button>
@@ -521,24 +525,24 @@ function onDocKeydown(e: KeyboardEvent) {
     <div class="divider" />
 
     <div class="font-seg">
-      <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" :data-tip="t('toolbar.fontSmaller', { k: fontWheelHint })">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" v-tip="t('toolbar.fontSmaller', { k: fontWheelHint })">
         <Minus class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon tb-font-type" :data-tip="t('toolbar.fontSize')" disabled>
+      <button class="tb-btn tb-btn--icon tb-font-type" v-tip="t('toolbar.fontSize')" disabled>
         <Type class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" :data-tip="t('toolbar.fontLarger', { k: fontWheelHint })">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" v-tip="t('toolbar.fontLarger', { k: fontWheelHint })">
         <Plus class="icon icon-sm" />
       </button>
     </div>
 
     <div class="divider" />
 
-    <button class="tb-btn tb-btn--icon" @click="emit('toggle-theme')" :data-tip="theme === 'dark' ? t('toolbar.toLight') : t('toolbar.toDark')">
+    <button class="tb-btn tb-btn--icon" @click="emit('toggle-theme')" v-tip="theme === 'dark' ? t('toolbar.toLight') : t('toolbar.toDark')">
       <Sun v-if="theme === 'dark'" class="icon" />
       <Moon v-else class="icon" />
     </button>
-    <button class="tb-btn tb-btn--icon" @click="emit('settings')" :data-tip="t('toolbar.settings')">
+    <button class="tb-btn tb-btn--icon" @click="emit('settings')" v-tip="t('toolbar.settings')">
       <Settings class="icon" />
     </button>
     <a
@@ -546,7 +550,7 @@ function onDocKeydown(e: KeyboardEvent) {
       href="https://github.com/gggaiitx/mkdown-site"
       target="_blank"
       rel="noopener noreferrer"
-      :data-tip="t('toolbar.githubRepo')"
+      v-tip="t('toolbar.githubRepo')"
       @click.prevent="emit('github')"
     >
       <svg class="icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -556,7 +560,8 @@ function onDocKeydown(e: KeyboardEvent) {
     <button
       class="tb-btn tb-btn--icon"
       :class="{ 'tb-btn--active': updateState === 'available' }"
-      :data-tip="updateTip"
+      :aria-label="t('toolbar.checkUpdate')"
+      v-tip="updateTip"
       @click="onUpdateClick"
     >
       <!-- 下载中：总量已知时进度环直接内嵌在更新图标位（环心显示百分比数字）；未知总量退回转圈 -->
@@ -608,14 +613,14 @@ function onDocKeydown(e: KeyboardEvent) {
     <!-- 窗口控制：macOS 由系统红绿灯接管，不再自绘 -->
     <template v-if="!isMac">
       <div class="divider" />
-      <button class="tb-btn tb-btn--icon win-btn" :data-tip="t('toolbar.minimize')" @click="minimize">
+      <button class="tb-btn tb-btn--icon win-btn" v-tip="t('toolbar.minimize')" @click="minimize">
         <WinMin class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon win-btn" :data-tip="isMaximized ? t('toolbar.restore') : t('toolbar.maximize')" @click="toggleMaximize">
+      <button class="tb-btn tb-btn--icon win-btn" v-tip="isMaximized ? t('toolbar.restore') : t('toolbar.maximize')" @click="toggleMaximize">
         <Copy v-if="isMaximized" class="icon icon-sm" />
         <Square v-else class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon win-btn win-btn--close" :data-tip="t('toolbar.close')" @click="closeWindow">
+      <button class="tb-btn tb-btn--icon win-btn win-btn--close" v-tip="t('toolbar.close')" @click="closeWindow">
         <X class="icon icon-sm" />
       </button>
     </template>
@@ -761,19 +766,9 @@ function onDocKeydown(e: KeyboardEvent) {
 /* 菜单经 Teleport 挂到 body，用 fixed + 内联 top/right（由 trigger 坐标推导）定位，
    彻底脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪（否则向下展开的部分会被整片切掉） */
 .output-wrap { position: relative; display: inline-flex; flex: none; }
+/* 输出下拉：外观走 global.css 的 .mk-menu / .mk-menu-item（与右键菜单同一份规格），
+   这里只留展开动效与分组标题、图标配色三点本地行为 */
 .output-menu {
-  position: fixed;
-  z-index: 9000;
-  /* 宽度适配内容：随最长菜单项收缩，不再固定 220px */
-  width: max-content;
-  min-width: 150px;
-  max-width: calc(100vw - 16px);
-  padding: 6px 0;
-  background: var(--mk-panel, #fff);
-  border: 1px solid var(--mk-border);
-  border-radius: var(--mk-radius-sm, 6px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
-  /* 展开动效：淡入 + 轻微下滑（v-if 挂载即播放，Teleport 后 scoped 属性仍在） */
   animation: om-in 130ms ease-out;
 }
 @keyframes om-in {
@@ -781,30 +776,15 @@ function onDocKeydown(e: KeyboardEvent) {
   to { opacity: 1; transform: none; }
 }
 .output-menu .om-group {
-  padding: 6px 12px 2px;
+  /* 左内距与 .mk-menu-item 的 10px 对齐：分组标题与条目文字在同一条竖线上 */
+  padding: 6px 10px 2px;
   font-size: 10.5px;
   color: var(--mk-fg-muted);
   letter-spacing: 0.02em;
   user-select: none;
 }
-.output-menu .om-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 12px;
-  border: none;
-  background: transparent;
-  color: var(--mk-fg);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  text-align: left;
-}
-.output-menu .om-item:hover:not(:disabled) { background: var(--mk-hover); }
-.output-menu .om-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .output-menu .om-ic { width: 14px; height: 14px; color: var(--mk-fg-muted); flex: none; }
-.output-menu .om-item:hover:not(:disabled) .om-ic { color: var(--mk-fg); }
+.output-menu .mk-menu-item:hover:not(:disabled) .om-ic { color: var(--mk-fg); }
 .output-menu .om-label { flex: 1; }
 /* 模式位置=居中（设置-外观「模式位置」，默认）：三按钮组脱离左侧功能流，
    绝对定位于顶栏水平中心（tb-main 与 toolbar 垂直同心，top 50% 即垂直居中）。

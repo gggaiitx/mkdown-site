@@ -27,15 +27,15 @@ const layoutTheme = EditorView.theme({
     overflow: 'auto',
   },
   '.cm-content': {
-    caretColor: 'var(--mk-cm-caret, var(--mk-accent))',
+    caretColor: 'var(--mk-cm-caret)',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: 'var(--mk-cm-caret, var(--mk-accent))',
+    borderLeftColor: 'var(--mk-cm-caret)',
     borderLeftWidth: '2px',
   },
   '&.cm-focused': { outline: 'none' },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'var(--mk-cm-sel, var(--mk-accent-weak)) !important',
+    backgroundColor: 'var(--mk-cm-sel) !important',
   },
   '.cm-gutters': {
     backgroundColor: 'var(--mk-bg)',
@@ -46,8 +46,8 @@ const layoutTheme = EditorView.theme({
   },
   /* 当前行高亮必须半透明：CM6 选区层 z-index=-2 画在行背景之下，
      不透明背景（如 --mk-panel-muted）会把拖选的选区整段盖住 */
-  '.cm-activeLine': { backgroundColor: 'var(--mk-cm-active, rgba(0, 0, 0, 0.045))' },
-  '.cm-activeLineGutter': { backgroundColor: 'var(--mk-cm-active, rgba(0, 0, 0, 0.045))' },
+  '.cm-activeLine': { backgroundColor: 'var(--mk-cm-active)' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--mk-cm-active)' },
   '.cm-selectionMatch': { backgroundColor: 'var(--mk-accent-weak)' },
   '.cm-tooltip': {
     backgroundColor: 'var(--mk-panel)',

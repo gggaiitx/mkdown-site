@@ -15,6 +15,13 @@ const { t } = useI18n();
 
 const emit = defineEmits<{ (e: 'close'): void }>();
 
+/* Esc 关闭设置面板：此前没有任何 Esc 通路（F1 打开后只能再按 F1 或点 ×） */
+function onEsc(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close');
+}
+document.addEventListener('keydown', onEsc);
+onBeforeUnmount(() => document.removeEventListener('keydown', onEsc));
+
 /** 顶栏 GitHub 入口同款仓库地址 */
 const GITHUB_URL = 'https://github.com/gggaiitx/mkdown-site';
 function openGithub() {
@@ -199,7 +206,14 @@ onBeforeUnmount(onDragEnd);
 
 <template>
   <div class="mask" @click.self="emit('close')">
-    <div ref="dialogRef" class="dialog" :style="pos ? { position: 'fixed', left: `${pos.x}px`, top: `${pos.y}px` } : undefined">
+    <div
+      ref="dialogRef"
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('settings.title')"
+      :style="pos ? { position: 'fixed', left: `${pos.x}px`, top: `${pos.y}px` } : undefined"
+    >
       <div class="head" :title="t('settings.dragHint')" @pointerdown="onDragStart">
         <span class="head-title">{{ t('settings.title') }}</span>
         <button class="close" :title="t('settings.close')" @click="emit('close')">×</button>
@@ -258,6 +272,16 @@ onBeforeUnmount(onDragEnd);
                 :value="settings.settings.fontSize"
                 @change="patch({ fontSize: Number(($event.target as HTMLInputElement).value) })"
               />
+            </div>
+            <div class="row">
+              <label>{{ t('settings.outlineStyle') }}</label>
+              <select
+                :value="settings.settings.outlineStyle"
+                @change="patch({ outlineStyle: ($event.target as HTMLSelectElement).value as AppSettings['outlineStyle'] })"
+              >
+                <option value="classic">{{ t('settings.outlineClassic') }}</option>
+                <option value="fresh">{{ t('settings.outlineFresh') }}</option>
+              </select>
             </div>
             <div class="row">
               <label>{{ t('settings.language') }}</label>
@@ -498,8 +522,8 @@ onBeforeUnmount(onDragEnd);
 
 <style scoped>
 .mask {
-  position: fixed; inset: 0; z-index: 30000;
-  background: rgba(0, 0, 0, 0.4);
+  position: fixed; inset: 0; z-index: var(--mk-z-settings);
+  background: var(--mk-mask);
   display: flex; align-items: center; justify-content: center;
 }
 .dialog {
@@ -507,7 +531,7 @@ onBeforeUnmount(onDragEnd);
   display: flex; flex-direction: column;
   background: var(--mk-panel); color: var(--mk-fg);
   border: 1px solid var(--mk-border); border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--mk-shadow-dialog);
   overflow: hidden;
 }
 .head {

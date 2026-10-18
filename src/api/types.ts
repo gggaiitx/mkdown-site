@@ -100,6 +100,9 @@ export interface AppSettings {
   focusMode: boolean;
   /** 显示行号：Markdown 编辑窗格左侧画一列行号（数字取自每行 data-ln 属性，代码引擎由 basicSetup 自带） */
   showLineNumbers: boolean;
+  /** 大纲呈现方式：classic = 右侧面板 / fresh = 视口右缘的短横线浮标（出厂默认，
+   *  md 双栏与阅读态、.mh 阅读态通用） */
+  outlineStyle: 'classic' | 'fresh';
   /** 新建文件默认格式：markdown→.md（默认）/ wangeditor→.mh；不影响已打开文件 */
   editorEngine: EditorKernel;
   /** 导出 Word 正文字体基线（D2）：中文字体 */
@@ -132,6 +135,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showToolbar: true,
   focusMode: false,
   showLineNumbers: false,
+  outlineStyle: 'fresh',
   editorEngine: 'markdown',
   wordFontZh: '等线',
   wordFontEn: 'Calibri',

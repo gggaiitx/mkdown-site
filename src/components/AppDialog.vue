@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { useI18n } from '../i18n';
 
 const { t } = useI18n();
@@ -35,19 +35,71 @@ watch(
   },
 );
 
+/* ---- 键盘路径 ----
+   此前 @keydown 挂在 .mask 上，而 .mask 不可聚焦、也没有焦点管理：
+   非输入框的确认框（删除文件、丢弃改动…）打开后焦点仍留在遮罩后面的调用处，
+   Esc 的冒泡路径根本不经过 .mask → 键盘关不掉，Tab 还会跑到遮罩背后。
+   现在：可见期间监听 document 按键，打开时把焦点收进对话框，关闭后还给调用处。 */
+const titleId = useId();
+const dialogRef = ref<HTMLElement | null>(null);
+let restoreFocusTo: HTMLElement | null = null;
+
+watch(
+  () => props.visible,
+  async (v) => {
+    if (v) {
+      restoreFocusTo = document.activeElement as HTMLElement | null;
+      document.addEventListener('keydown', onKey, true);
+      await nextTick();
+      const first = dialogRef.value?.querySelector<HTMLElement>('.ipt');
+      (first ?? dialogRef.value)?.focus();
+    } else {
+      document.removeEventListener('keydown', onKey, true);
+      restoreFocusTo?.focus?.();
+      restoreFocusTo = null;
+    }
+  },
+);
+onBeforeUnmount(() => document.removeEventListener('keydown', onKey, true));
+
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') emit('cancel');
-  if (e.key === 'Enter' && props.input) emit('confirm', val.value);
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    emit('cancel');
+  } else if (e.key === 'Enter' && props.input) {
+    emit('confirm', val.value);
+  } else if (e.key === 'Tab') {
+    trapTab(e);
+  }
 }
+
+/** 最小焦点陷阱：Tab 在对话框内首尾循环，不跑到遮罩背后 */
+function trapTab(e: KeyboardEvent) {
+  const items = dialogRef.value?.querySelectorAll<HTMLElement>(
+    'button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+  );
+  if (!items?.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey && (active === first || active === dialogRef.value)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 function submit() {
   emit('confirm', val.value);
 }
 </script>
 
 <template>
-  <div v-if="visible" class="mask" @keydown="onKey" @click.self="emit('cancel')">
-    <div class="dialog" role="dialog" aria-modal="true">
-      <div class="title">{{ title }}</div>
+  <div v-if="visible" class="mask" @click.self="emit('cancel')">
+    <div ref="dialogRef" class="dialog" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
+      <div class="title" :id="titleId">{{ title }}</div>
       <div class="body">
         <p v-if="message" class="msg">{{ message }}</p>
         <input
@@ -71,17 +123,19 @@ function submit() {
 
 <style scoped>
 .mask {
-  position: fixed; inset: 0; z-index: 30010;
-  background: rgba(0, 0, 0, 0.4);
+  position: fixed; inset: 0; z-index: var(--mk-z-dialog);
+  background: var(--mk-mask);
   display: flex; align-items: center; justify-content: center;
 }
 .dialog {
   width: 380px; max-width: 90vw;
   background: var(--mk-panel); color: var(--mk-fg);
   border: 1px solid var(--mk-border); border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--mk-shadow-dialog);
   padding: 16px;
 }
+/* 容器只是键盘落点（tabindex="-1"），不需要整框焦点环 */
+.dialog:focus { outline: none; }
 .title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
 .msg { font-size: 13px; line-height: 1.6; margin: 0 0 8px; color: var(--mk-fg); }
 .ipt {

@@ -103,7 +103,7 @@ watch(() => props.path, load);
   display: flex;
   gap: 2px;
   padding: 6px 10px 0;
-  border-bottom: 1px solid var(--mk-border, #e0e0e0);
+  border-bottom: 1px solid var(--mk-border);
   overflow-x: auto;
   flex: none;
 }
@@ -112,7 +112,7 @@ watch(() => props.path, load);
   border: 1px solid transparent;
   border-bottom: none;
   background: transparent;
-  color: var(--mk-fg-soft, #666);
+  color: var(--mk-fg-soft);
   font-size: 12px;
   padding: 4px 12px;
   border-radius: 6px 6px 0 0;
@@ -120,9 +120,9 @@ watch(() => props.path, load);
   white-space: nowrap;
 }
 .sheet-tab.active {
-  background: var(--mk-panel, #fff);
-  border-color: var(--mk-border, #e0e0e0);
-  color: var(--mk-fg, #24292f);
+  background: var(--mk-panel);
+  border-color: var(--mk-border);
+  color: var(--mk-fg);
   font-weight: 600;
 }
 .sheet-scroll {
@@ -136,14 +136,14 @@ watch(() => props.path, load);
   font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
 }
 .sheet-scroll :deep(td) {
-  border: 1px solid var(--mk-border, #d0d7de);
+  border: 1px solid var(--mk-border);
   padding: 4px 10px;
   min-width: 48px;
   white-space: nowrap;
-  color: var(--mk-fg, #24292f);
+  color: var(--mk-fg);
 }
 .sheet-scroll :deep(tr:first-child td) {
-  background: var(--mk-panel-soft, #f6f8fa);
+  background: var(--mk-panel-soft);
   font-weight: 600;
   position: sticky;
   top: 0;
@@ -152,15 +152,15 @@ watch(() => props.path, load);
 .pv-error {
   padding: 48px 24px;
   text-align: center;
-  color: var(--mk-fg-soft, #666);
+  color: var(--mk-fg-soft);
   font-size: 14px;
 }
 .pv-error {
-  color: var(--mk-danger, #d9534f);
+  color: var(--mk-danger);
 }
 .pv-error-sub {
   margin-top: 8px;
-  color: var(--mk-fg-soft, #888);
+  color: var(--mk-fg-soft);
   font-size: 12px;
 }
 </style>

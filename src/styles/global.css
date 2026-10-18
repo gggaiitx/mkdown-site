@@ -6,6 +6,7 @@
   /* 编辑态（CodeMirror 窗格）正文：亮色与预览 default 主题一致（#3f4a54），
      暗色在 #999（过暗）与 rgb(232,233,238)（过亮）之间取中档 */
   --mk-editor-fg: rgb(63 74 84);
+  --mk-editor-lh: 1.75;                 /* 编辑态行距：内核与 .mh 共用同一旋钮 */
 
   /* 亮色（对齐 DBX :root） */
   --mk-bg: rgb(255 255 255);            /* content 背景 */
@@ -32,6 +33,45 @@
   --mk-tip-fg: rgb(240 240 240);
   --mk-radius: 6px;
   --mk-radius-sm: 4px;
+
+  /* 次级提示文字（预览浮层/占位/说明）：与 --mk-fg-muted 同源，
+     曾经只以 var(--mk-fg-soft, #666) 的兜底形式存在，暗色下退化成 #666（对比 3.2:1 不达标） */
+  --mk-fg-soft: var(--mk-fg-muted);
+  --mk-panel-soft: rgb(246 248 250);    /* 表头/次级浮层底 */
+  --mk-bg-input: var(--mk-bg);          /* 浮层内的小输入框底 */
+
+  /* CodeMirror 三态：光标 / 选区 / 当前行。同样曾只活在 codeTheme.ts 的兜底里，
+     其中当前行的兜底 rgba(0,0,0,.045) 叠在暗色窗格上对比 1.008:1 = 完全不可见 */
+  --mk-cm-caret: var(--mk-accent);
+  --mk-cm-sel: rgb(23 23 23 / 0.10);
+  --mk-cm-active: rgb(0 0 0 / 0.045);
+
+  /* 文件内查找：全部命中底色 / 当前命中下划线色（CM6 装饰，md 与代码引擎共用）。
+     此前 --mk-find-bg 只在 md 引擎暗色子树里定义过一份，代码引擎与整个亮色主题
+     拿到的是空变量 → 装饰画了却完全看不见。色值与 .mh 的 ::highlight(mk-find) 对齐 */
+  --mk-find-bg: rgb(255 196 0 / 0.55);
+  --mk-find-cur-bg: rgb(255 128 0 / 0.8);
+
+  /* 高度：浮层 / 对话框两级投影 + 遮罩 */
+  --mk-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.18);
+  --mk-shadow-dialog: 0 12px 40px rgb(0 0 0 / 0.25);
+  --mk-shadow-tip: 0 4px 14px rgb(0 0 0 / 0.28);
+  --mk-mask: rgb(0 0 0 / 0.4);
+
+  /* 焦点环：所有可聚焦控件共用一份规格（此前 5 个文件各写各的 1px/2px/muted 色） */
+  --mk-focus-ring: 2px solid var(--mk-accent);
+
+  /* 层级带。内核「页面全屏」层是 z-index 10000 的 fixed 铺满层（md 内核）/ 9600（.mh 自绘），
+     凡需要浮在编辑器之上的应用浮层，必须进 10100+ 这一段，别再手写裸数字 */
+  --mk-z-toolbar: 9500;                 /* 顶栏：盖住下方侧栏/标签栏/编辑器 */
+  --mk-z-engine-full: 9600;             /* .mh 引擎页面全屏层：压过顶栏，低于菜单带 */
+  --mk-z-panel: 10100;                  /* 搜索面板 */
+  --mk-z-rail: 10105;                   /* 全屏阅读态的大纲浮标：压过全屏层，低于菜单 */
+  --mk-z-menu: 10110;                   /* 所有浮层菜单（右键/溢出/下拉/二级飞窗） */
+  --mk-z-toast: 10120;                  /* 轻提示 */
+  --mk-z-settings: 30000;               /* 设置面板：低于确认框，让对话框能盖在它上面 */
+  --mk-z-dialog: 30010;                 /* 对话框遮罩 */
+  --mk-z-tip: 99999;                    /* 气泡提示：永远在最上 */
 
   /* md 预览代码块高亮 token 色（GitHub Light 官方主题值，见文件末 .hljs-* 规则）。
      内核 hljs 已本地化（mdRendererConfig.ts），CDN 主题 link 不再注入，配色在此自管 */
@@ -75,6 +115,17 @@
   --mk-tip-bg: rgb(238 238 240);        /* 气泡提示：暗色主题反转为浅底 */
   --mk-tip-fg: rgb(28 28 30);
   --mk-editor-fg: rgb(196 201 210);     /* 编辑态正文：中档亮度（亮 #3f4a54 / 暗 #e8e9ee 均被否） */
+
+  /* 暗色下的次级面：全部跟着主题走，不留任何"浅底兜底" */
+  --mk-panel-soft: rgb(34 35 39);
+  --mk-bg-input: rgb(32 33 37);
+  --mk-cm-sel: rgb(208 208 214 / 0.18);
+  --mk-cm-active: rgb(255 255 255 / 0.055);
+  --mk-find-bg: rgb(184 115 0 / 0.6);
+  --mk-find-cur-bg: rgb(230 100 0 / 0.85);
+  --mk-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.5);
+  --mk-shadow-dialog: 0 12px 40px rgb(0 0 0 / 0.6);
+  --mk-mask: rgb(0 0 0 / 0.55);
 
   /* 代码块高亮 token 色：GitHub Dark 官方主题值（亮色默认值见 :root） */
   --hl-keyword: #ff7b72;
@@ -194,6 +245,15 @@ body.mk-col-dragging iframe {
   min-height: 0;
   background: var(--mk-bg);
 }
+/* 代码/文本引擎（含 html·svg 三形态）的页面全屏：该引擎没有自己的全屏实现，
+   由 Workbench 在 .editor-area 上挂类。选这个盒子而不是引擎根节点，是因为分栏态
+   代码窗格与 Frame 同属它——只全屏根节点会把预览 Frame 丢在外面。
+   层级与 .mh / md 阅读态页面全屏同带：压过顶栏 9500，低于浮层菜单 10110 */
+.workbench .editor-area.page-full {
+  position: fixed;
+  inset: 0;
+  z-index: var(--mk-z-engine-full);
+}
 /* 标签右键「刷新」完成后的内容区淡入反馈（0.35→1，480ms 内复位） */
 .workbench .editor-area.area-reloading {
   animation: area-reload-flash 0.45s ease;
@@ -203,29 +263,22 @@ body.mk-col-dragging iframe {
   to { opacity: 1; }
 }
 
-/* ---- 工作区隐藏后的左缘复原边线（拖动向右展开，交互同大纲面板） ---- */
+/* ---- 工作区隐藏后的左缘复原入口（0 宽不占位、不画线） ---- */
 .workbench .ws-restore {
   position: relative;
   flex: none;
-  width: 4px;
+  width: 0;
   cursor: col-resize;
-  background: var(--mk-panel);
 }
-.workbench .ws-restore-line {
+/* 命中区：只在标签栏那一行向右伸 4px。.tabbar 有 8px 左内边距、第一个标签从第 9px 起，
+   且此列高之外不再扩张，故不会吃掉编辑区左缘与任何标签的点击 */
+.workbench .ws-restore::before {
+  content: '';
   position: absolute;
-  /* 贴复原条右缘（left:3.5 居中会在竖线与标签栏底线/功能栏底线之间留 3.5px 面板底，
-     永远接不上）；贴右缘后与 .center 内所有横向 chrome 线端点相接，
-     且与大纲面板隐藏态边线（跨编辑区右缘）位置对称 */
-  left: auto;
-  right: 0;
+  left: 0;
   top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--mk-border);
-  transition: background-color 120ms ease;
-}
-.workbench .ws-restore:hover .ws-restore-line {
-  background: var(--mk-accent);
+  width: 4px;
+  height: 34px;
 }
 
 /* ---- 文本类标签容器（md / 代码 / 富文本三引擎 + html/svg Frame）----
@@ -270,8 +323,8 @@ body.mk-col-dragging iframe {
   right: 16px;
   bottom: 34px;
   /* 10100+ 层级带：编辑器「页面全屏」层是 z-index 10000 的 fixed 铺满层，
-     旧的 200 会全屏后看不见轻提示（见 EditorCtxMenu.vue .ctx-menu 同注释） */
-  z-index: 10120;
+     旧的 200 会全屏后看不见轻提示（见 --mk-z-menu 注释） */
+  z-index: var(--mk-z-toast);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -285,11 +338,11 @@ body.mk-col-dragging iframe {
   background: var(--mk-panel);
   color: var(--mk-fg);
   border: 1px solid var(--mk-border);
-  border-radius: 8px;
+  border-radius: var(--mk-radius);
   padding: 9px 12px;
   font-size: 12.5px;
   line-height: 1.55;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  box-shadow: var(--mk-shadow-pop);
   cursor: pointer; /* 点击立即关闭 */
   word-break: break-word;
 }
@@ -320,11 +373,98 @@ body.mk-col-dragging iframe {
 .toast-move { transition: transform 0.22s ease; }
 
 /* ---- 气泡提示：JS 浮动方案（FloatTip.vue，Teleport 到 body 不受 overflow 裁剪） ---- */
-/* 用法：元素加 data-tip="文案"；对齐由 FloatTip 按 .win-btn（右）/ .tb-first·.row（左）/ 默认居中 决定 */
+/* 用法：元素写 v-tip="文案"（src/utils/vTip.ts 落 data-tip 并给纯图标控件补 aria-label）；
+   对齐由 FloatTip 按 .win-btn（右）/ .tb-first·.row（左）/ 默认居中 决定 */
 /* 工具栏自身抬层：确保工具栏及内部下拉盖过下方侧栏/标签栏/编辑器 */
 .toolbar {
   position: relative;
-  z-index: 9500;
+  z-index: var(--mk-z-toolbar);
+}
+
+/* ---- 焦点环兜底规格：任何按钮键盘聚焦都看得见同一款环 ----
+   此前只有 5 个文件各自写了 :focus-visible（1px / 2px / muted 色混用），
+   顶栏、标签栏、大纲、预览控件全靠 UA 默认环。组件如需不同偏移可用类选择器覆盖（特异性更高） */
+button:focus-visible {
+  outline: var(--mk-focus-ring);
+  outline-offset: -2px;
+}
+
+/* ---- 浮层菜单：全应用唯一一份规格 ----
+   此前 .ctx-menu（TabBar / FileTree / 编辑区右键）、.ov-menu、.ws-menu、.output-menu
+   六处各写各的：底色 --mk-panel vs --mk-bg、内距 4px vs 5px vs 6px 0、最小宽 150/160/220、
+   投影 /0.2 vs /0.14、层级 30/90/9000/10110。收敛到 .mk-menu + .mk-menu-item，
+   各组件的 scoped 样式只保留真正独有的行为（定位锚点、滚动上限、分组标题、飞窗）。
+   用法：根元素 class="mk-menu"（需要额外行为再加自己的类），条目 class="mk-menu-item"。 */
+.mk-menu {
+  position: fixed;
+  z-index: var(--mk-z-menu);
+  min-width: 150px;
+  /* max-content：fixed 未设宽时 shrink-to-fit 会被「视口宽 - left」压缩，
+     菜单文案折行，且 useCtxMenu 夹紧公式用的正是这个被压窄的测量值（TabBar/FileTree 踩过） */
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  background: var(--mk-panel);
+  color: var(--mk-fg);
+  border: 1px solid var(--mk-border);
+  border-radius: var(--mk-radius);
+  box-shadow: var(--mk-shadow-pop);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.mk-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 168px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: var(--mk-fg);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: var(--mk-radius-sm);
+  cursor: pointer;
+  white-space: nowrap; /* 兜底：菜单文案任何情况下不折行 */
+}
+.mk-menu-item:hover:not(:disabled) { background: var(--mk-hover); }
+.mk-menu-item:focus-visible { outline: var(--mk-focus-ring); outline-offset: -2px; }
+.mk-menu-item:active:not(:disabled) { background: var(--mk-active); }
+.mk-menu-item:disabled { opacity: 0.4; cursor: default; }
+.mk-menu-item.danger { color: var(--mk-danger); }
+.mk-menu-sep { height: 1px; background: var(--mk-border); margin: 4px 6px; }
+.mk-menu-ico { width: 13px; height: 13px; flex: none; opacity: 0.75; }
+.mk-menu-key {
+  margin-left: auto;
+  padding-left: 14px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--mk-fg-muted);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ---- 动效兜底：系统「减少动态效果」下关掉过渡与位移，保留淡入淡出以外的可读反馈 ----
+   此前全项目只有 FileTree 一处 reduce 兜底，toast 位移、刷新闪白、下拉下滑全裸 */
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toast-enter-active,
+  .toast-leave-active,
+  .toast-move,
+  .mk-focus-dim {
+    transition: none !important;
+  }
+  .toast-enter-from,
+  .toast-leave-to {
+    transform: none;
+  }
+  .workbench .editor-area.area-reloading {
+    animation: none;
+  }
+  .mk-menu {
+    animation: none !important;
+  }
 }
 
 /* 打印（导出 PDF）样式已迁移：md-editor-v3 官方 ExportPDF 组件（@vavt/v3-extension）
@@ -348,6 +488,26 @@ body.mk-col-dragging iframe {
 }
 .workbench.dark ::highlight(mk-find-cur) {
   background-color: rgba(230, 100, 0, 0.85);
+}
+
+/* ---- 文件内查找高亮（CM6 mark 装饰：md 编辑/分栏 + 代码引擎）----
+   配色与上面 .mh 的 Custom Highlight 同一套，走 --mk-find-* token。
+   这段原先写在 MdEditorV3Engine 的 SFC 里：底色变量只在 md 暗色子树定义过，
+   于是代码引擎与整个亮色主题的命中「画了但看不见」 */
+.mk-cm-find,
+mark.mk-pv-find {
+  background: var(--mk-find-bg);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0;
+}
+/* 当前命中：不铺底色，让引擎的真实选区（--mk-cm-sel）露出来，只用一条橙色下划线标出"就是这一条"。
+   铺底会把选区整个盖住（实测 mark 的 background 画在选区层之上），观感退回"看不出选中" */
+.mk-cm-find-cur {
+  background: transparent;
+  text-decoration: underline;
+  text-decoration-color: var(--mk-find-cur-bg);
+  text-decoration-thickness: 2px;
 }
 
 /* ---- 专注模式（设置-编辑器「专注模式」）：非当前段落淡出 ----

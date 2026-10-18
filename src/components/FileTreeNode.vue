@@ -78,7 +78,7 @@ const hint = isDir ? '' : KIND_HINT[kind];
       :class="{ selected: ws.selectedPath === node.path }"
       :style="{ paddingLeft: `${depth * 16 + 25}px` }"
       :data-path="node.path"
-      :data-tip="`${node.name} · ${hint}`"
+      v-tip="`${node.name} · ${hint}`"
       @click="ws.select(node.path); emit('open-file', node.path)"
       @dblclick="emit('open-file-dbl', node.path)"
       @contextmenu="emit('ctx', $event, node)"

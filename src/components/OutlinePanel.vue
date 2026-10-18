@@ -111,7 +111,7 @@ onBeforeUnmount(() => {
           v-for="item in editor.outline"
           :key="`${item.index}-${item.line}`"
           class="ol-item"
-          :class="`lv${Math.min(item.level, 4)}`"
+          :class="[`lv${Math.min(item.level, 4)}`, { on: editor.activeHeading === item.index }]"
           :style="{ paddingLeft: `${(item.level - 1) * 14 + 10}px` }"
           :title="t('outline.lineTip', { line: item.line })"
           @click="emit('goto', item)"
@@ -238,5 +238,10 @@ onBeforeUnmount(() => {
 .ol-item.lv3 .text { font-weight: 400; }
 .ol-item.lv4 .text { font-weight: 400; color: var(--mk-fg-muted); }
 .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 当前阅读位置（滚动联动，序号由 Workbench 量测写入 editor.activeHeading）：
+   底色提亮 + 圆点换成强调色，层级排版保持不变 */
+.ol-item.on { background: var(--mk-hover); }
+.ol-item.on .dot { background: var(--mk-accent); }
+.ol-item.on .text { color: var(--mk-fg); font-weight: 600; }
 .empty { padding: 18px 12px; font-size: 13px; color: var(--mk-fg-muted); }
 </style>

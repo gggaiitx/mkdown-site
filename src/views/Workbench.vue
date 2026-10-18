@@ -12,6 +12,7 @@ import Toolbar from '../components/Toolbar.vue';
 import TabBar from '../components/TabBar.vue';
 import StatusBar from '../components/StatusBar.vue';
 import OutlinePanel from '../components/OutlinePanel.vue';
+import OutlineRail from '../components/OutlineRail.vue';
 import FileTree from '../components/FileTree.vue';
 import SearchHub from '../components/SearchHub.vue';
 import SettingsDialog from '../components/SettingsDialog.vue';
@@ -31,6 +32,7 @@ import SvgFrame from '../components/preview/SvgFrame.vue';
 import { MdEditorV3Engine, CodeEditorEngine, WangEditorEngine, type EngineHandle } from '../adapters';
 import { cancelScrollRestore } from '../adapters/scrollRestore';
 import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
+import { modHint } from '../utils/keyHint';
 import { formatMarkdown } from '../utils/mdFormat';
 import {
   hydrateSession,
@@ -43,7 +45,7 @@ import type { OutlineItem } from '../stores/editorStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useTabsStore } from '../stores/tabsStore';
-import { useEditorStore } from '../stores/editorStore';
+import { extractHtmlOutline, useEditorStore } from '../stores/editorStore';
 import { useSearchStore } from '../stores/searchStore';
 import { useExternalChangeGuard } from '../composables/useExternalChangeGuard';
 
@@ -262,6 +264,24 @@ function onOutline(items: OutlineItem[]) {
   if (!isMdTab.value) return;
   editor.outline = items;
 }
+
+/** .mh 引擎的大纲上报（HTML 标题序）。三引擎常驻后切档不会重发，
+ *  故下方还有一条按 activeId 的补发——两者都只认「当前标签是自己的引擎」 */
+function onMhOutline(items: OutlineItem[]) {
+  if (!isMhTab.value) return;
+  editor.outline = items;
+}
+// 从 md 标签切回 .mh 标签时引擎不会重发大纲（created/change 才发），面板与全屏浮标
+// 会留着上一篇 md 的目录：按当前 HTML 直接补算一次（index 口径与 extractHtmlOutline 同源，
+// .mh 的跳转走 headingIndex，见 WangEditorEngine.scrollToLine）
+watch(
+  () => tabs.activeId,
+  () => {
+    if (!isMhTab.value) return;
+    const html = wangEngineRef.value?.getDisplayHtml?.();
+    if (html) editor.outline = extractHtmlOutline(html);
+  },
+);
 
 /** 预览 HTML 上报（Word 导出真相源）：同上，只认当前 md 标签 */
 function onMdHtmlChanged(html: string) {
@@ -870,7 +890,7 @@ function onCloseCancel() {
   else void confirmCloseWindow('cancel');
 }
 
-// ---------- 工作区隐藏后的左缘复原边线（拖动向右展开，交互与大纲面板一致；点击顶栏按钮也可） ----------
+// ---------- 工作区隐藏后的左缘复原入口（不可见，仅在标签栏行留 4px 命中区；拖动向右展开，点击顶栏按钮也可） ----------
 const WS_RESTORE_AT = 60;
 let wsRestoreStartX = 0;
 function cleanupWsRestore() {
@@ -910,6 +930,59 @@ function setMode(m: EditorMode) {
   tabs.setActiveMode(m);
   void settings.update({ editorMode: m });
 }
+/** 引擎功能栏「分栏预览」上报（页面全屏态里唯一的模式入口）。
+ *  ★ 参数显式标注：MdEditorV3Engine 的 emits 成员增多后模板绑定会丢推断，具名 + 自带类型即不受影响 */
+function onMdRequestMode(m: EditorMode) {
+  if (!isMdTab.value) return;
+  setMode(m);
+}
+/** .mh 功能栏模式按钮上报（阅读态页面全屏里唯一的模式入口），真相源同样在本层 */
+function onMhRequestMode(m: EditorMode) {
+  if (!isMhTab.value) return;
+  setMode(m);
+}
+/** 页面全屏统一入口：F11、标签栏右键「全屏」、内容区右键「全屏」三条路共用。
+ *  md 编辑/分栏与 .mh 各自已有内核/自建全屏实现（状态在引擎里，F11 与功能栏按钮同源），
+ *  代码引擎没有，故由本层在 .editor-area 上挂类（见 global.css 的 page-full 规则）。 */
+const codePageFull = ref(false);
+function toggleFullscreen() {
+  if (usesCodeEngine.value) {
+    codePageFull.value = !codePageFull.value;
+    return;
+  }
+  engineRef.value?.togglePageFullscreen?.();
+}
+// 全屏类挂在共用的 .editor-area 上：切到非代码引擎标签时必须摘掉，
+// 否则从代码标签的全屏态经 Ctrl+P（浮层在全屏带之上）跳到 md 标签，会把 md 也留在铺满态
+watch(usesCodeEngine, (code) => {
+  if (!code) codePageFull.value = false;
+});
+/** 标签右键「全屏」：目标标签不是当前标签时先激活再全屏（首次挂载的引擎要等一个 tick 才有 ref） */
+async function onTabFullscreen(id: string) {
+  if (tabs.activeId !== id) {
+    tabs.activate(id);
+    await nextTick();
+  }
+  toggleFullscreen();
+}
+/** 阅读态页面全屏时，应用层大纲面板被全屏层盖住 → 改由右缘浮标承担目录（状态由引擎上报） */
+const mdPageFull = ref(false);
+const mhPageFull = ref(false);
+// ★ 参数显式标注：避开 MdEditorV3Engine emits 增多后模板绑定的推断塌陷（见 onEngineCursor 注释）
+function onMdPageFull(on: boolean) {
+  mdPageFull.value = on;
+}
+function onMhPageFull(on: boolean) {
+  mhPageFull.value = on;
+}
+/** 大纲呈现方式（设置-外观「大纲」）：classic = 右侧面板 / fresh = 视口右缘浮标。
+ *  全屏时面板被全屏层整个盖住，所以两种档在全屏阅读态都回落到浮标 */
+const outlineFresh = computed(() => settings.settings.outlineStyle === 'fresh');
+const outlineRailOn = computed(
+  () =>
+    (editor.mode === 'read' && (isMhTab.value ? mhPageFull.value : isMdTab.value && mdPageFull.value)) ||
+    (outlineFresh.value && showOutline.value),
+);
 function toggleTheme() {
   const theme: ThemeKind = settings.isDark ? 'light' : 'dark';
   void settings.update({ theme });
@@ -940,6 +1013,45 @@ function gotoOutline(item: OutlineItem) {
   editor.cursorLine = item.line;
 }
 
+/* ---- 滚动联动：内容滚到哪个标题，大纲就选中哪一条 ----
+   scroll 不冒泡，但捕获阶段能吃到任何后代的滚动 → 一个 document 级监听覆盖三引擎各自的
+   滚动宿主（md 分栏的预览栏、md 阅读的 .read-scroll、.mh 的 .w-e-scroll）。
+   为什么不挂在 .editor-area 上：那个盒子是 v-if="tabs.activeTab"，Workbench 挂载时会话还没
+   恢复出标签，节点根本不存在，监听会静默装不上（实测过）。
+   宿主与标题集合由当前引擎自己报（activeHeadingIndex），上层只存一个序号。 */
+let spyLast = 0;
+let spyTimer: number | undefined;
+function measureActiveHeading() {
+  const i = engineRef.value?.activeHeadingIndex?.() ?? -1;
+  if (i !== editor.activeHeading) editor.activeHeading = i;
+}
+/** 90ms 节流 + 尾随补一次：只为一行高亮变色，不需要每帧量；
+ *  也不用 rAF —— 页面切到后台时 rAF 停摆，那种写法会把节流标记永久卡住 */
+function onSpyScroll() {
+  const wait = 90 - (performance.now() - spyLast);
+  if (wait <= 0) {
+    spyLast = performance.now();
+    measureActiveHeading();
+    return;
+  }
+  if (spyTimer) return;
+  spyTimer = window.setTimeout(() => {
+    spyTimer = undefined;
+    spyLast = performance.now();
+    measureActiveHeading();
+  }, wait);
+}
+onMounted(() => document.addEventListener('scroll', onSpyScroll, true));
+onBeforeUnmount(() => {
+  document.removeEventListener('scroll', onSpyScroll, true);
+  if (spyTimer) window.clearTimeout(spyTimer);
+});
+// 切文档 / 切模式 / 大纲重算后不会有 scroll 事件（滚动位置是恢复出来的），主动补量一次
+watch(
+  () => [tabs.activeId, editor.mode, editor.outline.length],
+  () => void nextTick(measureActiveHeading),
+);
+
 /** 文档内超链接 → 应用内独立 WebView 窗口（md 预览与 mh 阅读态共用）。
  *  iframe 内嵌被大量网站 X-Frame-Options 拒绝，改走真 WebView2 实例 */
 function onOpenLink(href: string) {
@@ -951,15 +1063,17 @@ function onOpenLink(href: string) {
 
 /** 文件内定位（搜索面板文件内查找 / 全局搜索命中跳转共用）：直调引擎按行滚动（三态通用）。
  *  kw 约定：undefined = 不动当前高亮；'' = 清除；非空 = 设置高亮。
- *  （面板每次跳转都会 emit goto，若 goto 无条件清除会秒删 emit('find') 刚画的高亮） */
+ *  （面板每次跳转都会 emit goto，若 goto 无条件清除会秒删 emit('find') 刚画的高亮）
+ *  matchIndex（第 4 参）= 当前命中序号，只有文件内查找带；全局命中跳转跨文件，没有序号 */
 function gotoLine(line: number, kw?: string, cs = false, matchIndex?: number) {
   cancelScrollRestore(); // 同上：点击搜索结果时切档的滚动恢复与本次定位同 tick，必须让位
   engineRef.value?.scrollToLine(line);
+  // CM 系（md / code）：序号随 highlight 一起下发，当前命中强化标记 + 落成真实选区
   if (kw !== undefined) {
-    if (kw) engineRef.value?.highlight(kw, cs);
+    if (kw) engineRef.value?.highlight(kw, cs, matchIndex);
     else engineRef.value?.clearHighlight();
   }
-  // mh（富文本引擎）：highlight 重算 Range 后按命中序号定位 + 标记当前命中
+  // mh（富文本引擎）：不吃 matchIndex，需在 highlight 重算 Range 后按序号单独标记 + 定位
   if (isMhTab.value && matchIndex != null) engineRef.value?.scrollToMatch?.(matchIndex);
   editor.cursorLine = line;
 }
@@ -1287,6 +1401,56 @@ function onToggleLineNumbers(): void {
   settings.update({ showLineNumbers: !settings.settings.showLineNumbers });
 }
 
+/** 文件内查找（Ctrl+F 与代码页右键「搜索代码」共用一条链路：面板已开时=切到文件内模式） */
+function openFileFind(): void {
+  if (!tabs.activeTab) {
+    editor.showToast(t('workbench.toast.openBeforeFind'), 'info');
+    return;
+  }
+  hubMode.value = 'file';
+  search.open();
+}
+
+/** 右键「搜索代码」 */
+function onCtxSearchCode(): void {
+  editorCtx.value = null;
+  openFileFind();
+}
+
+/** 右键「复制代码」：选区优先、无选区取全文（口径在代码引擎的 copyScopeText） */
+async function onCtxCopyCode(): Promise<void> {
+  editorCtx.value = null;
+  const text = engineRef.value?.copyScopeText?.() ?? '';
+  if (!text) {
+    editor.showToast(t('workbench.toast.codeEmpty'), 'info');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    editor.showToast(t('workbench.toast.codeCopied'), 'success');
+  } catch {
+    // WebView 剪贴板 API 被拒时给明确出路，别让人对着没反应的菜单猜
+    editor.showToast(t('workbench.toast.clipboardBlocked', { k: modHint('C') }), 'error');
+  }
+}
+
+/** 右键「粘贴代码」：剪贴板文本插到光标处，走 CM6 单事务 → Ctrl+Z 一步整体撤回 */
+async function onCtxPasteCode(): Promise<void> {
+  editorCtx.value = null;
+  let text = '';
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    editor.showToast(t('workbench.toast.clipboardBlocked', { k: modHint('V') }), 'error');
+    return;
+  }
+  if (!text) {
+    editor.showToast(t('workbench.toast.clipboardEmpty'), 'info');
+    return;
+  }
+  engineRef.value?.insert(text);
+}
+
 // ---------- 快捷键 ----------
 /** CM6 编辑器是否持有焦点（v7 内核 = .cm-editor.cm-focused；CM5 的 .CodeMirror-focused 类已不存在） */
 const isEditorFocused = () => !!document.querySelector('.cm-editor.cm-focused');
@@ -1387,7 +1551,7 @@ function onKeydown(e: KeyboardEvent) {
       // 编辑器全屏（页面内全屏，同工具栏 pageFullscreen）：阻止 WebView 原生全屏。
       // 编辑/阅读两态都可用（对齐 md pageFullscreen），全屏态强制显示功能区
       e.preventDefault();
-      engineRef.value?.togglePageFullscreen?.();
+      toggleFullscreen();
       return;
     }
     // Shift+F：目录树按名称过滤（跨平台统一，Mac=⇧F；⌘⇧F 已被美化占用故不带 Cmd）。
@@ -1437,12 +1601,7 @@ function onKeydown(e: KeyboardEvent) {
       return;
     }
     // Ctrl+F：文件内查找（面板已开时=切到文件内模式）
-    if (!tabs.activeTab) {
-      editor.showToast(t('workbench.toast.openBeforeFind'), 'info');
-      return;
-    }
-    hubMode.value = 'file';
-    search.open();
+    openFileFind();
     return;
   }
   if (k === 'p') {
@@ -1653,16 +1812,21 @@ watch(() => editor.mode, (m) => {
         @open-workspace="openWorkspace"
         @remove-all-workspaces="removeAllWorkspaces"
       />
-      <!-- 工作区隐藏后的左缘复原边线：拖动向右展开（原生 title 提示，同大纲面板） -->
+      <!-- 工作区隐藏后的左缘复原入口：不可见，仅在标签栏行留 4px 命中区，拖动向右展开 -->
       <div
         v-else
         class="ws-restore"
         :title="t('workbench.dragToRestore')"
         @mousedown="onWsRestoreStart"
-      ><i class="ws-restore-line" /></div>
+      />
       <div class="center">
-        <TabBar ref="tabBarRef" @close="requestCloseTab" @close-batch="requestCloseBatch" @reloaded="flashReloadArea" />
-        <div class="editor-area" :class="{ 'area-reloading': reloadFlash }" v-if="tabs.activeTab">
+        <TabBar ref="tabBarRef" @close="requestCloseTab" @close-batch="requestCloseBatch" @reloaded="flashReloadArea" @fullscreen="onTabFullscreen" />
+        <div
+          class="editor-area"
+          :class="{ 'area-reloading': reloadFlash, 'page-full': codePageFull }"
+          :style="{ '--mk-rail-pad': outlineRailOn ? '44px' : '20px' }"
+          v-if="tabs.activeTab"
+        >
           <!-- 预览类标签（docx/xlsx/图片/pdf）：只读预览，不进编辑器。
                :key=reloadSeq：右键「刷新」bump 后重挂，重新经 asset:// 自取字节 -->
           <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
@@ -1687,6 +1851,7 @@ watch(() => editor.mode, (m) => {
               @update:model-value="onCodeContentChange"
               @save="onCodeSave"
               @cursor="onCodeCursor"
+              @editor-context="onEditorContext"
             />
             <!-- Markdown 引擎：与代码/富文本引擎并列常驻。model-value / mode / doc-path 走
                  mdEditor* 三个冻结值（隐藏期间不吃外部值，切回来才不被误判成外部变更整篇重建），
@@ -1714,6 +1879,8 @@ watch(() => editor.mode, (m) => {
               @outline="onOutline"
               @cursor="onMdCursor"
               @html-changed="onMdHtmlChanged"
+              @request-mode="onMdRequestMode"
+              @page-fullscreen="onMdPageFull"
               @toast="(t: string) => editor.showToast(t, 'error')"
               @open-link="onOpenLink"
               @open-doc="onOpenDoc"
@@ -1733,7 +1900,10 @@ watch(() => editor.mode, (m) => {
               :show-toolbar="settings.settings.showToolbar"
               @update:model-value="onMhContentChange"
               @save="onMhSave"
+              @outline="onMhOutline"
               @editor-context="onEditorContext"
+              @page-fullscreen="onMhPageFull"
+              @request-mode="onMhRequestMode"
               @toast="(msg: string) => editor.showToast(msg, 'error')"
               @open-link="onOpenLink"
             />
@@ -1764,7 +1934,9 @@ watch(() => editor.mode, (m) => {
           @open-recent="openFilePath"
         />
       </div>
-      <OutlinePanel v-if="showOutline" @goto="gotoOutline" />
+      <OutlinePanel v-if="showOutline && !outlineFresh" @goto="gotoOutline" />
+      <!-- 右缘大纲浮标（自带 Teleport 到 body）：清新档常驻，传统档只在全屏阅读态顶替被盖住的面板 -->
+      <OutlineRail v-if="outlineRailOn" :items="editor.outline" @goto="gotoOutline" />
     </div>
 
     <StatusBar :mode="editor.mode" />
@@ -1872,8 +2044,12 @@ watch(() => editor.mode, (m) => {
       @op="onTableOp"
       @format="onFormatFromMenu"
       @refresh="onCtxRefresh"
+      @fullscreen="toggleFullscreen"
       @toggle-focus="onToggleFocusMode"
       @toggle-line-numbers="onToggleLineNumbers"
+      @search-code="onCtxSearchCode"
+      @copy-code="onCtxCopyCode"
+      @paste-code="onCtxPasteCode"
       @dismiss="editorCtx = null"
     />
 
