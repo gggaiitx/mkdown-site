@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue';
 
 import type { EditorMode, ThemeKind } from '../api/types';
+import { FONT_STEP } from '../api/types';
 import { altHint } from '../utils/keyHint';
 import { useEditorStore } from '../stores/editorStore';
 import { useI18n } from '../i18n';
@@ -251,6 +252,8 @@ watch(
 const isMac = /Mac/i.test(navigator.platform) || navigator.userAgent.includes('Macintosh');
 /** 字号按钮提示里的滚轮快捷键（Ctrl+滚轮 / Mac ⌘+滚轮，见 Workbench.onFontWheel） */
 const fontWheelHint = isMac ? '⌘+滚轮' : 'Ctrl+滚轮';
+/** 同一提示里的键盘快捷键（一档 0.5px，与滚轮同向同量；见 Workbench.onKeydown 的 Equal/Minus 分支） */
+const fontKeyHint = isMac ? '⌘= / ⌘-' : 'Ctrl+= / Ctrl+-';
 const win = getCurrentWindow();
 const isMaximized = ref(false);
 let unlistenResized: (() => void) | null = null;
@@ -525,13 +528,13 @@ function onDocKeydown(e: KeyboardEvent) {
     <div class="divider" />
 
     <div class="font-seg">
-      <button class="tb-btn tb-btn--icon" @click="emit('font', -1)" v-tip="t('toolbar.fontSmaller', { k: fontWheelHint })">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', -FONT_STEP)" v-tip="t('toolbar.fontSmaller', { k: fontWheelHint, s: fontKeyHint })">
         <Minus class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon tb-font-type" v-tip="t('toolbar.fontSize')" disabled>
+      <button class="tb-btn tb-btn--icon tb-font-type" v-tip="t('toolbar.fontSize', { r: isMac ? '⌘0' : 'Ctrl+0' })" disabled>
         <Type class="icon icon-sm" />
       </button>
-      <button class="tb-btn tb-btn--icon" @click="emit('font', 1)" v-tip="t('toolbar.fontLarger', { k: fontWheelHint })">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', FONT_STEP)" v-tip="t('toolbar.fontLarger', { k: fontWheelHint, s: fontKeyHint })">
         <Plus class="icon icon-sm" />
       </button>
     </div>

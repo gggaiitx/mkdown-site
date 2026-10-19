@@ -1,25 +1,29 @@
 <script setup lang="ts">
 /**
- * 编辑区右键菜单（Markdown 引擎与富文本引擎编辑/分栏态唤起，取代此前的顶栏「表格」下拉）。
- * 一级：刷新 / 全屏 / 专注模式 / 行号 / 表格▸（光标在表内）或 插入表格 / 标题▸ / 常用行内与块级格式。
+ * 编辑区右键菜单（三引擎的编辑 / 分栏 / 阅读态共用这一份，取代此前的顶栏「表格」下拉）。
+ * 一级：刷新 / 全屏（已在全屏里则「退出全屏」）/ 专注模式 / 显示行号 / 表格▸（光标在表内）或 插入表格 / 标题▸ / 常用行内与块级格式。
  * 二级飞窗：hover 组行展开，绝对定位贴右侧；右缘或下缘不够时翻转、上移。
  * 主菜单观感与标签栏 / 文件树右键菜单一致：useCtxMenu 视口夹紧 + 点击外部或 Esc 关闭。
- * 富文本（.mh）只给视图级两项：Markdown 源码语义的表格/标题/格式项对它无意义。
+ * 富文本（.mh）编辑态只给视图级三项：Markdown 源码语义的表格/标题/格式项对它无意义。
  * 代码引擎同样去掉 Markdown 语义项，换成「搜索 / 复制 / 粘贴代码」三项。
+ * 阅读态与分栏的预览窗格（载荷 read=true，两者都是只读窗格）换成只读那一套：
+ * 搜索 / 复制全文 / 版式▸ / 模式对向入口——
+ * 表格·标题·格式是 Markdown 源码语义，显示行号只画在 CM 编辑窗格，给了都不生效，故一并隐去。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
 import {
   Table, ArrowUpLeft, ArrowDownRight, ArrowLeft, ArrowRight, Minus,
-  WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check, ListEnd, Maximize,
-  Search, Copy, ClipboardPaste,
+  WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check, ListEnd, Maximize, Minimize2,
+  Search, Copy, ClipboardPaste, MoveHorizontal, Pencil, Columns2, BookOpen,
   Text, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Bold, Italic, Quote, Code, SquareCode, List, ListOrdered, ListTodo, Link,
 } from '@lucide/vue';
 import { useI18n } from '../i18n';
 import { useCtxMenu } from '../composables/useCtxMenu';
-import { modHint, modShiftHint } from '../utils/keyHint';
+import { altHint, modHint, modShiftHint } from '../utils/keyHint';
 import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
+import type { EditorMode, ReadLayout } from '../api/types';
 import type { TableOp } from '../utils/mdTable';
 import type { FormatId, HeadingId } from '../utils/mdActions';
 
@@ -27,10 +31,16 @@ const props = defineProps<{
   ctx: EditorCtxPayload | null;
   /** 当前标签是否可刷新（已落盘的文件；未保存新建无路径 → 隐藏该项） */
   canReload?: boolean;
+  /** 页面全屏当前状态（首项据此显示「全屏」/「退出全屏」，同为 F11 那一套状态） */
+  pageFull?: boolean;
   /** 专注模式当前状态（决定菜单项的勾选标记） */
   focusMode?: boolean;
   /** 行号当前状态（同上） */
   showLineNumbers?: boolean;
+  /** 内容版式当前值：阅读态「版式」飞窗给当前项打勾（与设置面板「内容版式」同一字段） */
+  readLayout?: ReadLayout;
+  /** 当前形态：决定「版式」给不给（md 分栏态不挂 layout--* 类），以及模式项该列哪几档 */
+  mode?: EditorMode;
 }>();
 const emit = defineEmits<{
   (e: 'op', op: 'insert' | TableOp): void;
@@ -40,11 +50,18 @@ const emit = defineEmits<{
   (e: 'refresh'): void;
   /** 页面全屏：三引擎三形态的分发在 Workbench.toggleFullscreen */
   (e: 'fullscreen'): void;
-  /** 切换视图类开关（专注模式 / 行号）：状态存在设置里，由 Workbench 写 settings.update */
+  /** 切换视图类开关（专注模式 / 显示行号）：状态存在设置里，由 Workbench 写 settings.update */
   (e: 'toggleFocus'): void;
   (e: 'toggleLineNumbers'): void;
-  /** 代码引擎三项：搜索走 Ctrl+F 同一条链路，复制/粘贴的剪贴板与提示在 Workbench */
-  (e: 'searchCode'): void;
+  /** 文件内查找：与 Ctrl+F 同一条链路（代码引擎与阅读态共用，文案按上下文取） */
+  (e: 'search'): void;
+  /** 阅读态「复制全文」：取文口径在引擎（md = 源码，.mh = 渲染纯文本），剪贴板与提示在 Workbench */
+  (e: 'copyAll'): void;
+  /** 阅读态切回编辑 / 分栏：模式真相源在 Workbench.setMode */
+  (e: 'mode', mode: EditorMode): void;
+  /** 内容版式（窄 / 中 / 宽）：写设置，与设置面板同一入口 */
+  (e: 'layout', layout: ReadLayout): void;
+  /** 代码引擎两项：复制/粘贴的剪贴板与提示在 Workbench */
   (e: 'copyCode'): void;
   (e: 'pasteCode'): void;
   (e: 'dismiss'): void;
@@ -53,18 +70,40 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const { menu, setMenuRef, open, close } = useCtxMenu();
 
-/** 富文本引擎上报的右键：只留「刷新 / 专注模式」两项视图级动作
+/** 富文本引擎上报的右键：编辑态只留「刷新 / 专注模式」两项视图级动作
  *  （行号是 CodeMirror 画在行上的，Slate 没有这个概念；表格/标题/格式是 Markdown 源码语义） */
 const mhOnly = computed(() => props.ctx?.engine === 'mh');
 /** 代码引擎：视图级三项通用，动作区换成搜索/复制/粘贴（行号是 md 内核那套 class 开关，
  *  CodeMirror 的行号槽由内核自带，给了也不起作用，故一并去掉） */
 const codeOnly = computed(() => props.ctx?.engine === 'code');
+/** 只读窗格：阅读态的阅读栏，或分栏态的预览栏（引擎都标 read=true）——
+ *  内容不是可编辑源码，表格·标题·格式没有作用对象，显示行号也只画在 CM 编辑窗格 */
+const isRead = computed(() => props.ctx?.read === true);
+/** 版式飞窗：md 分栏态不给——那一档根本不挂 layout--* 类（正文宽度由两栏平分决定），选了没反应 */
+const showLayout = computed(() => !codeOnly.value && props.mode !== 'split');
+/** 模式对向入口。规则：只读窗格里给出「离开这一档」的其它档（阅读态→编辑/分栏，分栏预览→编辑/阅读，
+ *  .mh 阅读态只有编辑一档）；编辑窗格只在页面全屏里补「阅读」——平时顶栏有模式按钮，
+ *  全屏层把顶栏整个盖住才是真缺口（.mh 功能栏在全屏态已有模式按钮，故不给它补） */
+const modeItems = computed<EditorMode[]>(() => {
+  if (codeOnly.value) return [];
+  if (isRead.value) {
+    if (mhOnly.value) return ['edit']; // .mh 只有编辑/阅读两档
+    return props.mode === 'split' ? ['edit', 'read'] : ['edit', 'split'];
+  }
+  return props.pageFull === true && !mhOnly.value && props.mode !== 'read' ? ['read'] : [];
+});
+/** 三档模式的图标与 Alt 快捷键（与顶栏模式按钮、Alt+E/W/R 同源） */
+const modeIcon: Record<EditorMode, Component> = { edit: Pencil, split: Columns2, read: BookOpen };
+const modeKey: Record<EditorMode, string> = { edit: 'E', split: 'W', read: 'R' };
 
 /** 同时只可能展开一个飞窗，故用独立 ref 而非同名 ref（避免卸载/挂载次序影响测量） */
-type GroupId = 'table' | 'heading';
+type GroupId = 'table' | 'heading' | 'layout';
 const openGroup = ref<GroupId | null>(null);
 const tableSubRef = ref<HTMLElement | null>(null);
 const headingSubRef = ref<HTMLElement | null>(null);
+const layoutSubRef = ref<HTMLElement | null>(null);
+/** 版式四档：与设置面板「内容版式」同源，顺序即菜单顺序 */
+const layouts: ReadLayout[] = ['narrow', 'medium', 'wide', 'full'];
 /** 飞窗定位覆写：默认贴右（left: calc(100% + 2px)），越界时改为贴左并上移 */
 const subStyle = ref<Record<string, string>>({});
 
@@ -90,7 +129,11 @@ function hideGroup(id: GroupId): void {
 
 /** 飞窗先按贴右渲染，再量真实矩形：右缘越界→翻到组行左侧；下缘越界→按超出量上移 */
 function clampSub(): void {
-  const el = openGroup.value === 'table' ? tableSubRef.value : headingSubRef.value;
+  const el = openGroup.value === 'table'
+    ? tableSubRef.value
+    : openGroup.value === 'heading'
+      ? headingSubRef.value
+      : layoutSubRef.value;
   if (!el) return;
   const rect = el.getBoundingClientRect();
   const style: Record<string, string> = {};
@@ -152,24 +195,33 @@ onBeforeUnmount(() => {
     <button v-if="canReload" class="mk-menu-item" @click="emit('refresh')">
       <RefreshCw class="mk-menu-ico" /><span>{{ t('workbench.ctx.reload') }}</span>
     </button>
+    <!-- 全屏：已在全屏里时改名「退出全屏」（同一动作、同一 F11），不用勾选态——菜单项点完即收，勾了也看不到变化 -->
     <button class="mk-menu-item" @click="emit('fullscreen')">
-      <Maximize class="mk-menu-ico" /><span>{{ t('workbench.ctx.fullscreen') }}</span><kbd class="mk-menu-key">F11</kbd>
+      <component :is="pageFull ? Minimize2 : Maximize" class="mk-menu-ico" />
+      <span>{{ t(pageFull ? 'workbench.ctx.exitFullscreen' : 'workbench.ctx.fullscreen') }}</span>
+      <kbd class="mk-menu-key">F11</kbd>
     </button>
     <!-- 视图级开关：勾选态即当前状态，点击即切换（状态存设置里，跨文档保持） -->
     <button class="mk-menu-item" @click="emit('toggleFocus')">
       <Focus class="mk-menu-ico" /><span>{{ t('workbench.ctx.focusMode') }}</span>
       <Check v-if="focusMode" class="ctx-check" />
     </button>
-    <button v-if="!mhOnly && !codeOnly" class="mk-menu-item" @click="emit('toggleLineNumbers')">
+    <button v-if="!mhOnly && !codeOnly && !isRead" class="mk-menu-item" @click="emit('toggleLineNumbers')">
       <ListEnd class="mk-menu-ico" /><span>{{ t('workbench.ctx.lineNumbers') }}</span>
       <Check v-if="showLineNumbers" class="ctx-check" />
     </button>
-    <!-- 代码引擎的动作区：查找与 Ctrl+F 同源，粘贴走 CM 事务（Ctrl+Z 可整体撤回） -->
-    <template v-if="codeOnly">
-      <div class="mk-menu-sep" />
-      <button class="mk-menu-item" @click="emit('searchCode')">
-        <Search class="mk-menu-ico" /><span>{{ t('workbench.ctx.searchCode') }}</span><kbd class="mk-menu-key">{{ modHint('F') }}</kbd>
-      </button>
+    <!-- 动作区：三引擎共用同一条流程，按引擎与形态裁剪，不再各写一套分支。
+         搜索与 Ctrl+F 同源；复制全文的口径在引擎（md = 源码、.mh = 渲染纯文本、代码 = 选区优先）；
+         粘贴只有代码引擎给（走 CM 单事务，Ctrl+Z 一步整体撤回），md/.mh 的粘贴原生 Ctrl+V 已可用 -->
+    <div class="mk-menu-sep" />
+    <button class="mk-menu-item" @click="emit('search')">
+      <Search class="mk-menu-ico" /><span>{{ t(codeOnly ? 'workbench.ctx.searchCode' : 'workbench.ctx.search') }}</span>
+      <kbd class="mk-menu-key">{{ modHint('F') }}</kbd>
+    </button>
+    <button v-if="!codeOnly" class="mk-menu-item" @click="emit('copyAll')">
+      <Copy class="mk-menu-ico" /><span>{{ t('workbench.ctx.copyAll') }}</span>
+    </button>
+    <template v-else>
       <button class="mk-menu-item" @click="emit('copyCode')">
         <Copy class="mk-menu-ico" /><span>{{ t('workbench.ctx.copyCode') }}</span><kbd class="mk-menu-key">{{ modHint('C') }}</kbd>
       </button>
@@ -177,8 +229,30 @@ onBeforeUnmount(() => {
         <ClipboardPaste class="mk-menu-ico" /><span>{{ t('workbench.ctx.pasteCode') }}</span><kbd class="mk-menu-key">{{ modHint('V') }}</kbd>
       </button>
     </template>
-    <!-- 富文本只到上面两项为止：以下全是 Markdown 源码语义的动作 -->
-    <template v-if="!mhOnly && !codeOnly">
+    <!-- 视图组：版式（与设置面板「内容版式」同字段）+ 模式对向入口。
+         阅读态给「编辑」（md 另给「分栏」）；编辑/分栏态只在页面全屏里补「阅读」——
+         平时顶栏有模式按钮，全屏时顶栏被全屏层盖住才是真缺口（.mh 功能栏已有模式按钮，故不给） -->
+    <template v-if="!codeOnly">
+      <div class="mk-menu-sep" />
+      <div v-if="showLayout" class="ctx-group" @mouseenter="showGroup('layout')" @mouseleave="hideGroup('layout')">
+        <button class="mk-menu-item">
+          <MoveHorizontal class="mk-menu-ico" /><span>{{ t('workbench.ctx.layout') }}</span>
+          <ChevronRight class="ctx-arrow" />
+        </button>
+        <div v-if="openGroup === 'layout'" ref="layoutSubRef" class="mk-menu ctx-sub" :style="subStyle">
+          <button v-for="v in layouts" :key="v" class="mk-menu-item" @click="emit('layout', v)">
+            <span>{{ t(`workbench.ctx.layout_${v}`) }}</span>
+            <Check v-if="readLayout === v" class="ctx-check" />
+          </button>
+        </div>
+      </div>
+      <button v-for="m in modeItems" :key="m" class="mk-menu-item" @click="emit('mode', m)">
+        <component :is="modeIcon[m]" class="mk-menu-ico" />
+        <span>{{ t(`workbench.ctx.to_${m}`) }}</span><kbd class="mk-menu-key">{{ altHint(modeKey[m]) }}</kbd>
+      </button>
+    </template>
+    <!-- Markdown 源码语义的动作：只给 md 的编辑/分栏态（阅读态内容不是源码，.mh 与代码引擎没有这套语义） -->
+    <template v-if="!mhOnly && !codeOnly && !isRead">
     <div class="mk-menu-sep" />
 
     <!-- 表格：光标在表内收进二级，表外只留「插入表格」一条 -->

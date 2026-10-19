@@ -11,11 +11,11 @@
  * 组件自带 Teleport 到 body + 10105 层级带：必须浮在全屏层之上，
  * 又要在右键菜单（10110）与轻提示（10120）之下。
  */
-import { ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from '../i18n';
 import { useEditorStore, type OutlineItem } from '../stores/editorStore';
 
-defineProps<{ items: OutlineItem[] }>();
+const props = defineProps<{ items: OutlineItem[] }>();
 const emit = defineEmits<{ (e: 'goto', item: OutlineItem): void }>();
 
 const { t } = useI18n();
@@ -27,18 +27,39 @@ const lv = (n: number) => Math.min(Math.max(n, 1), 4);
    列表比视口长时还要把选中那条滚进视野——只动卡片自己的 scrollTop，
    不用 scrollIntoView（它会连带滚动所有可滚动祖先） */
 const cardRef = ref<HTMLElement | null>(null);
+/** 按 data-idx 找行，不按 children 下标取：editor.activeHeading 是标题序号，
+ *  与列表位置相等只是"大纲集合与正文标题集合恰好一致"的巧合，两边过滤口径一分叉就会错位 */
+function revealActive(): void {
+  const card = cardRef.value;
+  const row = card?.querySelector<HTMLElement>(`[data-idx="${editor.activeHeading}"]`) ?? null;
+  if (!card || !row) return;
+  const top = row.offsetTop;
+  const bottom = top + row.offsetHeight;
+  if (top < card.scrollTop) card.scrollTop = top - 6;
+  else if (bottom > card.scrollTop + card.clientHeight) card.scrollTop = bottom - card.clientHeight + 6;
+}
+watch(() => editor.activeHeading, revealActive);
+/** 收起态行内距 1px、展开态 5px ⇒ 展开瞬间整列高度约翻倍，按收起态算好的 scrollTop 会落到别的行上。
+ *  所以掠过展开时必须重新校正一次；过渡（200ms）中途量到的 offsetTop 还是旧值，过渡结束再补一次 */
+let revealTimer: number | undefined;
+function onReveal(): void {
+  revealActive();
+  window.clearTimeout(revealTimer);
+  revealTimer = window.setTimeout(revealActive, 240);
+}
+/** 展开由 CSS :hover 驱动，脚本既触发不了也量不到 ⇒ 再挂一个同效的 open 类（选择器与 :hover 并列写，
+ *  观感一致）。它同时让「展开后当前条在不在视野里」这类几何判定能在无头探针里真跑一遍 */
+const open = ref(false);
+function onEnter(): void {
+  open.value = true;
+  onReveal();
+}
+/* 换文档 / 大纲重算后不会有滚动事件，列表重建完补校正一次（等一帧让新行落进 DOM） */
 watch(
-  () => editor.activeHeading,
-  (i) => {
-    const card = cardRef.value;
-    const row = i >= 0 ? (card?.children[i] as HTMLElement | undefined) : undefined;
-    if (!card || !row) return;
-    const top = row.offsetTop;
-    const bottom = top + row.offsetHeight;
-    if (top < card.scrollTop) card.scrollTop = top - 4;
-    else if (bottom > card.scrollTop + card.clientHeight) card.scrollTop = bottom - card.clientHeight + 4;
-  },
+  () => props.items,
+  () => void nextTick(revealActive),
 );
+onBeforeUnmount(() => window.clearTimeout(revealTimer));
 
 /** 点过一条之后主动缩回去（指针往往还停在浮标上，光靠 :hover 收不拢）；
  *  指针离开浮标即解除，下次掠过照常展开。
@@ -56,8 +77,12 @@ function pick(item: OutlineItem, e: MouseEvent) {
     <nav
       v-if="items.length"
       class="mk-rail"
-      :class="{ tucked }"
+      :class="{ tucked, open }"
       :aria-label="t('outline.title')"
+      @pointerenter="onEnter"
+      @pointerleave="open = false"
+      @focusin="onEnter"
+      @focusout="open = false"
       @mouseleave="tucked = false"
     >
       <div ref="cardRef" class="rail-card">
@@ -65,6 +90,7 @@ function pick(item: OutlineItem, e: MouseEvent) {
           v-for="it in items"
           :key="it.index"
           class="rail-row"
+          :data-idx="it.index"
           :class="[`lv${lv(it.level)}`, { on: editor.activeHeading === it.index }]"
           :title="t('outline.lineTip', { line: it.line })"
           @click="pick(it, $event)"
@@ -89,14 +115,25 @@ function pick(item: OutlineItem, e: MouseEvent) {
   transform: translateY(-50%);
   z-index: var(--mk-z-rail);
   --rail-row-h: 29px; /* 展开态一行的高（12.5×1.5 行高 + 上下内距 10px + 余量） */
+  /* 选中条的底色分两态：收起态（浮标本体）保持透明，只靠横线加长与满墨认当前条（飞总定）；
+     掠过展开成"窗体"后才给一档淡墨底，与右侧大纲面板同一档取值。
+     淡墨百分比按主题给，展开时算进 --rail-on-bg，行只消费这个变量 */
+  --rail-on-pct: 14%;
+  --rail-on-bg: transparent;
   --rail-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* 收起态横线压到 45% 浓度（只是让位给正文，别抢阅读视线）；
      掠过展开时整条带 --rail-ink 拉到 100%，层级深浅才重新有意义 */
   --rail-ink: 45%;
 }
 .mk-rail:hover,
-.mk-rail:focus-within {
+.mk-rail:focus-within,
+.mk-rail.open {
   --rail-ink: 100%;
+  --rail-on-bg: color-mix(in srgb, var(--mk-accent) var(--rail-on-pct), transparent);
+}
+/* 暗色下 accent 本身偏亮，14% 只够跟 hover 打平（面板同一处也是这么分的）⇒ 提到 24% */
+:root[data-theme='dark'] .mk-rail {
+  --rail-on-pct: 24%;
 }
 /* 收起态只有横线宽，展开态整卡横向放大：宽度、底色、边线、投影同一条过渡，
    所以看起来是「那一排横线长出了文字」而不是弹出一个新面板 */
@@ -125,7 +162,8 @@ function pick(item: OutlineItem, e: MouseEvent) {
   display: none;
 }
 .mk-rail:hover .rail-card,
-.mk-rail:focus-within .rail-card {
+.mk-rail:focus-within .rail-card,
+.mk-rail.open .rail-card {
   width: 268px;
   background: var(--mk-panel);
   border-color: var(--mk-border);
@@ -149,10 +187,14 @@ function pick(item: OutlineItem, e: MouseEvent) {
   transition: padding 200ms var(--rail-ease), background-color 200ms ease;
 }
 .mk-rail:hover .rail-row,
-.mk-rail:focus-within .rail-row {
+.mk-rail:focus-within .rail-row,
+.mk-rail.open .rail-row {
   padding-block: 5px;
 }
+/* 悬停行：只给中性底色与文字提亮。横线不再刷成强调色、也不加长——
+   原来它和「当前章节」那条是同一套样式，掠过去分不清哪条是自己正在读的 */
 .rail-row:hover { background: var(--mk-hover); }
+.rail-row:hover .rail-text { color: var(--mk-fg); font-weight: 600; }
 .rail-row:focus-visible { outline: var(--mk-focus-ring); outline-offset: -2px; }
 /* 文字平时零宽不占位（横线仍钉在右缘），展开时逐行错开 16ms 淡入 */
 .rail-text {
@@ -169,7 +211,8 @@ function pick(item: OutlineItem, e: MouseEvent) {
   transition: opacity 140ms ease 60ms;
 }
 .mk-rail:hover .rail-text,
-.mk-rail:focus-within .rail-text {
+.mk-rail:focus-within .rail-text,
+.mk-rail.open .rail-text {
   opacity: 1;
 }
 .rail-tick {
@@ -191,13 +234,20 @@ function pick(item: OutlineItem, e: MouseEvent) {
 .rail-row.lv1 .rail-text { font-weight: 600; color: var(--mk-fg); }
 .rail-row.lv2 .rail-text { font-weight: 500; color: var(--mk-fg); }
 .rail-row.lv4 .rail-text { color: var(--mk-fg-muted); }
-/* 当前阅读位置那条：收起态也认得出来（横线加长并拉满浓度），展开态文字提亮加粗。
-   放在 :hover 之前——手悬到别的行时以悬停反馈优先 */
-.rail-row.on .rail-tick { width: 18px; background: var(--mk-accent); }
+/* 当前阅读位置那条：收起态（浮标本体）只靠「横线加长 + 满墨 + 字提亮」认，不给底色；
+   掠过展开成窗体后才叠一档淡墨（取值见上面 --rail-on-pct，与右侧大纲面板同档）。
+   横线加长有个上限：收起态卡片内容宽只有 15px（28 − 左边框 1 − 卡片内距 4 − 行内距 8），
+   原来写 18px 正是因此被 overflow-x 裁掉、跟 lv1 的 12px 看不出差别；展开态才拉到 22px。
+   排在 :hover 与 lv1~lv4 之后（同特异性，后者胜出）：悬到别的行不改当前条的配色 */
+.rail-row.on { background: var(--rail-on-bg); }
+.rail-row.on .rail-tick { width: 15px; background: var(--mk-accent); }
 .rail-row.on .rail-text { color: var(--mk-fg); font-weight: 600; }
-/* 悬停行：文字提亮加粗 + 横线拉长到强调色（此刻整条已是 100% 浓度） */
-.rail-row:hover .rail-text { color: var(--mk-fg); font-weight: 600; }
-.rail-row:hover .rail-tick { width: 18px; background: var(--mk-accent); }
+/* 展开态有横向空间了，当前条的横线再拉长一档 */
+.mk-rail:hover .rail-row.on .rail-tick,
+.mk-rail:focus-within .rail-row.on .rail-tick,
+.mk-rail.open .rail-row.on .rail-tick {
+  width: 22px;
+}
 
 /* ---- 点过一条之后自己缩回去：放在 hover 之后（同特异性，后者胜出），
        且收得比展开慢一档，看着像「用完自己收起来」而不是被抽走 ---- */

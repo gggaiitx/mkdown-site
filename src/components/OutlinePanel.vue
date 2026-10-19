@@ -239,8 +239,15 @@ onBeforeUnmount(() => {
 .ol-item.lv4 .text { font-weight: 400; color: var(--mk-fg-muted); }
 .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 当前阅读位置（滚动联动，序号由 Workbench 量测写入 editor.activeHeading）：
-   底色提亮 + 圆点换成强调色，层级排版保持不变 */
-.ol-item.on { background: var(--mk-hover); }
+   给一档实打实的淡墨底 + 圆点换成强调色，层级排版保持不变。
+   原来这里也是 var(--mk-hover)，与上一行的悬停态是同一个值——
+   选中条只有划过才看得出，静止时跟普通行没区别，这就是"不明显"的根因。
+   淡墨按主题分开算：亮色 14% 落到 ~214（hover 245），暗色 accent 本身偏亮、
+   14% 只够跟 hover(46) 打平，所以提到 24%（落到 ~69）才真压得过。 */
+.ol-item.on { background: color-mix(in srgb, var(--mk-accent) 14%, transparent); }
+:root[data-theme='dark'] .ol-item.on {
+  background: color-mix(in srgb, var(--mk-accent) 24%, transparent);
+}
 .ol-item.on .dot { background: var(--mk-accent); }
 .ol-item.on .text { color: var(--mk-fg); font-weight: 600; }
 .empty { padding: 18px 12px; font-size: 13px; color: var(--mk-fg-muted); }

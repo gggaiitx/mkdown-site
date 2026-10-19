@@ -132,7 +132,9 @@ fn default_word_import_fidelity() -> String {
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub theme: String,
-    pub font_size: u32,
+    /// 全局字号（px）：前端以 0.5px 为一档增减，故必须是浮点不是 u32
+    /// （存成整数会让 15.5 这种值在 `set_settings` 反序列化时直接报错，整个设置写不进去）
+    pub font_size: f64,
     /// "edit" | "split" | "read"
     pub editor_mode: String,
     pub auto_save: bool,
@@ -184,7 +186,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: "light".into(),
-            font_size: 15,
+            font_size: 15.0,
             editor_mode: "split".into(),
             auto_save: false,
             auto_save_delay_ms: 800,

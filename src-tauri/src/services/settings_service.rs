@@ -82,7 +82,7 @@ mod tests {
     fn missing_key_falls_back_to_default() {
         let s: AppSettings = serde_json::from_str(r#"{"theme":"dark","fontSize":14}"#).unwrap();
         assert_eq!(s.theme, "dark");
-        assert_eq!(s.font_size, 14);
+        assert_eq!(s.font_size, 14.0);
         assert_eq!(s.outline_style, "fresh");
     }
 
@@ -98,7 +98,7 @@ mod tests {
     fn settings_json_roundtrip() {
         let s = AppSettings {
             theme: "dark".into(),
-            font_size: 17,
+            font_size: 15.5, // 半档字号：必须能原样存回读出（u32 时代这里会直接反序列化失败）
             last_workspace: Some("D:\\资料".into()),
             recent_files: vec![RecentFile {
                 path: "D:\\资料\\a.md".into(),
@@ -109,7 +109,7 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.theme, "dark");
-        assert_eq!(back.font_size, 17);
+        assert_eq!(back.font_size, 15.5);
         assert_eq!(back.recent_files.len(), 1);
         // camelCase 字段名
         assert!(json.contains("\"fontSize\""));

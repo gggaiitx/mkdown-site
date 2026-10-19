@@ -21,25 +21,26 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 
 import '@wangeditor/editor/dist/css/style.css';
 import { savePastedImage } from '../api/imageApi';
-import type { EditorMode, ThemeKind } from '../api/types';
+import type { EditorMode, ReadLayout, ThemeKind } from '../api/types';
 import type { EditorCtxPayload } from './IMarkdownEngine';
 import type { OutlineItem } from '../stores/editorStore';
 import { useI18n } from '../i18n';
 import { modKey, altHint } from '../utils/keyHint';
 import { captureScrollTop, restoreScrollTop } from './scrollRestore';
+import { createReadFocus } from '../utils/readFocusBlock';
 
 const props = defineProps<{
   /** .mh 原始 HTML（磁盘口径：相对路径）；未保存新建为空串 */
   modelValue: string;
   mode: EditorMode;
   theme: ThemeKind;
-  /** 专注模式（设置-编辑器）：当前块保持清晰、其余块淡出；阅读态不生效 */
+  /** 专注模式（设置-编辑器）：当前块保持清晰、其余块淡出；编辑态按光标块、阅读态按指针块 */
   focusMode?: boolean;
   /** 文档路径（null = 未保存新建）：图片落盘目录与 asset 还原基准 */
   docPath: string | null;
   language: string;
-  /** 内容版式三档宽度（阅读态生效，同 md 内核 readLayout 口径） */
-  readLayout?: 'narrow' | 'medium' | 'wide';
+  /** 内容版式（编辑/阅读两态生效，同 md 内核 readLayout 口径）：窄 / 中 / 宽 / 自适应铺满 */
+  readLayout?: ReadLayout;
   /** 显示功能栏（同 md 内核 showToolbar；关闭时整行隐藏，F11 全屏仍可用） */
   showToolbar?: boolean;
 }>();
@@ -265,6 +266,10 @@ watch(isPageFull, (on) => emit('pageFullscreen', on));
 function togglePageFullscreen(): void {
   isPageFull.value = !isPageFull.value;
 }
+/** 当前是否页面内全屏（右键菜单据此改文案） */
+function isPageFullscreen(): boolean {
+  return isPageFull.value;
+}
 /** 全屏态里的模式入口：顶栏被全屏层盖住，这里给出 read⇄edit 的对向切换。只上报，不在引擎内改模式 */
 function requestModeSwitch(): void {
   emit('requestMode', props.mode === 'read' ? 'edit' : 'read');
@@ -279,15 +284,18 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
-/** 编辑区右键：接管富文本正文区，上报给应用层菜单（刷新 / 专注模式）。
+/** 编辑区右键：接管富文本正文区，上报给应用层菜单。
  *  取向与 Markdown 引擎一致——监听挂在引擎根节点的捕获阶段（不经内核事件通路，
  *  那条路在实例重建后会静默 no-op），且只在真正落在正文容器内时才接管：
  *  工具条下拉、图片/链接弹层里的右键留给系统菜单，否则那些控件的粘贴等操作会被削掉。
- *  阅读态不接管（专注模式在只读态不生效，菜单点了没反馈）。 */
+ *  阅读态同样接管（菜单换成只读那一套：搜索 / 复制全文 / 版式 / 回编辑态）；
+ *  但链接与图片上留给系统菜单——那里用户要的是「复制链接地址 / 图片另存为」，应用菜单给不出等价项。 */
 function onContextMenuCapture(e: MouseEvent): void {
-  if (props.mode !== 'edit') return;
   const target = e.target as HTMLElement | null;
+  if (props.mode !== 'edit' && props.mode !== 'read') return;
   if (!target?.closest?.('.w-e-text-container')) return;
+  if (props.mode === 'read' && target.closest('a, img')) return;
+  if (props.mode === 'read') readFocus.setPoint(e.clientX, e.clientY);
   e.preventDefault();
   emit('editorContext', {
     x: e.clientX,
@@ -295,6 +303,7 @@ function onContextMenuCapture(e: MouseEvent): void {
     inTable: false,
     wideAlignable: false,
     engine: 'mh',
+    read: props.mode === 'read',
   });
 }
 
@@ -404,6 +413,22 @@ function editableRoot(): HTMLElement | null {
 // ---- 专注模式（设置-编辑器「专注模式」）----
 /** 淡出类名（样式在 global.css，md/code/.mh 三引擎共用） */
 const FOCUS_DIM = 'mk-focus-dim';
+/** 阅读态：没有 Slate 光标可当「当前块」，改按指针压淡（与 md 阅读态同一套 util） */
+const readFocus = createReadFocus(editableRoot);
+/** 指针落点与滚动都要重算：滚动后同一落点会命中另一个块（scroll 不冒泡，靠捕获阶段吃到） */
+function onReadFocusPointer(e: PointerEvent): void {
+  if (props.mode !== 'read' || !props.focusMode) return;
+  readFocus.setPoint(e.clientX, e.clientY);
+}
+function onReadFocusScroll(): void {
+  if (props.mode !== 'read') return;
+  readFocus.refresh();
+}
+/** 整篇全文（阅读态右键「复制全文」）：取渲染后的纯文本——HTML 源码粘出去对读者没用。
+ *  用 innerText 而非 textContent：前者按块给换行，textContent 会把整篇拼成一行 */
+function copyAllText(): string {
+  return editableRoot()?.innerText ?? '';
+}
 /** 自激保护：我们自己写 class 可能触发编辑器的 DOM 观察与选区恢复，
  *  进而回调 selectionchange —— 这一趟执行期间到来的一切重入直接丢弃，否则可能形成死循环 */
 let applyingFocus = false;
@@ -429,10 +454,13 @@ function paintFocusBlocks(blocks: HTMLElement[], shouldDim: (b: HTMLElement) => 
 /** 给 Slate 顶层块挂淡出类，光标所在块保持清晰。只动 class、不碰 Slate 数据。 */
 function applyFocusBlocks(): void {
   if (applyingFocus) return;
+  // 阅读态没有 Slate 光标可言，压淡改由 createReadFocus 按指针落点负责，这里一个字都不碰，
+  // 否则两边互相清对方的类（此前阅读态直接 clear，就是「点了没反馈」的根因）
+  if (props.mode !== 'edit') return;
   const root = editableRoot();
   if (!root) return;
   const blocks = Array.from(root.children) as HTMLElement[];
-  if (!props.focusMode || props.mode === 'read') {
+  if (!props.focusMode) {
     if (lastFocusBlock !== null) {
       lastFocusBlock = null;
       paintFocusBlocks(blocks, () => false);
@@ -446,25 +474,29 @@ function applyFocusBlocks(): void {
   paintFocusBlocks(blocks, (b) => b !== current);
 }
 
-/** 监听按需挂载：关闭专注模式时不注册，避免给 Slate 增加一条 DOM 事件源 */
+/** 监听按需挂载：关闭专注模式时不注册，避免给 Slate 增加一条 DOM 事件源。
+ *  只读态归 readFocus 管，不需要 selectionchange 这条事件源 */
 function bindFocusListener(on: boolean): void {
-  if (on === focusBound) return;
-  focusBound = on;
-  if (on) document.addEventListener('selectionchange', applyFocusBlocks);
+  const want = on && props.mode === 'edit';
+  if (want === focusBound) return;
+  focusBound = want;
+  if (want) document.addEventListener('selectionchange', applyFocusBlocks);
   else document.removeEventListener('selectionchange', applyFocusBlocks);
 }
 
 /** 内容 / 模式 / 开关变化后重挂（nextTick 等 Slate 渲染落地，并重置跨块缓存） */
 watch(
-  () => [props.focusMode, props.mode, props.modelValue],
+  () => [props.focusMode, props.mode, props.modelValue] as const,
   ([on]) => {
     bindFocusListener(!!on);
+    readFocus.setOn(!!on && props.mode === 'read');
     lastFocusBlock = undefined;
     void nextTick(applyFocusBlocks);
   },
 );
 onMounted(() => {
   bindFocusListener(!!props.focusMode);
+  readFocus.setOn(!!props.focusMode && props.mode === 'read');
   void nextTick(applyFocusBlocks);
 });
 
@@ -633,14 +665,17 @@ defineExpose({
   clearHighlight,
   exportPdf,
   togglePageFullscreen,
+  isPageFullscreen,
   getDisplayHtml,
   captureScroll,
   restoreScroll,
   activeHeadingIndex,
+  copyAllText,
 });
 
 onBeforeUnmount(() => {
   bindFocusListener(false);
+  readFocus.dispose();
   if (outlineTimer) clearTimeout(outlineTimer);
   clearHighlight(); // 清 CSS.highlights 注册，防泄漏到后续标签
   editorRef.value?.destroy();
@@ -657,6 +692,8 @@ onBeforeUnmount(() => {
     @keydown.capture="onKeydown"
     @click.capture="onClickCapture"
     @contextmenu.capture="onContextMenuCapture"
+    @pointermove="onReadFocusPointer"
+    @scroll.capture="onReadFocusScroll"
   >
     <div class="wang-edit-pane">
       <div v-if="props.showToolbar !== false" class="wang-toolbar-row">
@@ -788,7 +825,7 @@ onBeforeUnmount(() => {
 .wang-engine-root.page-full .wang-toolbar {
   display: flex !important;
 }
-/* ---- 内容版式三档宽度（对齐 md 内核 readLayout：680/940/1240）----
+/* ---- 内容版式四档宽度（对齐 md 内核 readLayout：680/940/1240/100%）----
    md 口径：layout 类编辑/阅读两态都生效（mode !== 'split'），正文列限宽 = content-w。
    用对称 padding 产生两侧留白居中（比 margin auto 可靠，同 md .cm-content 手法） */
 .wang-engine-root.layout--narrow {
@@ -799,6 +836,11 @@ onBeforeUnmount(() => {
 }
 .wang-engine-root.layout--wide {
   --mk-content-w: 1240px;
+}
+/* 自适应铺满：100% 让对称留白算式自然归零（退到下限 20px），
+   右缘让位那条走 max(留白, --mk-rail-pad)，浮标占位不会被这档吃掉 */
+.wang-engine-root.layout--full {
+  --mk-content-w: 100%;
 }
 /* 阅读态去表格容器的编辑器虚线框（编辑辅助视觉，阅读不需要） */
 .mode-read :deep(.w-e-text-container [data-slate-editor] .table-container) {

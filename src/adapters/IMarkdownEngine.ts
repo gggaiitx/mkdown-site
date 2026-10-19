@@ -29,6 +29,9 @@ export interface EditorCtxPayload {
    *  富文本（.mh）没有 Markdown 源码语义，菜单只保留「刷新 / 专注模式」两项视图级动作；
    *  代码引擎同样没有，改为给「搜索 / 复制 / 粘贴代码」三项。 */
   engine?: 'md' | 'mh' | 'code';
+  /** 阅读态：没有编辑光标、内容也不是源码，故只给视图级动作（搜索 / 复制全文 / 版式 / 切模式），
+   *  表格·标题·行内格式这些 Markdown 源码语义项与「显示行号」（只画在 CM 编辑窗格）一并隐去 */
+  read?: boolean;
 }
 
 /** 语言无关的通用引擎能力（所有引擎必实现） */
@@ -62,6 +65,9 @@ export interface CommonEngineHandle {
    * 量的是「读者在看的那一栏」——md 分栏量预览、阅读态量阅读栏，-1 = 无标题/未挂载。
    */
   activeHeadingIndex?(): number;
+  /** 阅读态右键「复制全文」的取文口径（两引擎刻意不同，见各自实现）：
+   *  md = 与落盘一致的 Markdown 源码，.mh = 渲染后的纯文本（HTML 源码对读者没用） */
+  copyAllText?(): string;
 }
 
 /** 右键菜单的复制取文口径：仅代码引擎实现——Markdown/富文本没有「复制代码」语义 */
@@ -82,6 +88,9 @@ export interface MarkdownEngineHandle {
   setBlockFormat(kind: BlockFormatKind, example?: string): void;
   /** 切换编辑器页面内全屏（同工具栏 pageFullscreen 图标，F11 快捷键共用） */
   togglePageFullscreen(): void;
+  /** 当前是否处于页面内全屏（右键菜单据此显示「全屏」还是「退出全屏」）。
+   *  由 md / .mh 引擎实现；代码引擎的全屏类挂在上层 .editor-area 上，状态本就在上层。 */
+  isPageFullscreen?(): boolean;
   /** 导出 PDF：md-editor-v3 官方 ExportPDF 机制（window.print 只打印内嵌预览体）。三态通用。 */
   exportPdf(): Promise<void>;
   /** Word 导出用的预览 HTML 快照：同步内容到导出宿主 → 等渲染（mermaid/katex 完成）→ 取 innerHTML。

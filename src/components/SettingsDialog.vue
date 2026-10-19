@@ -9,6 +9,7 @@ import { openUrl } from '../api/fileApi';
 import { flushSessionSnapshot } from '../utils/sessionSnapshot';
 import { altKey, modKey, shiftKey } from '../utils/keyHint';
 import type { AppSettings } from '../api/types';
+import { FONT_MAX, FONT_MIN } from '../api/types';
 
 const settings = useSettingsStore();
 const { t } = useI18n();
@@ -115,6 +116,8 @@ const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
       [sc(altKey(), 'R'), 'settings.scReader'],
       ['F11', 'settings.scEditorFullscreen'],
       ['F1', 'settings.scTogglePanel'],
+      [sc(modKey(), '= / -'), 'settings.scFontStep'],
+      [sc(modKey(), '0'), 'settings.scFontReset'],
     ],
   },
   {
@@ -263,12 +266,13 @@ onBeforeUnmount(onDragEnd);
                 <option value="narrow">{{ t('settings.layoutNarrow') }}</option>
                 <option value="medium">{{ t('settings.layoutMedium') }}</option>
                 <option value="wide">{{ t('settings.layoutWide') }}</option>
+                <option value="full">{{ t('settings.layoutFull') }}</option>
               </select>
             </div>
             <div class="row">
               <label>{{ t('settings.fontSize', { n: settings.settings.fontSize }) }}</label>
               <input
-                type="range" min="12" max="24" step="1"
+                type="range" :min="FONT_MIN" :max="FONT_MAX" step="0.5"
                 :value="settings.settings.fontSize"
                 @change="patch({ fontSize: Number(($event.target as HTMLInputElement).value) })"
               />

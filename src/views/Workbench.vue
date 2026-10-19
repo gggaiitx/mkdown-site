@@ -67,7 +67,8 @@ import { htmlToDocx, type WordStyleOpts } from '../convert/htmlToDocx';
 import { mdToDocxCommunity } from '../convert/mdToDocxCommunity';
 import { buildPrintDocument } from '../convert/printDoc';
 import { allowAssetDir } from '../api/imageApi';
-import type { EditorMode, ThemeKind } from '../api/types';
+import type { EditorMode, ReadLayout, ThemeKind } from '../api/types';
+import { DEFAULT_SETTINGS, FONT_MAX, FONT_MIN, FONT_STEP } from '../api/types';
 import { isCodeExt } from '../utils/fileKind';
 import type { TableOp } from '../utils/mdTable';
 import {
@@ -946,6 +947,7 @@ function onMhRequestMode(m: EditorMode) {
  *  代码引擎没有，故由本层在 .editor-area 上挂类（见 global.css 的 page-full 规则）。 */
 const codePageFull = ref(false);
 function toggleFullscreen() {
+  editorCtx.value = null; // 菜单开着时按 F11：先收菜单，否则「全屏/退出全屏」的文案会停在旧状态
   if (usesCodeEngine.value) {
     codePageFull.value = !codePageFull.value;
     return;
@@ -987,21 +989,27 @@ function toggleTheme() {
   const theme: ThemeKind = settings.isDark ? 'light' : 'dark';
   void settings.update({ theme });
 }
+/** 字号一档 = 0.5px（范围 12~24）。先钳范围、再折到 0.5 网格上：
+ *  浮点连加会漂出整半档之外的值（15.1 之类），而设置里的 range 与 --mk-font-size 只认整半档 */
 function changeFont(delta: number) {
-  const size = Math.min(24, Math.max(12, settings.settings.fontSize + delta));
-  void settings.update({ fontSize: size });
+  const next = Math.min(FONT_MAX, Math.max(FONT_MIN, settings.settings.fontSize + delta));
+  void settings.update({ fontSize: Math.round(next * 2) / 2 });
+}/** Ctrl+0：回到默认字号（值取 DEFAULT_SETTINGS，别在这儿重抄一遍 15） */
+function resetFont() {
+  void settings.update({ fontSize: DEFAULT_SETTINGS.fontSize });
+  editor.showToast(t('toolbar.fontZoomTip', { n: DEFAULT_SETTINGS.fontSize }), 'info');
 }
 
 /** Ctrl/⌘+滚轮调整全局字号：编辑态/分栏态/阅读态统一走 --mk-font-size
  *  （CM 编辑区与 md 预览区样式都消费该变量，无需按模式分流）。
  *  必须 window capture + passive:false 且 preventDefault：WebView2/WKWebView
  *  默认把 Ctrl+滚轮当页面缩放手势，不拦截会整页缩放而非调字号。
- *  钳制范围与 changeFont（顶栏 +/-）一致 12-24；持久化由 settings.update 内部防抖。
+ *  钳制范围与 changeFont（顶栏 +/-、Ctrl+±）一致 12-24，一档 0.5px；持久化由 settings.update 内部防抖。
  *  deltaY<0 = 滚轮向上（远离用户）= 放大，与顶栏 + 按钮同向。 */
 function onFontWheel(e: WheelEvent) {
   if (!(e.ctrlKey || e.metaKey)) return;
   e.preventDefault();
-  changeFont(e.deltaY < 0 ? 1 : -1);
+  changeFont(e.deltaY < 0 ? FONT_STEP : -FONT_STEP);
   // 轻提示反馈当前字号：滚轮连续滚动时 toast 去重合并（同文案同类型），最多 3 条并存
   editor.showToast(t('toolbar.fontZoomTip', { n: settings.settings.fontSize }), 'info');
 }
@@ -1365,7 +1373,12 @@ async function doPrintPdf() {
  *  表格组回传 onTableOp（按光标执行行/列/规整），格式组回传 onFormatFromMenu（与快捷键同源分发），
  *  刷新转交 TabBar（脏确认与重读链路都在那边）。 */
 const editorCtx = ref<EditorCtxPayload | null>(null);
+/** 唤起菜单那一刻的全屏快照：菜单首项据此显示「全屏」或「退出全屏」。
+ *  三处真相源不同（md 编辑/分栏在内核挂的 .md-editor-fullscreen、md 阅读态与 .mh 在引擎 ref、
+ *  代码引擎在本层 codePageFull），故按引擎各取各的，取一次即可——菜单项点完即收菜单。 */
+const ctxPageFull = ref(false);
 function onEditorContext(payload: EditorCtxPayload): void {
+  ctxPageFull.value = codePageFull.value || engineRef.value?.isPageFullscreen?.() === true;
   editorCtx.value = payload;
 }
 function onTableOp(op: 'insert' | TableOp): void {
@@ -1395,7 +1408,7 @@ function onToggleFocusMode(): void {
   settings.update({ focusMode: !settings.settings.focusMode });
 }
 
-/** 右键「行号」：同上，切换只影响 engine-root 上的 class，不打断输入与撤销栈 */
+/** 右键「显示行号」：同上，切换只影响 engine-root 上的 class，不打断输入与撤销栈 */
 function onToggleLineNumbers(): void {
   editorCtx.value = null;
   settings.update({ showLineNumbers: !settings.settings.showLineNumbers });
@@ -1411,8 +1424,8 @@ function openFileFind(): void {
   search.open();
 }
 
-/** 右键「搜索代码」 */
-function onCtxSearchCode(): void {
+/** 右键「搜索」：代码页的「搜索代码」与阅读态的「搜索」同一个入口（文案按上下文取） */
+function onCtxSearch(): void {
   editorCtx.value = null;
   openFileFind();
 }
@@ -1449,6 +1462,35 @@ async function onCtxPasteCode(): Promise<void> {
     return;
   }
   engineRef.value?.insert(text);
+}
+
+/** 右键「复制全文」（阅读态）：取文口径在引擎——md 给 Markdown 源码（粘出去仍可编辑），
+ *  .mh 给渲染后的纯文本（HTML 源码对读者没用）。选区复制不必给：只读正文本就能直接选中，Ctrl+C 是原生的 */
+async function onCtxCopyAll(): Promise<void> {
+  editorCtx.value = null;
+  const text = engineRef.value?.copyAllText?.() ?? '';
+  if (!text) {
+    editor.showToast(t('workbench.toast.codeEmpty'), 'info');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    editor.showToast(t('workbench.toast.docCopied'), 'success');
+  } catch {
+    editor.showToast(t('workbench.toast.clipboardBlocked', { k: modHint('C') }), 'error');
+  }
+}
+
+/** 右键「编辑 / 分栏」（阅读态）：模式真相源在本层，与 Alt+E / Alt+W 同一套 setMode（含 .mh 禁分栏的守卫） */
+function onCtxMode(mode: EditorMode): void {
+  editorCtx.value = null;
+  setMode(mode);
+}
+
+/** 右键「版式」：写设置的 readLayout，与设置面板「内容版式」同一字段；只改 CSS 变量，不重建编辑器 */
+function onCtxLayout(layout: ReadLayout): void {
+  editorCtx.value = null;
+  void settings.update({ readLayout: layout });
 }
 
 // ---------- 快捷键 ----------
@@ -1608,6 +1650,25 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault();
     hubMode.value = 'global'; // Ctrl+P：全局搜索（面板已开时=切到全局模式）
     search.open();
+    return;
+  }
+  // 字号键鼠同源：Ctrl+= 放大一档 / Ctrl+- 缩小一档 / Ctrl+0 回默认，一档 0.5px，与 Ctrl+滚轮同向同量。
+  // 一律按 e.code 匹配物理键位：Mac 上 ⌘+ 实为 ⌘⇧=（e.key 会变成 '+'），中文输入法下 e.key 也会异化
+  if (e.code === 'Equal' || e.code === 'NumpadAdd') {
+    e.preventDefault();
+    changeFont(FONT_STEP);
+    editor.showToast(t('toolbar.fontZoomTip', { n: settings.settings.fontSize }), 'info');
+    return;
+  }
+  if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
+    e.preventDefault();
+    changeFont(-FONT_STEP);
+    editor.showToast(t('toolbar.fontZoomTip', { n: settings.settings.fontSize }), 'info');
+    return;
+  }
+  if (e.code === 'Digit0' || e.code === 'Numpad0') {
+    e.preventDefault();
+    resetFont();
     return;
   }
 }
@@ -2039,15 +2100,21 @@ watch(() => editor.mode, (m) => {
     <EditorCtxMenu
       :ctx="editorCtx"
       :can-reload="!!tabs.activeTab?.path"
+      :page-full="ctxPageFull"
       :focus-mode="settings.settings.focusMode"
       :show-line-numbers="settings.settings.showLineNumbers"
+      :read-layout="settings.settings.readLayout"
+      :mode="editor.mode"
       @op="onTableOp"
       @format="onFormatFromMenu"
       @refresh="onCtxRefresh"
       @fullscreen="toggleFullscreen"
       @toggle-focus="onToggleFocusMode"
       @toggle-line-numbers="onToggleLineNumbers"
-      @search-code="onCtxSearchCode"
+      @search="onCtxSearch"
+      @copy-all="onCtxCopyAll"
+      @mode="onCtxMode"
+      @layout="onCtxLayout"
       @copy-code="onCtxCopyCode"
       @paste-code="onCtxPasteCode"
       @dismiss="editorCtx = null"

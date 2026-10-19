@@ -70,13 +70,15 @@ export interface RecentFile {
 
 export type ThemeKind = 'light' | 'dark';
 export type EditorMode = 'edit' | 'split' | 'read';
-export type ReadLayout = 'narrow' | 'medium' | 'wide';
+/** 内容版式：窄 / 中 / 宽 = 正文列限宽三档；full = 自适应铺满（不给阅读列上限） */
+export type ReadLayout = 'narrow' | 'medium' | 'wide' | 'full';
 
 /** 编辑内核（语义=新建文件默认格式）：markdown→.md / wangeditor→.mh（唯一定义处） */
 export type EditorKernel = 'markdown' | 'wangeditor';
 
 export interface AppSettings {
   theme: ThemeKind;
+  /** 全局字号（px）：0.5px 一档，见 FONT_STEP */
   fontSize: number;
   editorMode: EditorMode;
   autoSave: boolean;
@@ -87,7 +89,7 @@ export interface AppSettings {
   recentFiles: RecentFile[];
   language: string;
   previewTheme: string;
-  /** 内容版式（编辑/分栏/阅读通用）：窄 760 / 中 1020（默认）/ 宽 1320 */
+  /** 内容版式（编辑/分栏/阅读通用）：窄 760 / 中 1020（默认）/ 宽 1320 / 自适应铺满 */
   readLayout: ReadLayout;
   /** 顶栏「编辑 / 分栏 / 阅读」三按钮组位置：center 顶栏水平居中（默认）/ left 跟随左侧功能区 */
   modeBarPosition: 'center' | 'left';
@@ -116,6 +118,13 @@ export interface AppSettings {
   /** Word 转 MH 管线："semantic"（mammoth 语义净化，默认）| "fidelity"（docx-preview 高保真试点：保留颜色/字号/对齐） */
   wordImportFidelity: 'semantic' | 'fidelity';
 }
+
+/** 字号档位（顶栏 ± 按钮、Ctrl+滚轮、Ctrl+=/Ctrl+-、设置滑块共用同一组常量）：
+ *  12~24px，一档 0.5px。半档是有意的——docx 导出按半磅取整（fontSize × 2），
+ *  0.5px 一档刚好落进整数半磅，不会导出出 31.5 这种值 */
+export const FONT_MIN = 12;
+export const FONT_MAX = 24;
+export const FONT_STEP = 0.5;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',

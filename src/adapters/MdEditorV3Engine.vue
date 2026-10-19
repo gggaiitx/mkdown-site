@@ -19,7 +19,7 @@ import { savePastedImage } from '../api/imageApi';
 import { openUrl } from '../api/fileApi';
 import { altHint, modKey } from '../utils/keyHint';
 import { extractOutline } from '../utils/outline';
-import type { EditorMode, ThemeKind } from '../api/types';
+import type { EditorMode, ReadLayout, ThemeKind } from '../api/types';
 import type { OutlineItem } from '../stores/editorStore';
 import type { EditorCtxPayload } from './IMarkdownEngine';
 import { setCurrentDocDir, setupMdRenderer, renderMermaidSvg } from './mdRendererConfig';
@@ -28,6 +28,7 @@ import { captureScrollTop, restoreScrollTop } from './scrollRestore';
 import { buildTableSkeleton, editTable, isWideAlignable, parseTable, tsvToTable } from '../utils/mdTable';
 import { formatBlockLines, type BlockFormatKind, type BlockKind } from '../utils/mdLineFormat';
 import { setFocusMode } from './cmFocusLine';
+import { createReadFocus } from '../utils/readFocusBlock';
 import { useI18n } from '../i18n';
 
 const props = defineProps<{
@@ -35,8 +36,8 @@ const props = defineProps<{
   mode: EditorMode;
   theme: ThemeKind;
   previewTheme: string;
-  /** 内容版式（编辑/分栏/阅读通用）：窄 / 中 / 宽 */
-  readLayout?: 'narrow' | 'medium' | 'wide';
+  /** 内容版式（编辑/分栏/阅读通用）：窄 / 中 / 宽 / 自适应铺满 */
+  readLayout?: ReadLayout;
   /** 当前文档路径（null = 未保存新建），用于图片落盘与相对路径解析 */
   docPath: string | null;
   editorId: string;
@@ -44,7 +45,7 @@ const props = defineProps<{
   showToolbar?: boolean;
   /** 显示行号（设置-编辑器）：编辑窗格左侧画一列行号，开关只切 class 不重配 CM 扩展 */
   showLineNumbers?: boolean;
-  /** 专注模式（设置-编辑器）：当前段落保持原样，其余行淡出。仅编辑/分栏态的 CM 窗格生效 */
+  /** 专注模式（设置-编辑器）：当前段落保持原样，其余淡出。编辑/分栏态按 CM 光标行，阅读态按指针所在正文块 */
   focusMode?: boolean;
   /** 分栏态编辑区↔预览区滚动同步（设置-编辑器「滚动同步」，默认开）。
    *  传 false 时内核 scrollAuto 关闭——注意内核按滚动**比例**同步，
@@ -745,6 +746,40 @@ watch(
   { immediate: true },
 );
 
+/** 阅读态的正文块容器：MdPreview 里带 data-line 的根级块的父元素。
+ *  内核在两版之间加过 .md-editor-preview-wrapper 一层，故两个候选都试，认「真有 data-line 直接子元素」的那个 */
+function readBlocksParent(): HTMLElement | null {
+  const root = rootRef.value;
+  if (!root) return null;
+  const cands = [
+    root.querySelector<HTMLElement>('.read-scroll .md-editor-preview'),
+    root.querySelector<HTMLElement>('.read-scroll .md-editor-preview-wrapper'),
+  ].filter((x): x is HTMLElement => !!x);
+  return cands.find((el) => el.querySelector(':scope > [data-line]')) ?? cands[0] ?? null;
+}
+/** 阅读态没有编辑光标可当「当前行」，改按指针压淡（与 .mh 阅读态同一套 util） */
+const readFocus = createReadFocus(readBlocksParent);
+watch(
+  () => [props.focusMode, props.mode] as const,
+  ([on, m]) => readFocus.setOn(on === true && m === 'read'),
+  { immediate: true },
+);
+/** 指针落点与滚动都要重算：滚动后同一落点会命中另一个块（scroll 不冒泡，靠捕获阶段吃到） */
+function onReadFocusPointer(e: PointerEvent): void {
+  if (props.mode !== 'read' || !props.focusMode) return;
+  readFocus.setPoint(e.clientX, e.clientY);
+}
+function onReadFocusScroll(): void {
+  if (props.mode !== 'read') return;
+  readFocus.refresh();
+}
+
+/** 整篇全文（右键「复制全文」）：取 Markdown 源码，粘出去仍是可编辑的 md。
+ *  编辑/分栏态以 CM 实时文档为准——props.modelValue 要经 store 回写一轮，刚打的字可能还没进来 */
+function copyAllText(): string {
+  return getTableView()?.state.doc.toString() ?? props.modelValue;
+}
+
 /** 对光标所在表格执行行/列操作或规整；不在表格内 / 操作不适用返回 false。
  *  只替换表格块（[from,to)）为新块，光标落回 cursor —— 避免整篇替换触发预览全量重渲 */
 function tableOp(op: TableOp): boolean {
@@ -773,9 +808,34 @@ function tableOp(op: TableOp): boolean {
  *    整句静默 no-op，且该 compartment 在配置重建时被换回内层默认 handler 集合——
  *    一次性注册因此时灵时不灵（切换标签后右键弹不出即此因） */
 function onEditorContext(event: MouseEvent): void {
-  if (props.mode === 'read') return; // 阅读态无编辑光标语义，不接管右键
-  // 只接管编辑窗格内的右键：预览窗格、导出宿主等区域维持原状
-  if (!(event.target as HTMLElement | null)?.closest('.cm-editor')) return;
+  const target = event.target as HTMLElement | null;
+  /** 只读窗格 = 阅读态的阅读栏（含居中版式两侧的阅读留白，与编辑态「整窗都接管」口径一致），
+   *  或分栏态的预览栏。两处的内容都不是可编辑源码 ⇒ 载荷统一标 read: true，
+   *  菜单换成只读那一套（表格/标题/格式没有作用对象，显示行号只画在 CM 窗格） */
+  const inReadPane =
+    props.mode === 'read'
+      ? !!target?.closest('.read-scroll')
+      : props.mode === 'split' && !!target?.closest('.md-editor-preview-wrapper, .md-editor-preview');
+  if (inReadPane) {
+    // 链接与图片上留给系统菜单：那两处用户要的是「复制链接地址 / 图片另存为」，
+    // 应用菜单给不出等价项，接管只会削掉既有能力
+    if (target?.closest('a, img')) return;
+    // 落点只有阅读态用得上（阅读态专注模式按指针压淡；分栏的预览栏不参与）
+    if (props.mode === 'read') readFocus.setPoint(event.clientX, event.clientY);
+    event.preventDefault();
+    emit('editorContext', {
+      x: event.clientX,
+      y: event.clientY,
+      inTable: false,
+      wideAlignable: false,
+      read: true,
+    });
+    return;
+  }
+  // 阅读态除阅读栏没有别的区域：其余一律维持系统菜单
+  if (props.mode === 'read') return;
+  // 编辑/分栏态只接管编辑窗格（预览窗格走上面那条只读分支）
+  if (!target?.closest('.cm-editor')) return;
   const view = getTableView();
   if (!view) return;
   // posAtCoords 在 .cm-editor 的滚动条/内边距区返回 null：退回当前光标语义，保证窗格内右键必出菜单
@@ -900,6 +960,13 @@ function togglePageFullscreen(): void {
   readPageFull.value = false;
   const inst = editorRef.value as unknown as InsertApi | null;
   inst?.togglePageFullscreen?.();
+}
+
+/** 当前是否页面内全屏：阅读态看本引擎的 readPageFull，编辑/分栏态由内核把
+ *  .md-editor-fullscreen 挂在它自己的编辑器根上（内核没有上报），只能就地查。
+ *  量测用 rootRef 而非 document：引擎按标签常驻，全局查询会命中别的标签。 */
+function isPageFullscreen(): boolean {
+  return readPageFull.value || !!rootRef.value?.querySelector('.md-editor-fullscreen');
 }
 
 // ---- 导出/打印 PDF（官方 ExportPDF 机制同构自建） ----
@@ -1113,6 +1180,7 @@ defineExpose({
   setHeading,
   setBlockFormat,
   togglePageFullscreen,
+  isPageFullscreen,
   highlight,
   clearHighlight,
   exportPdf,
@@ -1120,6 +1188,7 @@ defineExpose({
   tableOp,
   insertTable,
   focusEditor,
+  copyAllText,
   replaceRange,
   replaceDocText,
   captureScroll,
@@ -1568,6 +1637,7 @@ onBeforeUnmount(() => {
   rootRef.value?.removeEventListener('paste', onPasteTable, true);
   rootRef.value?.removeEventListener('contextmenu', onEditorContext, true);
   document.removeEventListener('selectionchange', onSelectionChange);
+  readFocus.dispose();
   colPadRO?.disconnect();
   colPadRO = null;
   colPadTargets.clear();
@@ -1620,6 +1690,8 @@ onBeforeUnmount(() => {
     class="engine-root"
     :class="[mode !== 'split' ? `layout--${readLayout ?? 'medium'}` : '', { 'no-toolbar': showToolbar === false, 'show-linenum': showLineNumbers === true, 'page-full': readPageFull }]"
     :style="{ '--mk-editor-lh': editLineHeight, '--mk-ln-pad': colPad }"
+    @pointermove="onReadFocusPointer"
+    @scroll.capture="onReadFocusScroll"
   >
     <!-- 阅读态：独立滚动容器 + 居中阅读栏，内容可正常滚动；key 绑定 docPath+language，
          切文档/切语言时重建（内核语言同为挂载初值型） -->
@@ -1722,6 +1794,10 @@ onBeforeUnmount(() => {
 .layout--narrow { --mk-content-w: 680px; }
 .layout--medium { --mk-content-w: 940px; }
 .layout--wide { --mk-content-w: 1240px; }
+/* 自适应铺满：取 100% 而不是某个大像素值——两个消费点都是「容器宽 − 本值」的算式，
+   100% 让它们自然归零：编辑态对称留白退到下限 20px，阅读列的 max-width 变成不设限。
+   浮标让位仍走 padding-inline-end 的 max()，不会被这一档吃掉 */
+.layout--full { --mk-content-w: 100%; }
 
 /* 编辑态：CodeMirror 6 正文列限宽——用对称 padding 产生两侧留白（比 margin auto 在 flex 布局下更可靠） */
 .engine-root :deep(.cm-content) {
