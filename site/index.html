@@ -688,7 +688,20 @@
         <div class="tl-item is-latest">
           <span class="tl-dot"></span>
           <div class="tl-card">
-            <div class="tl-head"><span class="tl-ver">v0.6.0</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <div class="tl-head"><span class="tl-ver">v0.6.0-patch.1</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <ul>
+              <li><b>右键菜单打通到每个窗格</b>：阅读态与分栏的预览窗格也接管右键，全屏项随状态显示「退出全屏」；三引擎编辑态的动作区整合成一条流程，Markdown 与 .mh 补上「搜索 / 复制全文」</li>
+              <li><b>只读态的专注模式做实</b>：阅读态没有编辑光标可依，当前块改按指针落点判定，从右键菜单开开关即刻有反馈</li>
+              <li><b>内容版式第四档「自适应」</b>：正文不再设宽度上限，跟着窗口铺满，配合 F11 全屏阅读；窄 / 中 / 宽三档不变</li>
+              <li><b>字号一档 0.5px</b>：顶栏 ±、Ctrl+滚轮、新增 Ctrl+= / Ctrl+- / Ctrl+0 四个入口同档同向，12~24px 精调</li>
+              <li><b>大纲当前章节一眼认得出</b>：传统面板与浮标展开态给一档淡墨底，浮标掠开时把当前条滚进视野（原来会被顶出去）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.6.0</span><span class="tl-date">2026.10</span></div>
             <ul>
               <li><b>三内核常驻</b>：Markdown / 代码 / 富文本 .mh 切文档切模式不再丢撤销栈与滚动位置，切回来仍在你看的那一行</li>
               <li><b>页面全屏打通</b>：F11、标签栏右键、编辑区右键三条入口同源；全屏里功能栏可直接切分栏预览、切 .mh 的编辑与阅读态，编辑态进全屏后切阅读态也不再丢全屏</li>
@@ -957,9 +970,9 @@
       <h2>现在就开始书写</h2>
       <p>支持 Windows / macOS，体积小巧，开箱即用。</p>
       <div class="hero-cta">
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.0/Mkdown_0.6.0_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.0/Mkdown_0.6.0_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.0/Mkdown_0.6.0_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.0-patch.1/Mkdown_0.6.0-patch.1_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.0-patch.1/Mkdown_0.6.0-patch.1_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.0-patch.1/Mkdown_0.6.0-patch.1_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
       </div>
       <div class="mac-tip">
         <p class="mac-tip-head">本应用未做 Apple 开发者签名，首次打开若提示「无法验证开发者」或「已损坏」，任选其一绕过：</p>
