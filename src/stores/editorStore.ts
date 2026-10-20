@@ -38,6 +38,9 @@ export const useEditorStore = defineStore('editor', {  state: () => ({
     lineCount: 0,
     /** 保存中标记（状态栏展示） */
     saving: false,
+    /** 内容区页面全屏（F11 那一套）：代码引擎与预览类标签共用，状态放这里才能让
+     *  预览工具条的「全屏」按钮与 F11 读同一份；md/.mh 的全屏状态仍在各自引擎内部 */
+    pageFull: false,
     /** 预览区实时 HTML（导出/打印用） */
     previewHtml: '',
     /** 全局轻提示 */

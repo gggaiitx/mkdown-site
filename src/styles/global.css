@@ -289,6 +289,7 @@ body.mk-col-dragging iframe {
    html 三模式：edit = 仅引擎；split = 引擎 50% + iframe 50%；read = 引擎不显示、iframe 独占。 */
 .workbench .text-area {
   display: flex;
+  position: relative; /* 分栏拖拽把手按 --mk-split 绝对定位在这里 */
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -300,7 +301,8 @@ body.mk-col-dragging iframe {
   min-width: 0;
 }
 .workbench .text-area.html-mode.split > .code-editor-engine {
-  flex: 0 0 50%;
+  /* 源码区定宽，比例由 Workbench 写进 --mk-split（默认 50%），预览区吃剩下的 */
+  flex: 0 0 var(--mk-split, 50%);
 }
 .workbench .text-area.html-mode.read > .code-editor-engine {
   display: none;
@@ -314,6 +316,22 @@ body.mk-col-dragging iframe {
    视觉上目录区宽 1px（与 md 阅读态 previewOnly 去边框同理） */
 .workbench .text-area.html-mode.split .html-frame-host {
   border-left: 1px solid var(--mk-border);
+}
+/* 分栏把手：7px 命中区骑跨在那条 1px 分隔线上（左右各 3px 余量），
+   平时透明不抢视觉，hover 才显出一道淡色提示可拖 */
+.workbench .markup-split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--mk-split, 50%);
+  width: 7px;
+  margin-left: -3.5px;
+  z-index: 6;
+  cursor: col-resize;
+  background: transparent;
+}
+.workbench .markup-split-handle:hover {
+  background: var(--mk-accent-weak);
 }
 
 /* ---- 轻提示 ---- */

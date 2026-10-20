@@ -4,8 +4,8 @@
  *
  * 做法：把 SVG 文本包进一个最小 HTML 壳。两阶段适配——
  * ① 首次 build 不约束 svg（display:block + margin:auto 居中），load 后测量固有尺寸；
- * ② 若超出 stage 则按 min(stageW/natW, stageH/natH, 1) 计算适配率，重写 srcdoc
- *    给 svg 烘焙显式 px 尺寸。显式 px 使内容布局与 zoom 完全解耦。
+ * ② 按 min(stageW/natW, stageH/natH) 算适配率（「适应窗口」含放大，关掉回 100% 实际尺寸），
+ *    重写 srcdoc 给 svg 烘焙显式 px 尺寸。显式 px 使内容布局与 zoom 完全解耦。
  *
  * 缩放（图片预览式）：CSS zoom 只做视觉缩放、不重排；盒尺寸由「已知内容尺寸」
  * 直接计算（宽 = max(stage 宽, 内容宽)，高 = max(内容高, stage 高/zoom)），
@@ -21,6 +21,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import OpenSystemBtn from './OpenSystemBtn.vue';
 import PreviewZoomBar from './PreviewZoomBar.vue';
+import { scrollbarCss as buildScrollbarCss } from './scrollbarStyle';
 import { useI18n } from '../../i18n';
 
 const { t } = useI18n();
@@ -40,21 +41,14 @@ const ZOOM_MIN = 30;
 const ZOOM_MAX = 300;
 const ZOOM_STEP = 5;
 const zoom = ref(100);
+/** 适应窗口：把 svg 缩放铺满面板（含放大），关掉则按 100% 实际尺寸 */
+const fitMode = ref(true);
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const stageRef = ref<HTMLElement | null>(null);
 
-/** 与 global.css 全局滚动条同款：10px、透明轨道、hover 加深 */
-const scrollbarCss = computed(() => {
-  const thumb = props.dark ? 'rgb(110 110 114 / 0.45)' : 'rgb(212 212 212)';
-  const thumbHover = props.dark ? 'rgb(190 191 197)' : 'rgb(115 115 115)';
-  return (
-    '::-webkit-scrollbar{width:10px;height:10px}' +
-    '::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}' +
-    `::-webkit-scrollbar-thumb{background:${thumb};border-radius:6px;border:2.5px solid transparent;background-clip:padding-box}` +
-    `::-webkit-scrollbar-thumb:hover{background:${thumbHover};border:2.5px solid transparent;background-clip:padding-box}`
-  );
-});
+/** 注入文档的滚动条样式：与 HtmlFrame 同一份，也跟 global.css 那段全局规则同款 */
+const scrollbarCss = computed(() => buildScrollbarCss(!!props.dark));
 
 const srcdoc = ref('');
 let buildTimer: ReturnType<typeof setTimeout> | null = null;
@@ -131,13 +125,17 @@ function onLoad() {
   refit();
 }
 
-/** 依固有尺寸重算适配率（stage 尺寸变化时调用）；fit 变化才重建 srcdoc */
+/** 依固有尺寸重算适配率（stage 尺寸 / 适应窗口开关变化时调用）；适配值变化才重建 srcdoc */
 function refit() {
   const stage = stageRef.value;
   const nat = natural.value;
-  if (!stage || !nat) return;
-  const fit = Math.min(1, stage.clientWidth / nat.w, stage.clientHeight / nat.h);
-  const next = fit < 1 ? { w: Math.floor(nat.w * fit), h: Math.floor(nat.h * fit) } : null;
+  if (!stage || !nat || !stage.clientWidth || !stage.clientHeight) return;
+  // 适应窗口允许放大（与图片查看页同口径：小图铺满面板）；关掉则回 100% 实际尺寸
+  const ratio = fitMode.value
+    ? Math.min(stage.clientWidth / nat.w, stage.clientHeight / nat.h)
+    : 1;
+  if (ratio <= 0) return;
+  const next = ratio === 1 ? null : { w: Math.floor(nat.w * ratio), h: Math.floor(nat.h * ratio) };
   const cur = fitted.value;
   const same = next === null ? cur === null : !!cur && next.w === cur.w && next.h === cur.h;
   if (!same) {
@@ -146,6 +144,7 @@ function refit() {
   }
   updateStyle();
 }
+watch(fitMode, refit);
 
 // stage 尺寸变化（拖目录树宽度 / 收展侧栏 / 窗口缩放）：
 // 盒宽随 stage 连续跟随（updateStyle），适配率变化防抖后重建（refit）。
@@ -173,7 +172,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="svg-frame-host">
-    <PreviewZoomBar v-model:zoom="zoom" :min="ZOOM_MIN" :max="ZOOM_MAX" :step="ZOOM_STEP">
+    <PreviewZoomBar
+      v-model:zoom="zoom"
+      v-model:fit="fitMode"
+      :min="ZOOM_MIN"
+      :max="ZOOM_MAX"
+      :step="ZOOM_STEP"
+      show-fit
+    >
       <OpenSystemBtn v-if="path" :path="path" inline />
     </PreviewZoomBar>
     <div ref="stageRef" class="frame-stage">
@@ -197,12 +203,13 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #fff;
+  background: var(--mk-bg);
 }
 .frame-stage {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 .svg-frame {
   border: none;

@@ -149,6 +149,9 @@ pub fn run() -> tauri::Result<()> {
             let files = collect_file_args(&std::env::args().collect::<Vec<String>>());
             grant_for_files(app.handle(), &files);
             app.state::<state::AppState>().set_pending_open(files);
+
+            // 预览临时文档（HTML 预览落盘的明文副本）不跨会话留存；目录不存在时只是一次 stat
+            commands::preview_cmd::prune_at_startup(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -177,6 +180,9 @@ pub fn run() -> tauri::Result<()> {
             // 图片 / asset 授权
             commands::image_cmd::save_pasted_image,
             commands::image_cmd::allow_asset_dir,
+            // HTML 预览临时文档
+            commands::preview_cmd::write_preview_doc,
+            commands::preview_cmd::delete_preview_doc,
             // 导出
             commands::export_cmd::export_html,
             commands::export_cmd::export_docx,

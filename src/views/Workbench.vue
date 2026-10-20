@@ -3,7 +3,7 @@
  * 主工作台：三栏布局 + 保存流水线 + 快捷键 + 导出/打印。
  * 只依赖 adapters 契约与 stores，不直接 import md-editor-v3。
  */
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { listen } from '@tauri-apps/api/event';
 import { AlertCircle, CheckCircle2, Info } from '@lucide/vue';
@@ -940,6 +940,64 @@ function onWsRestoreEnd() {
   cleanupWsRestore();
 }
 
+// ---------- html / svg 分栏：源码区 ⇄ 预览区可拖宽 ----------
+const SPLIT_MIN = 15;
+const SPLIT_MAX = 85;
+/** 源码区占比，预览区吃剩下的。会话内有效（不落设置：只是临时看版式的手感） */
+const markupSplitPct = ref(50);
+let splitBoxW = 0;
+let splitStartX = 0;
+let splitStartPct = 50;
+/** 本帧内累积到的最新鼠标 x，与已排队的 rAF 句柄：合并成每帧最多改一次宽度 */
+let splitPendingX = 0;
+let splitRaf = 0;
+function cleanupSplitDrag() {
+  if (splitRaf) {
+    cancelAnimationFrame(splitRaf);
+    splitRaf = 0;
+  }
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  document.body.classList.remove('mk-col-dragging');
+  window.removeEventListener('mousemove', onSplitDragMove);
+  window.removeEventListener('mouseup', onSplitDragEnd);
+}
+function onSplitDragStart(e: MouseEvent) {
+  const area = (e.currentTarget as HTMLElement).parentElement;
+  if (!area || !area.clientWidth) return;
+  splitBoxW = area.clientWidth;
+  splitStartX = e.clientX;
+  splitStartPct = markupSplitPct.value;
+  splitPendingX = e.clientX;
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  // 预览区是独立文档，拖进 iframe 就收不到 mousemove/mouseup（见 global.css 同名类注释）
+  document.body.classList.add('mk-col-dragging');
+  window.addEventListener('mousemove', onSplitDragMove);
+  window.addEventListener('mouseup', onSplitDragEnd);
+}
+/** ★ 每个 mousemove 就改一次盒宽，iframe 内部视口跟不上（内层文档的 resize 是异步的），
+ *  会先被拉伸再回弹，预览右缘看着就是晃屏。合并到每帧最多一次，内层跟得上，仍然跟手。 */
+function onSplitDragMove(e: MouseEvent) {
+  splitPendingX = e.clientX;
+  if (splitRaf) return;
+  splitRaf = requestAnimationFrame(() => {
+    splitRaf = 0;
+    const pct = splitStartPct + ((splitPendingX - splitStartX) / splitBoxW) * 100;
+    markupSplitPct.value = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct));
+  });
+}
+function onSplitDragEnd() {
+  cleanupSplitDrag();
+}
+/** 比例经 .text-area 的 --mk-split 下发给 CSS（见 global.css 文本区规则） */
+const textAreaStyle = computed<CSSProperties | undefined>(() =>
+  isMarkupTab.value && editor.mode === 'split'
+    ? ({ '--mk-split': `${markupSplitPct.value}%` } as unknown as CSSProperties)
+    : undefined,
+);
+onBeforeUnmount(cleanupSplitDrag);
+
 // ---------- 模式 / 主题 / 字号 ----------
 function setMode(m: EditorMode) {
   // 代码标签只支持编辑态：模式按钮已禁用，这里兜底拦截 Alt+E/W/R 快捷键
@@ -964,20 +1022,21 @@ function onMhRequestMode(m: EditorMode) {
 }
 /** 页面全屏统一入口：F11、标签栏右键「全屏」、内容区右键「全屏」三条路共用。
  *  md 编辑/分栏与 .mh 各自已有内核/自建全屏实现（状态在引擎里，F11 与功能栏按钮同源），
- *  代码引擎没有，故由本层在 .editor-area 上挂类（见 global.css 的 page-full 规则）。 */
-const codePageFull = ref(false);
+ *  代码引擎与预览类标签没有，故由本层在 .editor-area 上挂类（见 global.css 的 page-full 规则）。
+ *  ★ 这份状态放 store 不放本层：预览工具条上的「全屏」按钮要读同一份，否则按钮与 F11 各按各的 */
+const areaPageFull = computed(() => usesCodeEngine.value || tabs.activeIsPreview);
 function toggleFullscreen() {
   editorCtx.value = null; // 菜单开着时按 F11：先收菜单，否则「全屏/退出全屏」的文案会停在旧状态
-  if (usesCodeEngine.value) {
-    codePageFull.value = !codePageFull.value;
+  if (areaPageFull.value) {
+    editor.pageFull = !editor.pageFull;
     return;
   }
   engineRef.value?.togglePageFullscreen?.();
 }
-// 全屏类挂在共用的 .editor-area 上：切到非代码引擎标签时必须摘掉，
-// 否则从代码标签的全屏态经 Ctrl+P（浮层在全屏带之上）跳到 md 标签，会把 md 也留在铺满态
-watch(usesCodeEngine, (code) => {
-  if (!code) codePageFull.value = false;
+// 全屏类挂在共用的 .editor-area 上：切到自带全屏的引擎（md/.mh）时必须摘掉，
+// 否则从代码/预览标签的全屏态经 Ctrl+P（浮层在全屏带之上）跳到 md 标签，会把 md 也留在铺满态
+watch(areaPageFull, (own) => {
+  if (!own) editor.pageFull = false;
 });
 /** 标签右键「全屏」：目标标签不是当前标签时先激活再全屏（首次挂载的引擎要等一个 tick 才有 ref） */
 async function onTabFullscreen(id: string) {
@@ -1417,10 +1476,10 @@ async function doPrintPdf() {
 const editorCtx = ref<EditorCtxPayload | null>(null);
 /** 唤起菜单那一刻的全屏快照：菜单首项据此显示「全屏」或「退出全屏」。
  *  三处真相源不同（md 编辑/分栏在内核挂的 .md-editor-fullscreen、md 阅读态与 .mh 在引擎 ref、
- *  代码引擎在本层 codePageFull），故按引擎各取各的，取一次即可——菜单项点完即收菜单。 */
+ *  代码引擎与预览类在 store 的 pageFull），故按引擎各取各的，取一次即可——菜单项点完即收菜单。 */
 const ctxPageFull = ref(false);
 function onEditorContext(payload: EditorCtxPayload): void {
-  ctxPageFull.value = codePageFull.value || engineRef.value?.isPageFullscreen?.() === true;
+  ctxPageFull.value = editor.pageFull || engineRef.value?.isPageFullscreen?.() === true;
   editorCtx.value = payload;
 }
 function onTableOp(op: 'insert' | TableOp): void {
@@ -1952,7 +2011,7 @@ watch(() => editor.mode, (m) => {
         <TabBar ref="tabBarRef" @close="requestCloseTab" @close-batch="requestCloseBatch" @reloaded="flashReloadArea" @fullscreen="onTabFullscreen" />
         <div
           class="editor-area"
-          :class="{ 'area-reloading': reloadFlash, 'page-full': codePageFull }"
+          :class="{ 'area-reloading': reloadFlash, 'page-full': editor.pageFull }"
           :style="{ '--mk-rail-pad': outlineRailOn ? '44px' : '20px' }"
           v-if="tabs.activeTab"
         >
@@ -1967,7 +2026,12 @@ watch(() => editor.mode, (m) => {
                ★ 三引擎均为「首次用到才挂、此后常驻」，显隐走 v-show（script 段有整套约束说明）；
                布局不再用 .text-area > :first-child 认主引擎（三个根节点会同时在 DOM 里，
                隐藏的那个依然是 first-child），改按各自根类命中，见 global.css 文本区规则 -->
-          <div v-else class="text-area" :class="[{ 'html-mode': isMarkupTab }, editor.mode]">
+          <div
+            v-else
+            class="text-area"
+            :class="[{ 'html-mode': isMarkupTab }, editor.mode]"
+            :style="textAreaStyle"
+          >
             <!-- code / html / svg 标签：CodeMirror 6 代码引擎（html/svg 的 split/read 渲染由 Frame 承担） -->
             <CodeEditorEngine
               v-if="codeEverMounted"
@@ -2053,6 +2117,12 @@ watch(() => editor.mode, (m) => {
               :path="tabs.activeTab.path"
               :dark="settings.isDark"
             />
+            <!-- 分栏拖拽把手：骑在源码区与预览区那条 1px 分隔线上，绝对定位不占 flex 流 -->
+            <div
+              v-if="isMarkupTab && editor.mode === 'split'"
+              class="markup-split-handle"
+              @mousedown="onSplitDragStart"
+            ></div>
           </div>
         </div>
         <Welcome
