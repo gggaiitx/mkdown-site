@@ -127,13 +127,18 @@ export async function hydrateSession(): Promise<HydrateResult> {
     return { restored: false, activeTab: null };
   }
 
-  // 阶段一：并发读盘。每个标签一次 read_file 往返，串行等于把往返数叠加到启动关键路径上
+  // 阶段一：并发读盘。每个标签一次 read_file 往返，串行等于把往返数叠加到启动关键路径上。
+  // 读之前先补一次目录授权：setup 里的「上次工作区 + 最近文件」授权已挪到后台线程
+  // （失效网络盘会把 canonicalize 卡住数秒），恢复标签不能赌它先落地——
+  // 工作区外的标签尤其要这一步。目录不存在时 allow_asset_dir 会拒，忽略即可，
+  // 后面 read_file 会以同样的理由失败并走草稿降级分支。
   const contents = await Promise.all(
-    snap.tabs.map((st) =>
-      st.path && st.kind !== 'docx' && st.kind !== 'xlsx' && st.kind !== 'image'
-        ? readFile(st.path).catch(() => null)
-        : Promise.resolve(null),
-    ),
+    snap.tabs.map(async (st) => {
+      if (!st.path || st.kind === 'docx' || st.kind === 'xlsx' || st.kind === 'image') return null;
+      const dir = st.path.replace(/[\\/][^\\/]*$/, '');
+      if (dir) await allowAssetDir(dir).catch(() => undefined);
+      return readFile(st.path).catch(() => null);
+    }),
   );
 
   // 阶段二：严格按快照顺序提交。标签在 tabs 数组里的排列、以及 activeIndex 的下标对位

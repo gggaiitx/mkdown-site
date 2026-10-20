@@ -1023,10 +1023,13 @@ function gotoOutline(item: OutlineItem) {
 
 /** 会话恢复的光标定位。引擎改成异步组件后，挂载那一帧 ref 还是 null（chunk 正在下载），
  *  单次 nextTick 会扑空——改成重试到引擎出现；约 2 秒仍等不到就放弃，
- *  文档照常打开，只是不落到上次那行 */
-function scrollToRestoredCursor(line: number): void {
+ *  文档照常打开，只是不落到上次那行。
+ *  ★ 按标签 id 守门：等待期间用户可能已经切走，engineRef 那时指向的是别的文档，
+ *    不拦就会把新看的那篇滚到旧标签的行号上 */
+function scrollToRestoredCursor(tabId: string, line: number): void {
   let tries = 0;
   const step = (): void => {
+    if (tabs.activeId !== tabId) return;
     if (engineRef.value?.scrollToLine) {
       engineRef.value.scrollToLine(line);
       return;
@@ -1822,7 +1825,7 @@ onMounted(async () => {
     applyActiveTabMode(hydrate.activeTab);
     // 恢复活动文本标签的光标位置（预览标签无编辑器，跳过）
     const at = hydrate.activeTab;
-    if (at && at.cursorLine > 1 && !tabs.activeIsPreview) scrollToRestoredCursor(at.cursorLine);
+    if (at && at.cursorLine > 1 && !tabs.activeIsPreview) scrollToRestoredCursor(at.id, at.cursorLine);
   }
   // 树与会话并行后，首个恢复标签激活时 ws.root 可能还没落地（联动函数当时直接 return），
   // 这里补一次，保证目录树选中/展开跟得到位
