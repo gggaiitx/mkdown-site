@@ -1,18 +1,19 @@
-# 码克发布流水线（Windows + macOS 双端，一个 workflow 两份产物）
+# 码克发布流水线（Windows + macOS 双端三产物，一个 workflow）
 #
 # 触发：push v* 标签自动跑；workflow_dispatch 手动跑（可指定 ref 为某个 tag，补传历史版本安装包）。
 # 产物：Windows NSIS 安装包（x64）+ macOS 双架构 .dmg，tag 触发时按
 #       Mkdown_${VERSION}_{x64-setup.exe | aarch64-apple-darwin.dmg | x86_64-apple-darwin.dmg}
 #       规范成 ASCII 资产名挂到同名 GitHub Release（官网三条直链严格照这个模板）。
 #
-# 为什么两端并成一个文件：原先 build-windows.yml / build-mac.yml 两个 workflow 由同一个 tag
-# 同时触发，天然并行。飞总要求「先 win 后 mac」，而 Actions 的 needs 不能跨 workflow 文件，
-# 所以两端必须并到这一个文件里，mac 那侧靠 needs 排队。
-#
-# 排序只借 needs 拿时序，不引入依赖：mac 那侧写 if: '!cancelled()'，
-# Windows 失败时 mac 照旧出包（两端原本就互不依赖，别让一条链路挂掉拖死另一条）。
-# 顺带的好处：Release 恒定由 Windows job 先建，mac 双架构再也不会跟它抢
-# （f8cadac 修的那次 422 抢建竞态就是这么来的）。
+# 三个 job 的关系：prepare-release（几秒钟，只干「确保 Release 存在」这一件事）→
+#   build-windows 与 build-macos 并行。这么摆有两个理由：
+#   1) 三端总时长 ≈ 单端最长的那条（约 16 分钟），而不是串起来的 31 分钟；
+#   2) Release 由唯一一个 job 创建，check-then-act 的抢建竞态（HTTP 422
+#      Release.tag_name already exists，v0.6.0-patch.3 就栽过一次，f8cadac 只是兜底）
+#      从根上消失，三个上传都只是往已存在的 Release 挂各自资产，
+#      gh release upload --clobber 本身并发安全。
+#   ★ prepare-release 里**不要**用 if 过滤非 tag 触发：needs 遇到 skipped 的上游会连带
+#     跳过下游，那样 workflow_dispatch 就整个构建不了了。改成步骤内部空跑退出。
 #
 # macOS 侧前提：Tauri 的 mac 包只能在 macOS 上编译（Xcode 链路），本机 Windows 无法交叉编译，
 #   故借用 GitHub 免费的 macos-14 运行器（macos-13 已退役，勿改回）。
@@ -30,7 +31,37 @@ on:
       - 'v*' # 打 v* 标签时自动构建
 
 jobs:
+  prepare-release:
+    # gh release create 需要 Release 写权限（默认只读会 403）
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 要读 annotated tag 的完整说明
+
+      - name: 确保同名 Release 存在（仅 tag 触发）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${GITHUB_REF}" != refs/tags/* ]]; then
+            echo "非 tag 触发（${GITHUB_REF}），不建 Release"
+            exit 0
+          fi
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} 已存在，跳过创建"
+            exit 0
+          fi
+          # 注意：必须用 %(contents) 取完整标签说明，不能用 %(contents:body)。
+          # %(contents:body) 只返回第一段之后的正文；本仓库发布说明首段为「## 新特性」+其条目
+          # （标题与列表间无空行），会被 Git 整体当作 subject 吞掉，导致新特性在 Release 正文丢失。
+          git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > rel-notes.md
+          gh release create "${GITHUB_REF_NAME}" --title "码克 MkDown ${GITHUB_REF_NAME}" --notes-file rel-notes.md
+
   build-windows:
+    # 只等「Release 已就位」这一步，不等 macOS 构建
+    needs: prepare-release
     # gh release upload 需要 GITHUB_TOKEN 具备 Release 写权限（默认只读会 403）
     permissions:
       contents: write
@@ -91,25 +122,12 @@ jobs:
           DIR="src-tauri/target/release/bundle/nsis"
           # 资产名统一 ASCII（productName 为中文，默认安装包名含中文在部分上传链路会被吞，见 2026-09-27 日志）
           mv "$DIR"/*-setup.exe "$DIR/Mkdown_${VERSION}_x64-setup.exe"
-          # 兜底：Release 不存在则先创建，说明取自标签说明（annotated tag message，写清更新内容，别再"见提交历史"）
-          if ! gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
-            git fetch -q origin "refs/tags/${{ github.ref_name }}:refs/tags/${{ github.ref_name }}" --no-tags --force
-            # 注意：必须用 %(contents) 取完整标签说明，不能用 %(contents:body)。
-            # %(contents:body) 只返回第一段之后的正文；本仓库发布说明首段为「## 新特性」+其条目
-            # （标题与列表间无空行），会被 Git 整体当作 subject 吞掉，导致新特性在 Release 正文丢失。
-            git tag -l --format='%(contents)' "${{ github.ref_name }}" > rel-notes.md
-            # 本 job 现在恒定最先建 Release（mac 排在它后面），这里的 create 兜底只防手动重跑
-            # 单 job 时的空档；create 失败仍用 view 判一次，别把「对方刚建好」当成出错
-            gh release create "${{ github.ref_name }}" --title "码克 MkDown ${{ github.ref_name }}" --notes-file rel-notes.md 2>/dev/null \
-              || gh release view "${{ github.ref_name }}" >/dev/null
-          fi
+          # Release 由 prepare-release 建好，这里只挂资产；--clobber 让重跑同一 job 覆盖同名资产
           gh release upload "${{ github.ref_name }}" --clobber "$DIR/Mkdown_${VERSION}_x64-setup.exe"
 
   build-macos:
-    # 只借 needs 拿「先 win 后 mac」的时序；if 用 !cancelled() 让 Windows 失败时 mac 照旧出包，
-    # 不新引入跨端依赖（工作流被取消时不白烧 mac 运行器分钟）
-    needs: build-windows
-    if: ${{ !cancelled() }}
+    # 与 build-windows 并行：两者都只 needs prepare-release
+    needs: prepare-release
     # gh release upload 需要 GITHUB_TOKEN 具备 Release 写权限（默认只读会 403）
     permissions:
       contents: write
@@ -178,18 +196,5 @@ jobs:
           # 资产名统一 ASCII（中文文件名在部分上传链路会被吞，见 2026-09-27 日志）
           ARCH=${{ matrix.target }}   # aarch64-apple-darwin / x86_64-apple-darwin
           mv "$DIR"/*.dmg "$DIR/Mkdown_${VERSION}_${ARCH}.dmg"
-          # 兜底：Release 不存在则先创建，说明取自标签说明（annotated tag message，写清更新内容，别再"见提交历史"）
-          if ! gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
-            git fetch -q origin "refs/tags/${{ github.ref_name }}:refs/tags/${{ github.ref_name }}" --no-tags --force
-            # 注意：必须用 %(contents) 取完整标签说明，不能用 %(contents:body)。
-            # %(contents:body) 只返回第一段之后的正文；本仓库发布说明首段为「## 新特性」+其条目
-            # （标题与列表间无空行），会被 Git 整体当作 subject 吞掉，导致新特性在 Release 正文丢失。
-            git tag -l --format='%(contents)' "${{ github.ref_name }}" > rel-notes.md
-            # 两个架构的 job 之间这里仍会抢一次：view 与 create 之间有窗口，后到的必撞
-            # HTTP 422「Release.tag_name already exists」。把 create 的失败交给紧随其后的
-            # view 兜底判定——对方刚建好即算成功（标题与正文同源于 annotated tag，谁建都一样），
-            # 真出错时 view 也会失败，不会把故障吞成静默
-            gh release create "${{ github.ref_name }}" --title "码克 MkDown ${{ github.ref_name }}" --notes-file rel-notes.md 2>/dev/null \
-              || gh release view "${{ github.ref_name }}" >/dev/null
-          fi
+          # Release 由 prepare-release 建好，这里只挂资产；两个架构并行上传互不影响
           gh release upload "${{ github.ref_name }}" --clobber "$DIR/Mkdown_${VERSION}_${ARCH}.dmg"
