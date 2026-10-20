@@ -8,7 +8,10 @@ mod state;
 
 use std::path::Path;
 
+use tauri::utils::config::Color;
 use tauri::{Emitter, Manager};
+
+use crate::models::AppSettings;
 
 /// 从命令行参数里筛出"真实存在的文件"路径（跳过 argv[0] 与开关项）。
 /// Windows「打开方式」/ 双击关联文件时，路径作为普通参数传入。
@@ -29,6 +32,43 @@ fn grant_for_files(app: &tauri::AppHandle, files: &[String]) {
         if let Some(dir) = Path::new(f).parent() {
             st.grant_root(dir);
         }
+    }
+}
+
+/// 恢复上次会话的目录授权：上次工作区 + 最近文件所在目录。
+/// 没有这一步，重启后点"最近文件"会被白名单拒绝（PERMISSION_DENIED），
+/// 等于用安全缺口换功能性回退。
+///
+/// ★ 整包跑在后台线程（启动提速 P2）：`grant_root` 内的 `canonicalize()` 对失效网络盘、
+/// 拔掉的移动硬盘会走到 Windows 路径解析超时，单条就能卡住数秒，而它原先在 `setup` 里
+/// ——窗口显示之前。用户看到的不是"慢"，是"双击图标后毫无反应"。
+/// 授权是尽力而为、且晚到几百毫秒不影响功能：前端打开任何文件都另有
+/// `allow_asset_dir` / 对话框授权通路。
+fn grant_session_roots(app: &tauri::AppHandle, settings: Option<&AppSettings>) {
+    let Some(settings) = settings else {
+        return;
+    };
+    let st = app.state::<state::AppState>();
+    if let Some(ws) = &settings.last_workspace {
+        st.grant_root(Path::new(ws));
+    }
+    for rf in &settings.recent_files {
+        if let Some(dir) = Path::new(&rf.path).parent() {
+            st.grant_root(dir);
+        }
+    }
+}
+
+/// 主题对应的窗口底色（与 `global.css` 的 `--mk-bg` 同源：亮 #fff / 暗 rgb(19,20,22)）。
+///
+/// 窗口配置改成 `visible: false`（启动提速 P2）：WebView 出首帧之前那一层由窗口底色占位，
+/// 不预设就是系统白底——暗色用户每次启动先挨一下白闪，而主题要等前端 `settings.load()`
+/// 的 IPC 往返回来才写进 `documentElement`。`setup` 里本就读过 settings，
+/// 顺手按主题把底色钉好再 `show`，不额外等任何一环。
+fn theme_background(theme: &str) -> Color {
+    match theme {
+        "dark" => Color(19, 20, 22, 255),
+        _ => Color(255, 255, 255, 255),
     }
 }
 
@@ -66,26 +106,49 @@ pub fn run() -> tauri::Result<()> {
             }
         })
         .setup(|app| {
-            // 恢复上次会话授权：上次工作区 + 最近文件所在目录。
-            // 没有这一步，重启后点"最近文件"会被白名单拒绝（PERMISSION_DENIED），
-            // 等于用安全缺口换功能性回退。
-            let st = app.state::<state::AppState>();
-            if let Ok(settings) = services::settings_service::load(app.handle()) {
-                if let Some(ws) = &settings.last_workspace {
-                    st.grant_root(Path::new(ws));
-                }
-                for rf in &settings.recent_files {
-                    if let Some(dir) = Path::new(&rf.path).parent() {
-                        st.grant_root(dir);
+            let settings = services::settings_service::load(app.handle()).ok();
+
+            // 底色按主题预设好之后再显示窗口（配置里 visible:false，见 theme_background 注释）
+            match app.get_webview_window("main") {
+                Some(win) => {
+                    let theme = settings
+                        .as_ref()
+                        .map(|s| s.theme.as_str())
+                        .unwrap_or("light");
+                    if let Err(e) = win.set_background_color(Some(theme_background(theme))) {
+                        eprintln!("[mkdown][warn] 设置窗口底色失败: {e}");
+                    }
+                    if let Err(e) = win.show() {
+                        eprintln!("[mkdown][warn] 显示主窗口失败: {e}");
                     }
                 }
+                // 理论上到不了这里：配置窗口在 setup 之前就已创建
+                None => eprintln!("[mkdown][warn] 未找到 main 窗口，跳过显示"),
             }
+
+            // 会话目录授权挪到后台线程（见 grant_session_roots 注释）
+            let handle = app.handle().clone();
+            let restored = settings.clone();
+            match std::thread::Builder::new()
+                .name("grant-restore".into())
+                .spawn(move || grant_session_roots(&handle, restored.as_ref()))
+            {
+                Ok(_) => {}
+                // 起线程失败（系统资源耗尽）：宁可同步跑完，也不能让最近文件全部失去授权
+                Err(e) => {
+                    eprintln!("[mkdown][warn] 授权线程启动失败，改同步执行: {e}");
+                    grant_session_roots(app.handle(), settings.as_ref());
+                }
+            }
+
             // 「打开方式」/ 双击关联文件：解析启动参数里的文件路径。
-            // 授权 + 存入待打开队列；前端挂载后经 take_pending_open_args 取走，
-            // 不在 setup 里直接 emit——webview 页面此时多半还没注册监听。
+            // 这一批保持同步：授权必须赶在前端 take_pending_open_args 取件之前落定，
+            // 且参数里的文件由资源管理器递交、必然存在，不会踩路径解析超时。
+            // 前端挂载后经 take_pending_open_args 取走，不在 setup 里直接 emit——
+            // webview 页面此时多半还没注册监听。
             let files = collect_file_args(&std::env::args().collect::<Vec<String>>());
             grant_for_files(app.handle(), &files);
-            st.set_pending_open(files);
+            app.state::<state::AppState>().set_pending_open(files);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
