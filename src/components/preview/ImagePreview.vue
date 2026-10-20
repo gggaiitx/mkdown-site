@@ -115,6 +115,7 @@ onBeforeUnmount(stopPan);
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* 工具条压到极限后保持自身宽度，超出这里裁掉，不去压邻栏 */
   background: var(--mk-bg);
 }
 .img-stage {

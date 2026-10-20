@@ -943,8 +943,26 @@ function onWsRestoreEnd() {
 // ---------- html / svg 分栏：源码区 ⇄ 预览区可拖宽 ----------
 const SPLIT_MIN = 15;
 const SPLIT_MAX = 85;
+/** 预览区最小宽度：够放下那条工具栏（含贴右缘的全屏按钮），按较宽的英文标签
+ *  「Open in System」留足，中文更窄自然也够。
+ *  ★ 别改成「运行时量 .zoom-bar 的宽度」——它是**列向** flex 容器的子项，默认
+ *    align-items:stretch 会把 offsetWidth 拉成整个面板宽，反推出的占比上限直接落到
+ *    下限，结果就是分界线完全拖不动（2026-10-20 踩过）。 */
+const PREVIEW_MIN_PX = 340;
+/** 源码区占比上限：预览区至少保住 PREVIEW_MIN_PX */
+function splitMaxPct(boxW: number): number {
+  if (boxW <= 0) return SPLIT_MAX;
+  return Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, ((boxW - PREVIEW_MIN_PX) / boxW) * 100));
+}
 /** 源码区占比，预览区吃剩下的。会话内有效（不落设置：只是临时看版式的手感） */
 const markupSplitPct = ref(50);
+const textAreaRef = ref<HTMLElement | null>(null);
+/** 把已存的比例夹回当前允许的范围（窗口变窄、侧栏收展后都要重夹） */
+function clampSplitPct(boxW: number) {
+  const pct = markupSplitPct.value;
+  const next = Math.min(splitMaxPct(boxW), Math.max(SPLIT_MIN, pct));
+  if (next !== pct) markupSplitPct.value = next;
+}
 let splitBoxW = 0;
 let splitStartX = 0;
 let splitStartPct = 50;
@@ -967,6 +985,7 @@ function onSplitDragStart(e: MouseEvent) {
   if (!area || !area.clientWidth) return;
   splitBoxW = area.clientWidth;
   splitStartX = e.clientX;
+  clampSplitPct(splitBoxW); // 窗口可能已变窄，先把旧比例夹回允许范围
   splitStartPct = markupSplitPct.value;
   splitPendingX = e.clientX;
   document.body.style.cursor = 'col-resize';
@@ -984,7 +1003,7 @@ function onSplitDragMove(e: MouseEvent) {
   splitRaf = requestAnimationFrame(() => {
     splitRaf = 0;
     const pct = splitStartPct + ((splitPendingX - splitStartX) / splitBoxW) * 100;
-    markupSplitPct.value = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct));
+    markupSplitPct.value = Math.min(splitMaxPct(splitBoxW), Math.max(SPLIT_MIN, pct));
   });
 }
 function onSplitDragEnd() {
@@ -996,7 +1015,21 @@ const textAreaStyle = computed<CSSProperties | undefined>(() =>
     ? ({ '--mk-split': `${markupSplitPct.value}%` } as unknown as CSSProperties)
     : undefined,
 );
-onBeforeUnmount(cleanupSplitDrag);
+// 容器变窄（缩窗口 / 收展侧栏 / 拖目录树）后重夹比例：不夹的话预览区会窄过工具栏，
+// 按钮被裁；只听 window resize 不够，拖目录树宽度不触发它
+let splitAreaRO: ResizeObserver | null = null;
+watch(textAreaRef, (el) => {
+  splitAreaRO?.disconnect();
+  splitAreaRO = null;
+  if (!el) return;
+  splitAreaRO = new ResizeObserver(() => clampSplitPct(el.clientWidth));
+  splitAreaRO.observe(el);
+});
+onBeforeUnmount(() => {
+  splitAreaRO?.disconnect();
+  splitAreaRO = null;
+  cleanupSplitDrag();
+});
 
 // ---------- 模式 / 主题 / 字号 ----------
 function setMode(m: EditorMode) {
@@ -2028,6 +2061,7 @@ watch(() => editor.mode, (m) => {
                隐藏的那个依然是 first-child），改按各自根类命中，见 global.css 文本区规则 -->
           <div
             v-else
+            ref="textAreaRef"
             class="text-area"
             :class="[{ 'html-mode': isMarkupTab }, editor.mode]"
             :style="textAreaStyle"

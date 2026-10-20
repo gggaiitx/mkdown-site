@@ -45,6 +45,8 @@ async function open() {
 
 <style scoped>
 .pv-open-sys {
+  flex: none;
+  white-space: nowrap; /* 窄面板里被 flex 压到 min-content 时，中文会逐字竖排成一列 */
   position: absolute;
   top: 10px;
   right: 12px;

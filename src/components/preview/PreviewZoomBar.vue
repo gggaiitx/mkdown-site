@@ -80,27 +80,34 @@ function actualSize() {
   flex: none;
   position: relative; /* 全屏按钮贴右缘，靠这里定位 */
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 6px;
+  gap: 4px;
+  padding: 6px 4px;
   border-bottom: 1px solid var(--mk-border);
+  /* 分栏把预览区拖窄时，工具条压到极限就不再收缩、保持自身宽度（超出部分由宿主
+     overflow:hidden 裁掉）。不钉住的话 flex 会把按钮挤到 min-content，「系统打开」
+     的中文逐字竖排成一列，整条变形 */
+  min-width: max-content;
 }
 /* 绝对定位而非 flex 尾项：margin-left:auto 会把左边整组推到左对齐，
    居中观感就没了 */
 .tb-full {
   position: absolute;
-  right: 8px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
 }
 .tb {
+  flex: none;
+  white-space: nowrap;
   appearance: none;
   border: 1px solid var(--mk-border);
   background: var(--mk-panel);
   color: var(--mk-fg);
   border-radius: 6px;
-  padding: 4px 6px;
+  padding: 4px 5px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -111,7 +118,9 @@ function actualSize() {
   color: var(--mk-accent);
 }
 .tb-val {
-  min-width: 64px;
+  flex: none;
+  white-space: nowrap;
+  min-width: 54px;
   text-align: center;
   font-size: 12px;
   color: var(--mk-fg-soft);
