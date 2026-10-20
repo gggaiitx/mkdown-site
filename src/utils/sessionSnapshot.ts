@@ -9,6 +9,7 @@ import {
 } from '../api/sessionApi';
 import { readFile } from '../api/fileApi';
 import { allowAssetDir } from '../api/imageApi';
+import type { FileContent } from '../api/types';
 
 /**
  * 会话快照服务：标签页集合 + 未保存草稿 的持久化与恢复。
@@ -126,9 +127,20 @@ export async function hydrateSession(): Promise<HydrateResult> {
     return { restored: false, activeTab: null };
   }
 
+  // 阶段一：并发读盘。每个标签一次 read_file 往返，串行等于把往返数叠加到启动关键路径上
+  const contents = await Promise.all(
+    snap.tabs.map((st) =>
+      st.path && st.kind !== 'docx' && st.kind !== 'xlsx' && st.kind !== 'image'
+        ? readFile(st.path).catch(() => null)
+        : Promise.resolve(null),
+    ),
+  );
+
+  // 阶段二：严格按快照顺序提交。标签在 tabs 数组里的排列、以及 activeIndex 的下标对位
+  // 都依赖这个顺序，若把提交也并发掉，标签栏顺序会随各次 IPC 完成先后随机化
   const restoredIds: (string | null)[] = [];
-  for (const st of snap.tabs) {
-    restoredIds.push(await restoreOneTab(tabs, st));
+  for (let i = 0; i < snap.tabs.length; i++) {
+    restoredIds.push(restoreOneTab(tabs, snap.tabs[i], contents[i]));
   }
 
   // 恢复活动标签（按快照下标对位，跳过的标签不占用位置）
@@ -145,11 +157,13 @@ export async function hydrateSession(): Promise<HydrateResult> {
   return { restored: restoredIds.some(Boolean), activeTab: active };
 }
 
-/** 恢复单个标签；返回新标签 id，失败返回 null（单标签失败不阻塞其余） */
-async function restoreOneTab(
+/** 恢复单个标签（同步提交，正文由 hydrateSession 的并发读阶段备好，raw=null 即读盘失败）；
+ *  返回新标签 id，失败返回 null（单标签失败不阻塞其余） */
+function restoreOneTab(
   tabs: ReturnType<typeof useTabsStore>,
   st: SessionTabSnapshot,
-): Promise<string | null> {
+  raw: FileContent | null,
+): string | null {
   try {
     const kind = st.kind;
     let tab: DocumentTab | undefined;
@@ -158,11 +172,9 @@ async function restoreOneTab(
       if (!st.path) return null;
       tab = tabs.openPreviewByPath(st.path, kind);
     } else if (st.path) {
-      let raw: Awaited<ReturnType<typeof readFile>> | null = null;
-      try {
-        raw = await readFile(st.path);
+      if (raw) {
         tab = tabs.openFile(raw, (st.mode as DocumentTab['mode']) ?? 'split');
-      } catch {
+      } else {
         if (!st.isDirty || typeof st.content !== 'string') return null;
         // 文件已不在盘上，但草稿还在：降级构造（encoding 未知按 utf-8）
         tab = tabs.addRestored({

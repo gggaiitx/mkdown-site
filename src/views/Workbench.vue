@@ -16,7 +16,6 @@ import OutlineRail from '../components/OutlineRail.vue';
 import FileTree from '../components/FileTree.vue';
 import SearchHub from '../components/SearchHub.vue';
 import SettingsDialog from '../components/SettingsDialog.vue';
-import WordConvertDialog from '../components/WordConvertDialog.vue';
 import Welcome from '../components/Welcome.vue';
 import AppDialog from '../components/AppDialog.vue';
 import FloatTip from '../components/FloatTip.vue';
@@ -26,6 +25,9 @@ import EditorCtxMenu from '../components/EditorCtxMenu.vue';
 const DocxPreview = defineAsyncComponent(() => import('../components/preview/DocxPreview.vue'));
 const SheetPreview = defineAsyncComponent(() => import('../components/preview/SheetPreview.vue'));
 const PdfPreview = defineAsyncComponent(() => import('../components/preview/PdfPreview.vue'));
+/** Word 反转弹窗同样懒加载：它静态引用 docxToMd / docxPreviewToMh，连带把 mammoth 全家
+ *  （mammoth+jszip+xmlbuilder+@xmldom+lop+dingbat ≈260KB min）拖进首屏，而弹窗点开才有用 */
+const WordConvertDialog = defineAsyncComponent(() => import('../components/WordConvertDialog.vue'));
 import ImagePreview from '../components/preview/ImagePreview.vue';
 import HtmlFrame from '../components/preview/HtmlFrame.vue';
 import SvgFrame from '../components/preview/SvgFrame.vue';
@@ -63,9 +65,7 @@ import {
   writeFileAtomic,
 } from '../api/fileApi';
 import { exportDocx, exportHtml, exportPdf } from '../api/exportApi';
-import { htmlToDocx, type WordStyleOpts } from '../convert/htmlToDocx';
-import { mdToDocxCommunity } from '../convert/mdToDocxCommunity';
-import { buildPrintDocument } from '../convert/printDoc';
+import type { WordStyleOpts } from '../convert/htmlToDocx';
 import { allowAssetDir } from '../api/imageApi';
 import type { EditorMode, ReadLayout, ThemeKind } from '../api/types';
 import { DEFAULT_SETTINGS, FONT_MAX, FONT_MIN, FONT_STEP } from '../api/types';
@@ -1021,6 +1021,22 @@ function gotoOutline(item: OutlineItem) {
   editor.cursorLine = item.line;
 }
 
+/** 会话恢复的光标定位。引擎改成异步组件后，挂载那一帧 ref 还是 null（chunk 正在下载），
+ *  单次 nextTick 会扑空——改成重试到引擎出现；约 2 秒仍等不到就放弃，
+ *  文档照常打开，只是不落到上次那行 */
+function scrollToRestoredCursor(line: number): void {
+  let tries = 0;
+  const step = (): void => {
+    if (engineRef.value?.scrollToLine) {
+      engineRef.value.scrollToLine(line);
+      return;
+    }
+    if (++tries > 120) return;
+    setTimeout(step, 16);
+  };
+  void nextTick(step);
+}
+
 /* ---- 滚动联动：内容滚到哪个标题，大纲就选中哪一条 ----
    scroll 不冒泡，但捕获阶段能吃到任何后代的滚动 → 一个 document 级监听覆盖三引擎各自的
    滚动宿主（md 分栏的预览栏、md 阅读的 .read-scroll、.mh 的 .w-e-scroll）。
@@ -1139,20 +1155,18 @@ function closeHub() {
 }
 
 // ---------- 标签 ↔ 文件树联动：切换标签时工作区选中态跟随（展开祖先 + 滚动到可见） ----------
-watch(
-  () => tabs.activeId,
-  async () => {
-    const path = tabs.activeTab?.path;
-    // 未保存的新建文档 / 工作区外文件：不改变工作区选中态
-    if (!path || !ws.root || !path.startsWith(ws.root)) return;
-    ws.expandTo(path);
-    ws.select(path);
-    await nextTick(); // 等祖先展开渲染出新节点
-    document
-      .querySelector(`[data-path="${CSS.escape(path)}"]`)
-      ?.scrollIntoView({ block: 'nearest' });
-  },
-);
+async function syncTreeToActiveTab(): Promise<void> {
+  const path = tabs.activeTab?.path;
+  // 未保存的新建文档 / 工作区外文件：不改变工作区选中态
+  if (!path || !ws.root || !path.startsWith(ws.root)) return;
+  ws.expandTo(path);
+  ws.select(path);
+  await nextTick(); // 等祖先展开渲染出新节点
+  document
+    .querySelector(`[data-path="${CSS.escape(path)}"]`)
+    ?.scrollIntoView({ block: 'nearest' });
+}
+watch(() => tabs.activeId, () => void syncTreeToActiveTab());
 
 // ---------- 导出 ----------
 function wrapExportHtml(body: string): string {
@@ -1254,6 +1268,9 @@ async function doExportWord() {
       }
       // 文档目录：解析相对路径图片（./assets/…）的基准
       const baseDir = tab.path?.replace(/[\\/][^\\/]*$/, '') || undefined;
+      // ★ 转换/导出模块一律点开导出才动态取：mdToDocxCommunity 静态引用 mdRendererConfig，
+      //   留着静态 import 就等于把 mermaid+katex+hljs（约 900KB min）钉死在首屏 chunk 里
+      const { mdToDocxCommunity } = await import('../convert/mdToDocxCommunity');
       const { blob, warnings } = await mdToDocxCommunity(tab.content, style, baseDir);
       const data = new Uint8Array(await blob.arrayBuffer());
       const out = await exportDocx(tab.path ?? t('workbench.untitledMd'), data);
@@ -1278,6 +1295,7 @@ async function doExportWord() {
       editor.showToast(t('workbench.toast.wordExportEmpty'), 'error');
       return;
     }
+    const { htmlToDocx } = await import('../convert/htmlToDocx');
     const { blob, degradedFormulas, failedImages } = await htmlToDocx(html, style);
     const data = new Uint8Array(await blob.arrayBuffer());
     const out = await exportDocx(tab.path ?? t('workbench.untitledMd'), data);
@@ -1323,6 +1341,7 @@ async function doExportPdf() {
       editor.showToast(t('workbench.toast.wordExportEmpty'), 'error');
       return;
     }
+    const { buildPrintDocument } = await import('../convert/printDoc');
     const printDoc = await buildPrintDocument(html);
     const out = await exportPdf(tab.path ?? t('workbench.untitledMd'), printDoc);
     if (out) {
@@ -1762,42 +1781,47 @@ onMounted(async () => {
     }
   });
   const win = getCurrentWebviewWindow();
-  await win.onCloseRequested(onCloseRequested);
-  try {
-    unlistenDrop = await win.onDragDropEvent(onDragDrop);
-  } catch {
-    /* 非 Tauri 环境（浏览器/无头验证）无此事件，忽略 */
-  }
-  try {
-    // 二次点击关联文件：单实例插件转发的事件
-    unlistenOpenArgs = await listen<string[]>('open-file-args', (e) => {
-      void openArgsFiles(e.payload);
-    });
-  } catch {
-    /* 非 Tauri 环境忽略 */
-  }
-  // 恢复上次工作区
-  if (settings.settings.lastWorkspace) {
+  // ---- 启动收尾并行走（2026-10-20 启动提速 P1）----
+  // 原先四段逐条 await：窗口事件注册 → 工作区全树遍历 → 会话标签逐个读盘 → 取启动参数。
+  // 内容区只依赖第三段，工作区树晚到一点不过是目录树后填一帧，没必要让首屏排队等它。
+  const listenersTask = (async () => {
     try {
-      await ws.openWorkspace(settings.settings.lastWorkspace);
+      await win.onCloseRequested(onCloseRequested);
     } catch {
-      editor.showToast(t('workbench.toast.lastWsUnavailable'), 'info');
+      /* 非 Tauri 环境忽略：不能让监听注册失败连累工作区与会话恢复 */
     }
-  }
+    try {
+      unlistenDrop = await win.onDragDropEvent(onDragDrop);
+    } catch {
+      /* 非 Tauri 环境（浏览器/无头验证）无此事件，忽略 */
+    }
+    try {
+      // 二次点击关联文件：单实例插件转发的事件
+      unlistenOpenArgs = await listen<string[]>('open-file-args', (e) => {
+        void openArgsFiles(e.payload);
+      });
+    } catch {
+      /* 非 Tauri 环境忽略 */
+    }
+  })();
+  const wsTask = settings.settings.lastWorkspace
+    ? ws.openWorkspace(settings.settings.lastWorkspace).catch(() => {
+        editor.showToast(t('workbench.toast.lastWsUnavailable'), 'info');
+      })
+    : Promise.resolve();
   // 会话恢复（更新重启/崩溃后还原标签页与未保存草稿）：干净页读盘，脏页用快照草稿
-  try {
-    const hydrate = await hydrateSession();
-    if (hydrate.restored) {
-      applyActiveTabMode(hydrate.activeTab);
-      // 恢复活动文本标签的光标位置（预览标签无编辑器，跳过）
-      const at = hydrate.activeTab;
-      if (at && at.cursorLine > 1 && !tabs.activeIsPreview) {
-        void nextTick(() => engineRef.value?.scrollToLine(at.cursorLine));
-      }
-    }
-  } catch {
-    /* 会话恢复失败不致命 */
+  const sessionTask = hydrateSession().catch(() => null);
+  const hydrate = (await Promise.all([listenersTask, wsTask, sessionTask]))[2];
+
+  if (hydrate?.restored) {
+    applyActiveTabMode(hydrate.activeTab);
+    // 恢复活动文本标签的光标位置（预览标签无编辑器，跳过）
+    const at = hydrate.activeTab;
+    if (at && at.cursorLine > 1 && !tabs.activeIsPreview) scrollToRestoredCursor(at.cursorLine);
   }
+  // 树与会话并行后，首个恢复标签激活时 ws.root 可能还没落地（联动函数当时直接 return），
+  // 这里补一次，保证目录树选中/展开跟得到位
+  void syncTreeToActiveTab();
   // 首次启动带文件路径：工作区就绪后再开，标签落位更自然（激活参数文件为活动标签）
   try {
     await openArgsFiles(await takePendingOpenArgs());

@@ -28,10 +28,18 @@ export const useWorkspaceStore = defineStore('workspace', {
         const settings = useSettingsStore();
         // 历史工作区：最近在前、去重、上限 10（供树根目录名点击切换）
         const recents = [dir, ...settings.settings.recentWorkspaces.filter((d) => d !== dir)].slice(0, 10);
-        await settings.update({ lastWorkspace: dir, recentWorkspaces: recents });
+        // 启动恢复走的就是这条路径，而 lastWorkspace/recents 本就是上一次写进去的值——
+        // 值没变就不必再触发一次回写（省掉启动后 500ms 那次无意义落盘与全站重渲染）
+        if (settings.settings.lastWorkspace !== dir || settings.settings.recentWorkspaces.join() !== recents.join()) {
+          await settings.update({ lastWorkspace: dir, recentWorkspaces: recents });
+        }
         // 后台建全文索引（预热 Office 正文缓存）：不 await，失败也不影响使用。
         // 冷缓存首次检索要解压全库 docx（实测 62s），提前跑一遍可把成本消化在打开阶段。
-        void warmSearchCache(dir).catch(() => {});
+        // 但起跑时机挪到空闲：它在 Rust 侧按整库并行解压，正撞在窗口刚出来、
+        // WebView 还在解析首屏 JS 的最敏感窗口期，等于自己跟自己抢 CPU。
+        const warm = () => void warmSearchCache(dir).catch(() => {});
+        if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 10000 });
+        else setTimeout(warm, 4000);
       } finally {
         this.loading = false;
       }
