@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { readFile } from '../api/fileApi';
+import { probeTextFile, readFile } from '../api/fileApi';
 import type { EditorMode, FileContent } from '../api/types';
 
 let uid = 0;
@@ -24,8 +24,9 @@ export const isPreviewKind = (k: TabKind): k is PreviewKind =>
 
 /** 按扩展名归类文本标签（预览类不经此函数，由 probe_preview_kind 后端判定）。
  *  只有 Markdown 走 md 引擎渲染；txt/log/csv/tsv 及未知文本一律 'code'
- *  （CodeMirror 纯文本编辑，不做 Markdown 渲染，避免 #/* 等字符被误渲染成标题/斜体）。 */
-function textKindOf(path: string): TabKind {
+ *  （CodeMirror 纯文本编辑，不做 Markdown 渲染，避免 #/* 等字符被误渲染成标题/斜体）。
+ *  导出给「另存为 / 重命名之后按新扩展名重算引擎」用，避免调用处再抄一份归类规则。 */
+export function textKindOf(path: string): TabKind {
   const lower = path.toLowerCase();
   const dot = lower.lastIndexOf('.');
   const ext = dot > 0 ? lower.slice(dot + 1) : '';
@@ -270,18 +271,34 @@ export const useTabsStore = defineStore('tabs', {
     },
     /** 文件被重命名/删除时同步标签（newPath 传 null 表示删除）；
      *  重命名目标可能是目录：其子文件按前缀一并跟随新路径 */
-    retabPath(oldPath: string, newPath: string | null) {
+    async retabPath(oldPath: string, newPath: string | null) {
       const sep = oldPath.includes('\\') ? '\\' : '/';
       for (const t of this.tabs) {
         if (!t.path) continue;
         if (t.path === oldPath) {
           t.path = newPath;
-          if (newPath) t.title = newPath.split(/[\\/]/).pop() ?? t.title;
+          if (newPath) {
+            t.title = newPath.split(/[\\/]/).pop() ?? t.title;
+            await this.retypeTab(t, newPath);
+          }
         } else if (newPath && t.path.startsWith(oldPath + sep)) {
+          // 目录级重命名：子文件只换父路径，扩展名没变，引擎不用动
           t.path = newPath + t.path.slice(oldPath.length);
           t.title = t.path.split(/[\\/]/).pop() ?? t.title;
         }
       }
+    },
+    /** 重命名改了扩展名时按新类型重挂引擎（a.md → a.txt 不该还留在 Markdown 内核里，
+     *  反向亦然）。归类复用 textKindOf，与 openByPath 同一个真相源。
+     *  只在归类结果真的变了才去探测，同类型改名零额外 IO。
+     *  后端判「不能按文本打开」（改成 png/exe 之类）时保持原 kind：转成预览/只读要补
+     *  asset 授权与禁存语义，那是 routeByType 的活，不是重命名联动该管的。 */
+    async retypeTab(t: DocumentTab, newPath: string) {
+      if (isPreviewKind(t.kind)) return;
+      const next = textKindOf(newPath);
+      if (next === t.kind) return;
+      if (!(await probeTextFile(newPath).catch(() => false))) return;
+      t.kind = next;
     },
   },
 });

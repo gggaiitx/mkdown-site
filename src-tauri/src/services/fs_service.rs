@@ -308,6 +308,26 @@ pub fn is_text_file(path: &Path) -> bool {
     sniff_text(path)
 }
 
+/// 扩展名层面的「能否按文本处理」：口径与 `is_text_file` 的白/黑名单一致
+/// （BINARY 优先命中即否），但不读盘、不嗅探、不看大小。
+///
+/// 给检索分类这类「整棵树批量判定」的场景复用，免得各服务各抄一份名单——
+/// `search_service` 原先那份就漏过 `svg`（编辑器能开能存，搜索里却隐身），
+/// 而 `sqlite` 在 TEXT_EXTS 与 BINARY_EXTS 里都挂过，按 BINARY 优先归二进制，不再当文本搜。
+/// 传入的 `ext` 必须是**已小写**的纯扩展名（不含点）。
+pub fn is_text_ext(ext: &str) -> bool {
+    !BINARY_EXTS.contains(&ext) && TEXT_EXTS.contains(&ext)
+}
+
+/// 应用内预览支持的图片格式：仅收 WebView/Chromium 原生可解码者，
+/// tiff/heic/emf/wmf/psd 不收（浏览器渲染不了，交系统查看器）。
+/// `preview_kind` 与「打开文件」对话框的图片组共用这一份，避免两处各列一遍。
+pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico"];
+
+/// 本应用的自有文档类型：与 tauri.conf.json 的 fileAssociations「码克文档」一条对齐，
+/// 供「打开文件」对话框做可选的收窄过滤用。能否受理仍以 `is_text_file` 为准（有单测守着）。
+pub const DOC_EXTS: &[&str] = &["md", "markdown", "mdx", "mh"];
+
 /// 判断文件是否可在应用内预览（probe_preview_kind 命令的唯一真相源）。
 ///
 /// 路由语义：命中 → 前端右侧内容区开"预览标签"（不进编辑器、不交系统程序）；
@@ -328,8 +348,8 @@ pub fn preview_kind(path: &Path) -> Option<&'static str> {
     match ext.as_str() {
         "docx" => Some("docx"),
         "xlsx" | "xlsm" => Some("xlsx"),
-        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "ico" => Some("image"),
         "pdf" => Some("pdf"),
+        e if IMAGE_EXTS.contains(&e) => Some("image"),
         _ => None,
     }
 }
@@ -536,5 +556,28 @@ mod tests {
         let p = dir.path().join("x/y/e.md");
         write_atomic(&p, "hi".as_bytes()).unwrap();
         assert_eq!(fs::read_to_string(&p).unwrap(), "hi");
+    }
+
+    /// 对话框敢列出来的类型，后端必须真的受理：漏一个就是 Mac 上「txt 选不中」那类事故
+    #[test]
+    fn dialog_doc_exts_are_accepted_as_text() {
+        for ext in DOC_EXTS {
+            assert!(
+                TEXT_EXTS.contains(ext) && !BINARY_EXTS.contains(ext),
+                "{ext} 在对话框「码克文档」组里，却不在文本白名单里（BINARY_EXTS 优先命中会判非文本）"
+            );
+        }
+    }
+
+    #[test]
+    fn image_exts_agree_with_preview_kind() {
+        for ext in IMAGE_EXTS {
+            let name = format!("sample.{ext}");
+            assert_eq!(
+                preview_kind(Path::new(&name)),
+                Some("image"),
+                "{ext} 列在 IMAGE_EXTS 里却不被 preview_kind 受理"
+            );
+        }
     }
 }

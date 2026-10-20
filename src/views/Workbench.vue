@@ -46,7 +46,8 @@ import type { OutlineItem } from '../stores/editorStore';
 
 import { useSettingsStore } from '../stores/settingsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
-import { useTabsStore } from '../stores/tabsStore';
+import { textKindOf, useTabsStore } from '../stores/tabsStore';
+import type { TabKind } from '../stores/tabsStore';
 import { extractHtmlOutline, useEditorStore } from '../stores/editorStore';
 import { useSearchStore } from '../stores/searchStore';
 import { useExternalChangeGuard } from '../composables/useExternalChangeGuard';
@@ -69,7 +70,7 @@ import type { WordStyleOpts } from '../convert/htmlToDocx';
 import { allowAssetDir } from '../api/imageApi';
 import type { EditorMode, ReadLayout, ThemeKind } from '../api/types';
 import { DEFAULT_SETTINGS, FONT_MAX, FONT_MIN, FONT_STEP } from '../api/types';
-import { isCodeExt } from '../utils/fileKind';
+import { fileKind, isCodeExt } from '../utils/fileKind';
 import type { TableOp } from '../utils/mdTable';
 import {
   BLOCK_EXAMPLE_KEYS, HEADING_EXAMPLE_KEY, HEADING_LEVELS, WRAP_ACTIONS,
@@ -392,6 +393,13 @@ const canPrintPdf = computed(() => {
 
 /** 代码类标签：只支持编辑态（无分栏/阅读），由 CodeEditorEngine 接管 */
 const isCodeTab = computed(() => tabs.activeTab?.kind === 'code');
+/** 纯文本标签（txt/log/csv/tsv）：同样由代码引擎接管，但它不是「代码」——
+ *  右键菜单与复制提示改用「文本」口径（html/svg 等标记语言仍算代码） */
+const isPlainTextTab = computed(() => {
+  const tab = tabs.activeTab;
+  if (!tab || tab.kind !== 'code') return false;
+  return fileKind((tab.path ?? tab.title).split(/[\\/]/).pop() ?? '') === 'text';
+});
 /** 富文本标签（.mh）：由 WangEditorEngine 接管，三模式全支持 */
 const isMhTab = computed(() => tabs.activeTab?.kind === 'mh');
 /** Markdown 标签：由 md-editor-v3 引擎接管（与代码/富文本引擎并列常驻，见下方挂载注释） */
@@ -561,11 +569,13 @@ const showOutline = computed(
 
 /**
  * 打开类型三分流：'text' 文本类（md/txt/代码/HTML…）由编辑器接管；
- * 'handled' = 已在应用内处理（docx/xlsx/图片开预览标签，其余交系统默认程序）。
+ * 'handled' = 已在应用内处理（docx/xlsx/图片/PDF 开预览标签，或已交系统默认程序）；
+ * 'rejected' = openSystem=false 且应用内开不了，调用方据此提示/忽略——
+ * 目录树单击与拖入因此不会误启外部程序，双击或对话框显式选择才会。
  * 两个判定都在 Rust 侧：probe_text_file（扩展名+嗅探）、probe_preview_kind（预览种类），
  * 前端不猜测扩展名。
  */
-async function routeByType(path: string, openSystem = true): Promise<'text' | 'handled'> {
+async function routeByType(path: string, openSystem = true): Promise<'text' | 'handled' | 'rejected'> {
   try {
     if (await probeTextFile(path)) return 'text';
     const kind = await probePreviewKind(path).catch(() => null);
@@ -582,10 +592,9 @@ async function routeByType(path: string, openSystem = true): Promise<'text' | 'h
       return 'handled';
     }
     // 非文本非预览 = 交系统默认程序。openSystem=false 时跳过（树内单击不误开外部程序，双击才开）
-    if (openSystem) {
-      await openInSystem(path);
-      editor.showToast(t('workbench.toast.openedBySystem', { name: baseName(path) }), 'info');
-    }
+    if (!openSystem) return 'rejected';
+    await openInSystem(path);
+    editor.showToast(t('workbench.toast.openedBySystem', { name: baseName(path) }), 'info');
     return 'handled';
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
@@ -745,16 +754,27 @@ async function saveActive(): Promise<void> {
   }
 }
 
+/** 另存为的默认扩展名：跟着标签的真实类型走（三引擎之后不再一律落 .md）。
+ *  标题尾缀优先，无尾缀（新建文档 / Makefile 这类）按引擎归类。 */
+function defaultSaveExt(title: string, kind: TabKind): string {
+  const m = /\.([a-z0-9]{1,8})$/i.exec(title);
+  if (m) return m[1].toLowerCase();
+  if (kind === 'mh') return 'mh';
+  return kind === 'md' ? 'md' : 'txt';
+}
+
 async function saveActiveAs(): Promise<string | null> {
   const tab = tabs.activeTab;
   if (!tab) return null;
   try {
-    const res = await saveAsApi(tab.title, tab.content);
+    const res = await saveAsApi(tab.title, tab.content, defaultSaveExt(tab.title, tab.kind));
     if (res) {
       const newTitle = res.path.split(/[\\/]/).pop() ?? tab.title;
       tabs.updateTab(tab.id, {
         path: res.path,
         title: newTitle,
+        // 另存成的类型可能与原标签不同（.md 存成 .txt），引擎按新扩展名重算
+        kind: textKindOf(res.path),
         encoding: 'utf-8',
         hadBom: false,
         isUtf8: true,
@@ -1436,6 +1456,14 @@ function onToggleLineNumbers(): void {
   settings.update({ showLineNumbers: !settings.settings.showLineNumbers });
 }
 
+/** 右键「自动换行」：代码引擎重配一个 Compartment，光标与撤销栈都不动。
+ *  默认关（长行横向滚动），且只给代码引擎——md 编辑窗格的换行由 md-editor-v3 恒开，
+ *  这一项对 md/.mh 都不出现（见 EditorCtxMenu） */
+function onToggleWordWrap(): void {
+  editorCtx.value = null;
+  settings.update({ codeLineWrap: !settings.settings.codeLineWrap });
+}
+
 /** 文件内查找（Ctrl+F 与代码页右键「搜索代码」共用一条链路：面板已开时=切到文件内模式） */
 function openFileFind(): void {
   if (!tabs.activeTab) {
@@ -1462,7 +1490,7 @@ async function onCtxCopyCode(): Promise<void> {
   }
   try {
     await navigator.clipboard.writeText(text);
-    editor.showToast(t('workbench.toast.codeCopied'), 'success');
+    editor.showToast(t(isPlainTextTab.value ? 'workbench.toast.textCopied' : 'workbench.toast.codeCopied'), 'success');
   } catch {
     // WebView 剪贴板 API 被拒时给明确出路，别让人对着没反应的菜单猜
     editor.showToast(t('workbench.toast.clipboardBlocked', { k: modHint('C') }), 'error');
@@ -1736,21 +1764,29 @@ async function confirmCloseWindowSaveAll() {
 // ---------- 拖拽文件到窗口打开（阅读模式） ----------
 // Tauri v2 默认 dragDropEnabled=true 会拦截原生 HTML5 DnD，必须走 onDragDropEvent
 let unlistenDrop: (() => void) | null = null;
-/** 拖拽可打开：Markdown/TXT + html/svg（isCodeExt 不含 svg，fileKind 归 image）+ 代码扩展名 */
-const OPENABLE_EXT = /\.(md|markdown|mh|txt|html?|svg)$/i;
-const isDragOpenable = (p: string): boolean => OPENABLE_EXT.test(p) || isCodeExt(p);
 function onDragDrop(ev: { payload: { type: string; paths?: string[] } }) {
   // 转换弹窗打开时让位：拖拽由弹窗内拖拽区接管（docx 转换源），不触发打开文件
   if (wordConvert.value.visible) return;
   if (ev.payload.type !== 'drop' || !ev.payload.paths) return;
-  const files = ev.payload.paths.filter(isDragOpenable);
-  const skipped = ev.payload.paths.length - files.length;
-  if (skipped > 0) editor.showToast(t('workbench.toast.skippedNonMd', { n: skipped }), 'info');
-  if (files.length === 0) return;
-  // 拖入默认模式：首个文件为源码类（html/svg/代码）→ 编辑态；Markdown/TXT → 阅读态
-  editor.setMode(opensInEdit(files[0]) ? 'edit' : 'read');
+  const paths = ev.payload.paths;
+  // 能不能在应用内打开一律问后端（routeByType），这里不再抄一份扩展名白名单——
+  // 那份名单曾把 docx/xlsx/图片/PDF 挡在门外，而它们在目录树里点击是能开预览的。
   void (async () => {
-    for (const p of files) await openFilePath(p, opensInEdit(p) ? 'edit' : 'read');
+    const texts: string[] = [];
+    let rejected = 0;
+    for (const p of paths) {
+      const r = await routeByType(p, false);
+      if (r === 'text') texts.push(p);
+      // 'handled' = 预览标签已由 routeByType 开好；只有应用内真开不了的才计数
+      else if (r === 'rejected') rejected += 1;
+    }
+    if (rejected > 0)
+      editor.showToast(t('workbench.toast.skippedUnopenable', { n: rejected }), 'info');
+    if (texts.length === 0) return;
+    // 拖入默认模式：首个文件为源码类（html/svg/代码）→ 编辑态；Markdown/TXT → 阅读态
+    editor.setMode(opensInEdit(texts[0]) ? 'edit' : 'read');
+    // skipTypeCheck：分流刚做过，不必重复探测
+    for (const p of texts) await openFilePath(p, opensInEdit(p) ? 'edit' : 'read', true);
   })();
 }
 
@@ -1940,6 +1976,7 @@ watch(() => editor.mode, (m) => {
               :model-value="codeEditorContent"
               :theme="settings.settings.theme"
               :focus-mode="settings.settings.focusMode"
+              :line-wrap="settings.settings.codeLineWrap"
               :path="codeEditorPath"
               @update:model-value="onCodeContentChange"
               @save="onCodeSave"
@@ -2135,6 +2172,8 @@ watch(() => editor.mode, (m) => {
       :page-full="ctxPageFull"
       :focus-mode="settings.settings.focusMode"
       :show-line-numbers="settings.settings.showLineNumbers"
+      :line-wrap="settings.settings.codeLineWrap"
+      :plain-text="isPlainTextTab"
       :read-layout="settings.settings.readLayout"
       :mode="editor.mode"
       @op="onTableOp"
@@ -2143,6 +2182,7 @@ watch(() => editor.mode, (m) => {
       @fullscreen="toggleFullscreen"
       @toggle-focus="onToggleFocusMode"
       @toggle-line-numbers="onToggleLineNumbers"
+      @toggle-wrap="onToggleWordWrap"
       @search="onCtxSearch"
       @copy-all="onCtxCopyAll"
       @mode="onCtxMode"

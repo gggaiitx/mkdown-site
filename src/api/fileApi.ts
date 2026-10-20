@@ -13,9 +13,14 @@ export const writeFileAtomic = (path: string, content: string, keepBom: boolean)
 export const saveAs = (defaultName: string, content: string, ext?: string, initialDir?: string) =>
   call<SaveResult | null>('save_as', { defaultName, content, ext, initialDir });
 
-/** 系统打开文件对话框。exts 缺省按历史行为过滤 Markdown；传 ["docx"] 等则按扩展名过滤（Word 反转选取用） */
-export const pickOpenFile = (exts?: string[]) =>
-  call<string | null>('pick_open_file', { exts: exts ?? null });
+/**
+ * 系统打开文件对话框。
+ * - 不传参：全类型可选（应用能开的一律能选，选完由 routeByType 分流），
+ *   macOS 侧甚至不下发任何扩展名白名单——见 Rust 侧 pick_open_file 注释。
+ * - 传 exts：按窄列表过滤（Word 反转只选 .docx），label 决定过滤器文案。
+ */
+export const pickOpenFile = (exts?: string[], label?: string) =>
+  call<string | null>('pick_open_file', { exts: exts ?? null, label: label ?? null });
 
 export const pickWorkspaceDir = () => call<string | null>('pick_workspace_dir');
 

@@ -25,6 +25,9 @@ const props = defineProps<{
   path: string | null;
   /** 专注模式（设置-编辑器，与 md 引擎同一开关）：当前段落清晰、其余行淡出 */
   focusMode?: boolean;
+  /** 自动换行（设置 codeLineWrap，默认关）：开则长行折到下一视觉行，关则横向滚动。
+   *  md 内核的换行由 md-editor-v3 恒开，这一档只管本引擎（长 URL / 长日志此前会被截断） */
+  lineWrap?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -43,6 +46,7 @@ let langSeq = 0;
 
 const themeComp = new Compartment();
 const langComp = new Compartment();
+const wrapComp = new Compartment();
 
 /** 语言查找键：取路径最后一段完整文件名（codeLanguage 先查文件名表再查扩展名表，
  *  Cargo.lock / Dockerfile / .editorconfig 等特殊全名才能命中） */
@@ -88,6 +92,7 @@ onMounted(() => {
         focusLineExtension,
         themeComp.of(props.theme === 'dark' ? codeDarkTheme : codeLightTheme),
         langComp.of([]),
+        wrapComp.of(props.lineWrap ? EditorView.lineWrapping : []),
         keymap.of([
           {
             key: 'Mod-s',
@@ -132,6 +137,14 @@ watch(
     view?.dispatch({
       effects: themeComp.reconfigure(t === 'dark' ? codeDarkTheme : codeLightTheme),
     });
+  },
+);
+
+// 自动换行开关：只重配 lineWrapping 一项，撤销栈、光标与滚动位置都不动
+watch(
+  () => props.lineWrap,
+  (on) => {
+    view?.dispatch({ effects: wrapComp.reconfigure(on ? EditorView.lineWrapping : []) });
   },
 );
 

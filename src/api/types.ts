@@ -95,6 +95,10 @@ export interface AppSettings {
   modeBarPosition: 'center' | 'left';
   scrollSync: boolean;
   wordWrap: boolean;
+  /** 代码/文本引擎的自动换行：默认关（长行横向滚动），右键菜单里开。
+   *  不复用上面的 wordWrap——那个字段出厂即 true 且早已写进用户的 settings.json，
+   *  拿过来做「默认关」的开关会读出旧值 true，改不动；md 内核的换行由 md-editor-v3 恒开，与本项无关 */
+  codeLineWrap: boolean;
   /** 编辑器顶部功能栏（格式工具条）显隐：false = 隐藏，正文区上移 */
   showToolbar: boolean;
   /** 专注模式：当前段落保持原样、其余淡出。md/code 走 CM6 行装饰（按空行分段），
@@ -141,6 +145,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   modeBarPosition: 'center',
   scrollSync: true,
   wordWrap: true,
+  codeLineWrap: false,
   showToolbar: true,
   focusMode: false,
   showLineNumbers: false,

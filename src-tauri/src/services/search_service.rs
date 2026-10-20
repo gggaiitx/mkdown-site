@@ -21,67 +21,6 @@ const LINE_TEXT_MAX_CHARS: usize = 300;
 /// 正在编辑的文档（本仓库就有 400+ 个 md），排除会让用户"搜什么都无命中"。
 const EXCLUDED_DIRS: &[&str] = &[".git", "node_modules"];
 
-/// 纯文本类扩展名（快路径：ripgrep 内核；非 UTF-8 走编码探测慢路径）。
-/// 集合与 fs_service::TEXT_EXTS、codeLanguage.ts loaders 对齐——新增可检索代码类型时三处同步。
-const TEXT_EXTS: &[&str] = &[
-    // —— 基础文本 / 标记 ——
-    "md", "markdown", "mdx", "mh", "txt", "text", "log", "csv", "tsv",
-    // lockfile（Cargo.lock 等 TOML 文本，与 fs_service::TEXT_EXTS 同步 2026-10-11）
-    "lock",
-    "json", "jsonc", "json5", "ndjson", "geojson", "jsonld",
-    "yaml", "yml", "toml",
-    "ini", "cfg", "conf", "properties", "env", "config", "cnf", "inf",
-    "service", "timer", "socket", "target", "mount", "desktop",
-    "xml", "xsd", "xsl", "rss", "atom", "wsdl", "plist",
-    "diff", "patch",
-    // —— Web ——
-    "html", "htm", "xhtml", "vue", "svelte",
-    "jsp", "jspx", "erb", "ejs", "hbs", "mustache",
-    "css", "scss", "less", "sass", "pcss", "styl",
-    // —— 脚本 / 后端 ——
-    "js", "mjs", "cjs", "jsx", "es6", "pac",
-    "ts", "tsx", "mts", "cts",
-    "py", "pyw", "pyi", "pyx",
-    "rs", "java", "rb", "rake", "gemspec", "ru",
-    "sh", "bash", "zsh", "ksh",
-    "bat", "ps1", "pwsh",
-    "lua", "luau", "nse",
-    "pl", "pm", "perl",
-    "r", "swift", "go",
-    "sql", "mysql", "pgsql", "postgres", "sqlite", "mssql", "mariadb", "oracle", "hive", "spark",
-    // —— C / C++ / C# / 系 ——
-    "c", "h", "cpp", "hpp", "cc", "cxx", "hxx", "hh", "c++", "h++",
-    "ino", "ipp", "tpp", "cs", "scala", "kotlin", "kt", "dart",
-    // —— 其他编译型语言 ——
-    "pas", "pp", "p", "lpr", "dpr", "d",
-    "f", "for", "f77", "f90", "f95", "f03", "f08", "fpp", "ftn",
-    "v", "sv", "svh", "vhd", "vhdl",
-    "asm", "s", "nasm", "cob", "cbl", "cobol", "cr",
-    "groovy", "gradle", "gvy", "julia", "jl",
-    "clj", "cljs", "cljc", "edn", "hs", "lhs", "elm",
-    "erl", "hrl", "lisp", "cl", "lsp", "el", "scm", "ss",
-    "ocaml", "ml", "fs", "fsharp", "sml",
-    "coffeescript", "coffee", "iced",
-    // —— 标记 / 查询 / 文档 ——
-    "tex", "sty", "cls", "bib", "stex", "tcl", "tclsh",
-    "feature", "proto", "solr", "sparql", "rq", "ttl", "nt", "msc",
-    "widl", "webidl", "idl", "xq", "xql", "xquery", "xqy", "xqm",
-    // —— 构建 / 运维 / DSL ——
-    "dockerfile", "containerfile", "cmake", "nsi", "nsh",
-    "puppet", "vb", "vbs", "vm", "nginx", "rpm", "spec",
-    "oz", "pig", "pegjs", "peg", "sas",
-    // —— 函数式 / 学术 / 小众 ——
-    "factor", "fcl", "forth", "frt", "dylan", "dyl", "ebnf", "ecl",
-    "eiffel", "e", "haxe", "hxml", "http",
-    "jinja", "j2", "jinja2", "livescript", "ls",
-    "mathematica", "mma", "mbox", "mirc", "mrc",
-    "modelica", "mo", "octave", "smalltalk", "st",
-    "sieve", "siv", "textile", "tiddlywiki", "tid", "tiki",
-    "troff", "roff", "ttcn", "ttcn3", "ttcnpp",
-    "wast", "wat", "yacas", "z80", "apl",
-    "asn", "asn1", "asc", "asterisk", "brainfuck", "bf",
-    "cypher", "cql", "dtd",
-];
 /// OOXML 办公文档（zip + XML，需 office_text 还原正文）
 const OOXML_EXTS: &[&str] = &["docx", "xlsx", "pptx"];
 /// 遗留 OLE 办公文档（UTF-16LE 启发式抽取，尽力而为）
@@ -97,6 +36,13 @@ enum FileKind {
 /// 是否进入检索 + 走哪条路径。`include_glob` 仅为兼容旧语义保留：
 /// 传 "*.md" 表示"仅 Markdown"；传 None 表示"全部可检索类型"。
 /// 未列入的类型（dll/png/class 等二进制）一律跳过，避免无意义 IO。
+///
+/// 文本名单直接用 `fs_service::is_text_ext`：已知扩展名的口径与编辑器对齐。这里原先
+/// 自带一份 61 行的副本，靠注释「三处同步」维护，结果漏了 `svg`——本应用能编辑能保存、
+/// 还带三模式的文本，在搜索里却是隐身的。反过来 `sqlite` 在 TEXT_EXTS 与 BINARY_EXTS
+/// 里都挂过，按 BINARY 优先归二进制，不再当文本搜。仍不看无扩展名文件：`is_text_file`
+/// 那条内容嗅探要读盘，整棵树逐文件读不起。命中名单走 ripgrep 快路径，
+/// 非 UTF-8 才转编码探测慢路径。
 fn classify(path: &Path, glob: Option<&str>) -> Option<FileKind> {
     if let Some(g) = glob {
         let suffix = g.trim_start_matches('*').to_lowercase();
@@ -112,7 +58,7 @@ fn classify(path: &Path, glob: Option<&str>) -> Option<FileKind> {
     if OOXML_EXTS.contains(&ext) || OLE_EXTS.contains(&ext) {
         return Some(FileKind::Office);
     }
-    if TEXT_EXTS.contains(&ext) {
+    if fs_service::is_text_ext(ext) {
         return Some(FileKind::Text);
     }
     None
@@ -464,6 +410,28 @@ mod tests {
         let p = dir.join(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, content).unwrap();
+    }
+
+    /// 检索的文本名单与编辑器同源（`fs_service::is_text_ext`）：
+    /// svg 从前只在编辑器那份名单里，能编辑能保存却搜不到；sqlite 按二进制口径不再当文本搜
+    #[test]
+    fn classify_follows_editor_text_exts() {
+        for rel in ["a.svg", "a.md", "a.mh", "a.txt", "a.rs", "a.vue"] {
+            assert!(
+                matches!(classify(Path::new(rel), None), Some(FileKind::Text)),
+                "{rel} 应进文本检索：编辑器能按文本打开它"
+            );
+        }
+        for rel in ["db.sqlite", "img.png", "app.exe", "noext"] {
+            assert!(
+                classify(Path::new(rel), None).is_none(),
+                "{rel} 不该按纯文本检索"
+            );
+        }
+        assert!(
+            matches!(classify(Path::new("a.docx"), None), Some(FileKind::Office)),
+            "docx 仍走正文还原那条路径"
+        );
     }
 
     #[test]

@@ -5,7 +5,8 @@
  * 二级飞窗：hover 组行展开，绝对定位贴右侧；右缘或下缘不够时翻转、上移。
  * 主菜单观感与标签栏 / 文件树右键菜单一致：useCtxMenu 视口夹紧 + 点击外部或 Esc 关闭。
  * 富文本（.mh）编辑态只给视图级三项：Markdown 源码语义的表格/标题/格式项对它无意义。
- * 代码引擎同样去掉 Markdown 语义项，换成「搜索 / 复制 / 粘贴代码」三项。
+ * 代码引擎同样去掉 Markdown 语义项，换成「搜索 / 复制 / 粘贴代码」三项 + 自动换行；
+ * 纯文本（txt/log/csv）沿用这一套动作，但文案改说「文本」。
  * 阅读态与分栏的预览窗格（载荷 read=true，两者都是只读窗格）换成只读那一套：
  * 搜索 / 复制全文 / 版式▸ / 模式对向入口——
  * 表格·标题·格式是 Markdown 源码语义，显示行号只画在 CM 编辑窗格，给了都不生效，故一并隐去。
@@ -15,7 +16,7 @@ import type { Component } from 'vue';
 import {
   Table, ArrowUpLeft, ArrowDownRight, ArrowLeft, ArrowRight, Minus,
   WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check, ListEnd, Maximize, Minimize2,
-  Search, Copy, ClipboardPaste, MoveHorizontal, Pencil, Columns2, BookOpen,
+  Search, Copy, ClipboardPaste, MoveHorizontal, Pencil, Columns2, BookOpen, WrapText,
   Text, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Bold, Italic, Quote, Code, SquareCode, List, ListOrdered, ListTodo, Link,
 } from '@lucide/vue';
@@ -37,6 +38,10 @@ const props = defineProps<{
   focusMode?: boolean;
   /** 行号当前状态（同上） */
   showLineNumbers?: boolean;
+  /** 自动换行当前状态（代码引擎专用：长行折行 vs 横向滚动，默认关） */
+  lineWrap?: boolean;
+  /** 当前标签是纯文本（txt/log/csv…）：同走代码引擎，但动作项文案不该说「代码」 */
+  plainText?: boolean;
   /** 内容版式当前值：阅读态「版式」飞窗给当前项打勾（与设置面板「内容版式」同一字段） */
   readLayout?: ReadLayout;
   /** 当前形态：决定「版式」给不给（md 分栏态不挂 layout--* 类），以及模式项该列哪几档 */
@@ -53,6 +58,8 @@ const emit = defineEmits<{
   /** 切换视图类开关（专注模式 / 显示行号）：状态存在设置里，由 Workbench 写 settings.update */
   (e: 'toggleFocus'): void;
   (e: 'toggleLineNumbers'): void;
+  /** 自动换行：状态同样存设置，由 Workbench 写 settings.update（只影响代码引擎） */
+  (e: 'toggleWrap'): void;
   /** 文件内查找：与 Ctrl+F 同一条链路（代码引擎与阅读态共用，文案按上下文取） */
   (e: 'search'): void;
   /** 阅读态「复制全文」：取文口径在引擎（md = 源码，.mh = 渲染纯文本），剪贴板与提示在 Workbench */
@@ -76,6 +83,9 @@ const mhOnly = computed(() => props.ctx?.engine === 'mh');
 /** 代码引擎：视图级三项通用，动作区换成搜索/复制/粘贴（行号是 md 内核那套 class 开关，
  *  CodeMirror 的行号槽由内核自带，给了也不起作用，故一并去掉） */
 const codeOnly = computed(() => props.ctx?.engine === 'code');
+/** 纯文本标签（txt/log/csv…）：引擎上报仍是 code，但「搜索/复制/粘贴代码」这套说法对它不成立，
+ *  动作项改用「文本」口径（html/svg 等标记语言仍算代码） */
+const textDoc = computed(() => codeOnly.value && props.plainText === true);
 /** 只读窗格：阅读态的阅读栏，或分栏态的预览栏（引擎都标 read=true）——
  *  内容不是可编辑源码，表格·标题·格式没有作用对象，显示行号也只画在 CM 编辑窗格 */
 const isRead = computed(() => props.ctx?.read === true);
@@ -210,12 +220,18 @@ onBeforeUnmount(() => {
       <ListEnd class="mk-menu-ico" /><span>{{ t('workbench.ctx.lineNumbers') }}</span>
       <Check v-if="showLineNumbers" class="ctx-check" />
     </button>
+    <!-- 自动换行：只给代码引擎，默认关（点开这一档才折行）。md 编辑窗格的换行由内核恒开，
+         摆这一项是假开关，故 md/.mh 都不给 -->
+    <button v-if="codeOnly" class="mk-menu-item" @click="emit('toggleWrap')">
+      <WrapText class="mk-menu-ico" /><span>{{ t('workbench.ctx.wordWrap') }}</span>
+      <Check v-if="lineWrap" class="ctx-check" />
+    </button>
     <!-- 动作区：三引擎共用同一条流程，按引擎与形态裁剪，不再各写一套分支。
          搜索与 Ctrl+F 同源；复制全文的口径在引擎（md = 源码、.mh = 渲染纯文本、代码 = 选区优先）；
          粘贴只有代码引擎给（走 CM 单事务，Ctrl+Z 一步整体撤回），md/.mh 的粘贴原生 Ctrl+V 已可用 -->
     <div class="mk-menu-sep" />
     <button class="mk-menu-item" @click="emit('search')">
-      <Search class="mk-menu-ico" /><span>{{ t(codeOnly ? 'workbench.ctx.searchCode' : 'workbench.ctx.search') }}</span>
+      <Search class="mk-menu-ico" /><span>{{ t(textDoc ? 'workbench.ctx.searchText' : codeOnly ? 'workbench.ctx.searchCode' : 'workbench.ctx.search') }}</span>
       <kbd class="mk-menu-key">{{ modHint('F') }}</kbd>
     </button>
     <button v-if="!codeOnly" class="mk-menu-item" @click="emit('copyAll')">
@@ -223,10 +239,10 @@ onBeforeUnmount(() => {
     </button>
     <template v-else>
       <button class="mk-menu-item" @click="emit('copyCode')">
-        <Copy class="mk-menu-ico" /><span>{{ t('workbench.ctx.copyCode') }}</span><kbd class="mk-menu-key">{{ modHint('C') }}</kbd>
+        <Copy class="mk-menu-ico" /><span>{{ t(textDoc ? 'workbench.ctx.copyText' : 'workbench.ctx.copyCode') }}</span><kbd class="mk-menu-key">{{ modHint('C') }}</kbd>
       </button>
       <button class="mk-menu-item" @click="emit('pasteCode')">
-        <ClipboardPaste class="mk-menu-ico" /><span>{{ t('workbench.ctx.pasteCode') }}</span><kbd class="mk-menu-key">{{ modHint('V') }}</kbd>
+        <ClipboardPaste class="mk-menu-ico" /><span>{{ t(textDoc ? 'workbench.ctx.pasteText' : 'workbench.ctx.pasteCode') }}</span><kbd class="mk-menu-key">{{ modHint('V') }}</kbd>
       </button>
     </template>
     <!-- 视图组：版式（与设置面板「内容版式」同字段）+ 模式对向入口。

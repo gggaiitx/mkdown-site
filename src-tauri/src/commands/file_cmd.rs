@@ -108,20 +108,23 @@ pub async fn save_as(
     initial_dir: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<Option<SaveResult>> {
-    // ext 缺省 md（旧行为不变，R8）；仅认 md/mh 两种，其余按 md 兜底
-    let ext = match ext.as_deref() {
-        Some("mh") => "mh".to_string(),
-        _ => "md".to_string(),
-    };
+    // ext 由前端按当前标签的真实类型传入（三引擎之后不再一律落 .md）；
+    // 只接受 1–8 位字母数字，缺省或异常值按 md 兜底（R8 旧行为不变）
+    let ext = ext
+        .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|e| {
+            (1..=8).contains(&e.len()) && e.chars().all(|c| c.is_ascii_alphanumeric())
+        })
+        .unwrap_or_else(|| "md".to_string());
     let res = spawn_dialog(move || {
         let mut dlg = rfd::FileDialog::new().set_file_name(&default_name);
-        // 过滤器与默认扩展名按 ext 选（R3/R4 反转产物保存 .md / .mh）
-        let (filter_name, exts): (&str, &[&str]) = if ext == "mh" {
-            ("Markhtml (*.mh)", &["mh"])
-        } else {
-            ("Markdown (*.md)", &["md"])
+        // 过滤器与默认扩展名跟着 ext 走（R3/R4 反转产物保存 .md / .mh）
+        let filter_name = match ext.as_str() {
+            "md" => "Markdown (*.md)".to_string(),
+            "mh" => "Markhtml (*.mh)".to_string(),
+            e => filter_label(&e.to_ascii_uppercase(), &[e]),
         };
-        dlg = dlg.add_filter(filter_name, exts);
+        dlg = dlg.add_filter(&filter_name, &[ext.as_str()]);
         // initial_dir（V5）：反转产物「直接保存」的初始目录 = docx 同目录，保证 assets 不分家
         if let Some(dir) = initial_dir {
             if !dir.is_empty() {
@@ -149,33 +152,52 @@ pub async fn save_as(
     Ok(res)
 }
 
-/// 系统打开文件对话框。exts 为空/缺省时按历史行为过滤 Markdown；传入扩展名列表（如 ["docx"]）
-/// 时按其过滤（用于 Word 反转的 .docx 选取）。始终附带「所有文件」兜底。返回选中路径
+/// 把扩展名列表拼成对话框过滤器文案，如 `码克文档 (*.md *.mh)`。
+fn filter_label(name: &str, exts: &[impl AsRef<str>]) -> String {
+    let pattern = exts
+        .iter()
+        .map(|e| format!("*.{}", e.as_ref()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("{name} ({pattern})")
+}
+
+/// 系统打开文件对话框。
+///
+/// 传了 `exts`（Word 反转选 .docx）就按其窄过滤，三端一致——列的是真扩展名，
+/// macOS 的白名单语义正好合适。没传时按平台分道，这是硬约束不是历史包袱：
+///
+/// rfd 的 macOS 后端把所有 filter 的扩展名摊成一个数组交给
+/// `NSOpenPanel.setAllowedFileTypes`（见 rfd `panel_ffi.rs::add_filters`），那是
+/// 只认扩展名的**硬白名单**，`*` 在其中不是通配符，而且打开面板没有可切换的下拉框。
+/// 所以「支持类型 + 所有文件兜底」这套写法在 Mac 上等于永久限制——曾经只挂
+/// `Markdown (*.md)` 一组，「打开文件」里 .txt/.mh/代码文件全被灰掉就是这么来的。
+///
+/// - macOS：**一个 filter 都不加**。rfd 在 filters 为空时根本不调
+///   setAllowedFileTypes，面板即全放开。顺带解掉 Makefile/LICENSE/.gitignore 这类
+///   无扩展名文本——扩展名白名单永远表达不了它们，而 `TEXT_NAMES` 确实支持。
+/// - Windows / Linux：默认选中「所有文件」，再给「码克文档」作可选收窄。
+///
+/// 放开到什么程度都不在本命令里判类型：前端 `routeByType` 以 Rust 侧
+/// `probe_text_file` / `probe_preview_kind` 为唯一真相源分流——文本进编辑器、
+/// docx/xlsx/图片/PDF 开应用内预览标签、其余交系统默认程序。返回选中路径。
 #[tauri::command]
 pub async fn pick_open_file(
     state: State<'_, AppState>,
     exts: Option<Vec<String>>,
+    label: Option<String>,
 ) -> AppResult<Option<String>> {
     let picked = spawn_dialog(move || {
+        let wanted = exts.unwrap_or_default();
         let mut dlg = rfd::FileDialog::new();
-        if let Some(exts) = exts.as_ref() {
-            if !exts.is_empty() {
-                let label = if exts.len() == 1 {
-                    format!("Word (*.{})", exts[0])
-                } else {
-                    let pat = exts
-                        .iter()
-                        .map(|e| format!("*.{}", e))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    format!("文件 ({})", pat)
-                };
-                dlg = dlg.add_filter(&label, exts);
-            }
-        } else {
-            dlg = dlg.add_filter("Markdown (*.md)", &["md", "markdown"]);
+        if !wanted.is_empty() {
+            let name = label.unwrap_or_else(|| "文件".to_string());
+            dlg = dlg.add_filter(filter_label(&name, &wanted), &wanted);
+        } else if !cfg!(target_os = "macos") {
+            dlg = dlg.add_filter("所有文件 (*.*)", &["*"]);
+            let docs = fs_service::DOC_EXTS;
+            dlg = dlg.add_filter(filter_label("码克文档", docs), docs);
         }
-        dlg = dlg.add_filter("所有文件", &["*"]);
         Ok(dlg
             .pick_file()
             .map(|p| p.to_string_lossy().into_owned()))

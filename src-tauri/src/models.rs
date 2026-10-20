@@ -153,6 +153,9 @@ pub struct AppSettings {
     pub mode_bar_position: String,
     pub scroll_sync: bool,
     pub word_wrap: bool,
+    /// 代码/文本引擎自动换行（右键菜单档位）：默认关，长行横向滚动。
+    /// 与 word_wrap 分开：后者出厂即 true 且早已落进用户 settings.json，做「默认关」的开关读不出新默认值
+    pub code_line_wrap: bool,
     /// 编辑器顶部功能栏显隐（false = 隐藏，正文区上移）
     pub show_toolbar: bool,
     /// 专注模式：当前段落保持原样、其余淡出（md/code 走 CM6 行装饰，.mh 给 Slate 块挂类）
@@ -199,6 +202,7 @@ impl Default for AppSettings {
             mode_bar_position: default_mode_bar_position(),
             scroll_sync: true,
             word_wrap: true,
+            code_line_wrap: false,
             show_toolbar: true,
             focus_mode: false,
             show_line_numbers: false,

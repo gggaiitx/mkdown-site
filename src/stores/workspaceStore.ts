@@ -108,8 +108,9 @@ export const useWorkspaceStore = defineStore('workspace', {
       await renameEntry(path, newName);
       await this.refresh();
       const newPath = path.replace(/[^\\/]+$/, newName);
-      // 打开的标签跟随新路径（重命名目录时子文件按前缀一并跟随）
-      useTabsStore().retabPath(path, newPath);
+      // 打开的标签跟随新路径（重命名目录时子文件按前缀一并跟随）；
+      // 扩展名被改掉时内部会重算 kind，让引擎跟着换（md ⇄ txt ⇄ mh）
+      await useTabsStore().retabPath(path, newPath);
       // 树选中态与展开态跟随（避免重命名后引用旧路径失效）
       const sep = path.includes('\\') ? '\\' : '/';
       const remap = (p: string): string => {

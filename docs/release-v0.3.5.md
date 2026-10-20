@@ -28,7 +28,7 @@
 - Windows：NSIS 安装包（x64），自带卸载程序，注册到系统「应用与功能」，卸载保留用户数据。
 - macOS：Apple 芯片 / Intel 双架构 dmg（未签名，首次打开需右键「打开」绕过 Gatekeeper）。
 
-其他获取方式见 [官网下载页](https://mkdown.opensites.net)。
+其他获取方式见 [官网下载页](https://mkdown.shenco.wang)。
 
 
 

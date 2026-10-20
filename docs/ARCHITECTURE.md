@@ -132,36 +132,36 @@ flowchart TB
 
 ### 2.2 前端 npm 依赖
 
-| 包                                         | 版本                 | 用途                                                   |
-| ------------------------------------------ | -------------------- | ------------------------------------------------------ |
-| `vue`                                      | `^3.5`               | 框架                                                   |
-| `vite`                                     | `^7`（需核实）       | 构建                                                   |
-| `typescript`                               | `^5.6`               | 类型                                                   |
-| `@vitejs/plugin-vue`                       | 最新                 | SFC 支持                                               |
-| `pinia`                                    | `^3`（需核实）       | 状态管理                                               |
-| `vue-router`                               | `^4`（可选）         | 若设置页独立路由；MVP 亦可用抽屉                       |
-| `md-editor-v3`                             | `^7.0.0`             | **编辑内核**（`MdEditor` / `MdPreview` / `MdCatalog`） |
-| `@vavt/v3-extension`                       | 最新（需核实）       | 语言包 / 扩展（i18n zh-CN、图标等）                    |
-| `tdesign-icons-vue-next` 或 `@iconify/vue` | 最新                 | 图标（二选一，建议 iconify 按需）                      |
-| `prettier`                                 | `^3`                 | P1：Markdown 格式化                                    |
-| `mermaid`                                  | `^11`（需核实）      | P1：流程图（**懒加载**）                               |
-| `katex`                                    | `^0.16`              | P1：公式（**懒加载**）                                 |
-| `highlight.js` / `shiki`                   | 由 md-editor-v3 内置 | 代码高亮（**懒加载主题**）                             |
-| `vitest` + `@vue/test-utils`               | 最新                 | 单元测试                                               |
-| `@tauri-apps/api`                          | `^2`                 | `invoke` / `convertFileSrc` / `event`                  |
-| `@tauri-apps/plugin-dialog`                | `^2`                 | 对话框 JS 绑定                                         |
-| `@tauri-apps/plugin-store`                 | `^2`                 | 设置 JS 绑定（若走前端直接存取）                       |
+| 包 | 版本 | 用途 |
+| --- | --- | --- |
+| `vue` | `^3.5` | 框架 |
+| `vite` | `^7`（需核实） | 构建 |
+| `typescript` | `^5.6` | 类型 |
+| `@vitejs/plugin-vue` | 最新 | SFC 支持 |
+| `pinia` | `^3`（需核实） | 状态管理 |
+| `vue-router` | `^4`（可选） | 若设置页独立路由；MVP 亦可用抽屉 |
+| `md-editor-v3` | `^7.0.0` | **编辑内核**（`MdEditor` / `MdPreview` / `MdCatalog`） |
+| `@vavt/v3-extension` | 最新（需核实） | 语言包 / 扩展（i18n zh-CN、图标等） |
+| `tdesign-icons-vue-next` 或 `@iconify/vue` | 最新 | 图标（二选一，建议 iconify 按需） |
+| `prettier` | `^3` | P1：Markdown 格式化 |
+| `mermaid` | `^11`（需核实） | P1：流程图（**懒加载**） |
+| `katex` | `^0.16` | P1：公式（**懒加载**） |
+| `highlight.js` / `shiki` | 由 md-editor-v3 内置 | 代码高亮（**懒加载主题**） |
+| `vitest` + `@vue/test-utils` | 最新 | 单元测试 |
+| `@tauri-apps/api` | `^2` | `invoke` / `convertFileSrc` / `event` |
+| `@tauri-apps/plugin-dialog` | `^2` | 对话框 JS 绑定 |
+| `@tauri-apps/plugin-store` | `^2` | 设置 JS 绑定（若走前端直接存取） |
 
 ### 2.3 插件方案：官方插件 vs 自写 command
 
-| 需求                                 | 方案                                | 理由                                                             |
-| ------------------------------------ | ----------------------------------- | ---------------------------------------------------------------- |
-| 打开/保存/另存为对话框               | ✅ `tauri-plugin-dialog`             | 原生体验、跨平台                                                 |
-| 设置读写                             | ✅ `tauri-plugin-store`              | 免造轮子，落 `$APPCONFIG/settings.json`                          |
-| 单实例                               | ✅ `tauri-plugin-single-instance`    | 官方                                                             |
-| 日志（可选）                         | ✅ `tauri-plugin-log`                | 本地文件日志                                                     |
-| 全部文件读写/遍历/搜索/导出/图片落盘 | ❌ **自写 command**                  | scope 无法覆盖任意工作区；需原子写、编码探测、回收站等自定义语义 |
-| 本地图片显示                         | ✅ **asset 协议 + 运行时动态 scope** | 官方能力，无需插件                                               |
+| 需求 | 方案 | 理由 |
+| --- | --- | --- |
+| 打开/保存/另存为对话框 | ✅ `tauri-plugin-dialog` | 原生体验、跨平台 |
+| 设置读写 | ✅ `tauri-plugin-store` | 免造轮子，落 `$APPCONFIG/settings.json` |
+| 单实例 | ✅ `tauri-plugin-single-instance` | 官方 |
+| 日志（可选） | ✅ `tauri-plugin-log` | 本地文件日志 |
+| 全部文件读写/遍历/搜索/导出/图片落盘 | ❌ **自写 command** | scope 无法覆盖任意工作区；需原子写、编码探测、回收站等自定义语义 |
+| 本地图片显示 | ✅ **asset 协议 + 运行时动态 scope** | 官方能力，无需插件 |
 
 ---
 
@@ -1376,7 +1376,7 @@ incremental = true
 
 **Windows 打包目标取舍**：
 | 目标 | 优点 | 缺点 | 建议 |
-|------|------|------|------|
+| --- | --- | --- | --- |
 | NSIS | 体积小、支持 currentUser 免管理员、可自选安装路径 | — | ✅ 主推 |
 | MSI(WiX) | 企业 MSI 分发 | 体积略大、通常需管理员 | 备选 |
 

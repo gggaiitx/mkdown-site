@@ -167,7 +167,7 @@ function onDragEvent(ev: { payload: { type: string; paths?: string[] | null } })
 /** 点击拖拽区 / 选择按钮：系统对话框（.docx 过滤） */
 async function onPickClick() {
   try {
-    const p = await pickOpenFile(['docx']);
+    const p = await pickOpenFile(['docx'], 'Word');
     if (p) void useFile(p);
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
