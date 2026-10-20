@@ -6,6 +6,10 @@
  * （CSP `script-src 'self'`），页面自带的脚本一律静默不跑——滚动入场、轮播、
  * 折叠面板这类全靠 JS 的页面会整片停在 opacity:0。只有真实 URL 加载才有独立
  * policy container，而 asset 协议的响应不带 CSP 头。
+ * ★ 配套前提：tauri.conf.json 的 CSP 必须有 `frame-src 'self' asset: http://asset.localhost`。
+ *   缺它时 iframe 回落到 `default-src 'self'`，asset.localhost 属跨源，整个框架被拦成
+ *   "已阻止此内容"。这条只在**打包后的产物**里暴露——dev 走 vite 那份 index.html，
+ *   Tauri 的 CSP 是打包时才注进 HTML 的，dev 下根本没有这条策略（v0.6.1 就是这么翻车的）。
  *
  * 安全边界（预览的是磁盘上任意一份 HTML，按不可信内容对待）：
  * - sandbox 只给 allow-scripts，不给 allow-same-origin → 文档落在 opaque origin：
