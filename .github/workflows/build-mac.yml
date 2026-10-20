@@ -93,6 +93,11 @@ jobs:
             # %(contents:body) 只返回第一段之后的正文；本仓库发布说明首段为「## 新特性」+其条目
             # （标题与列表间无空行），会被 Git 整体当作 subject 吞掉，导致新特性在 Release 正文丢失。
             git tag -l --format='%(contents)' "${{ github.ref_name }}" > rel-notes.md
-            gh release create "${{ github.ref_name }}" --title "码克 MkDown ${{ github.ref_name }}" --notes-file rel-notes.md
+            # 两个架构的 job 与 build-windows 会同时走到这里：view 与 create 之间有窗口，
+            # 后到的必撞 HTTP 422「Release.tag_name already exists」。把 create 的失败交给
+            # 紧随其后的 view 兜底判定——对方刚建好即算成功（标题与正文同源于 annotated tag，
+            # 谁建都一样），真出错时 view 也会失败，不会把故障吞成静默
+            gh release create "${{ github.ref_name }}" --title "码克 MkDown ${{ github.ref_name }}" --notes-file rel-notes.md 2>/dev/null \
+              || gh release view "${{ github.ref_name }}" >/dev/null
           fi
           gh release upload "${{ github.ref_name }}" --clobber "$DIR/Mkdown_${VERSION}_${ARCH}.dmg"
