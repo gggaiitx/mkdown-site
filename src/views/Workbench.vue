@@ -1764,12 +1764,17 @@ let unlistenOpenArgs: (() => void) | null = null;
 onMounted(async () => {
   await settings.load();
   editor.setMode(settings.settings.editorMode);
-  // 空闲预载 wangEditor 引擎 chunk（~280KB gzip 独立分包）：消除 md→mh 首切的 1~2s 卡顿
+  // 空闲预载三引擎 chunk（~280KB gzip 的 wangEditor 那条已有，2026-10-20 补齐另外两个）：
+  // 首屏只下载外壳，内核改成点开文档时才按需取——那一下最容易被感知（md 栈 2.2MB min，
+  // 求值要几百毫秒）。放到空闲切片里预载，既消掉「欢迎页首次打开文档」的首切延迟，
+  // 又不跟启动抢主线程；会话已恢复出对应类型标签时引擎早已挂载，这几行就是空转。
   const idlePreload = (cb: () => void) =>
     'requestIdleCallback' in window
       ? requestIdleCallback(cb, { timeout: 5000 })
       : (setTimeout(cb, 3000) as unknown as number);
   idlePreload(() => {
+    void import('../adapters/MdEditorV3Engine.vue');
+    void import('../adapters/CodeEditorEngine.vue');
     void import('../adapters/WangEditorEngine.vue');
   });
   window.addEventListener('keydown', onKeydown, true);

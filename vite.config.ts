@@ -31,13 +31,11 @@ export default defineConfig({
     // （含 .map）嵌进二进制，v0.5.6 实测主程序 9.4MB→14.9MB、安装包近翻倍。
     // 排障用的源图走 CI 归档，不随应用分发。
     sourcemap: false,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          mdeditor: ['md-editor-v3'],
-          // mermaid/katex 由 md-editor-v3 内部按需加载，不在此显式切分
-        },
-      },
-    },
+    // ★ manualChunks 整段撤除（2026-10-20 启动提速）：原先固定切 mdeditor: ['md-editor-v3']
+    //   是为了把内核从主包里分出去；引擎改成异步组件后它反而成了钉子——rollup 把 vue 运行时、
+    //   @codemirror/*、@lezer/*、lucide 这些「多处共用」的依赖归进了那个具名 chunk，
+    //   入口为了拿到 vue 必须静态 import 它，index.html 的 modulepreload 照旧，
+    //   1MB 的 mdeditor 分毫没动。交给 rollup 自动图：入口只留外壳真正需要的模块，
+    //   内核与 CM 由两个引擎 chunk 按需共享。mermaid/katex 一直由内核内部按需加载。
   },
 });
