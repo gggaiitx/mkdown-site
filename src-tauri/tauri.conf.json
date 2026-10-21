@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "码克",
   "mainBinaryName": "mkdown",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "identifier": "com.feizong.mkdown",
   "build": {
     "frontendDist": "../dist",
@@ -47,9 +47,55 @@
         "mimeType": "text/markdown"
       },
       {
-        "ext": ["txt"],
-        "description": "文本文件",
-        "mimeType": "text/plain"
+        "ext": ["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico"],
+        "description": "图片"
+      },
+      {
+        "ext": ["svg", "html", "htm", "xhtml"],
+        "description": "图形与网页（SVG / HTML）"
+      },
+      {
+        "ext": ["pdf", "docx", "xlsx", "xlsm"],
+        "description": "文档预览（PDF / Word / Excel）"
+      },
+      {
+        "ext": [
+          "txt", "text", "log", "csv", "tsv", "gitignore", "lock", "json",
+          "jsonc", "json5", "ndjson", "geojson", "jsonld", "yml", "yaml", "toml",
+          "ini", "cfg", "conf", "properties", "env", "config", "cnf", "inf",
+          "service", "timer", "socket", "target", "mount", "desktop", "xml", "xsd",
+          "xsl", "rss", "atom", "wsdl", "plist", "diff", "patch", "vue",
+          "svelte", "jsp", "jspx", "erb", "ejs", "hbs", "mustache", "css",
+          "scss", "less", "sass", "pcss", "styl", "js", "mjs", "cjs",
+          "jsx", "es6", "pac", "ts", "tsx", "mts", "cts", "py",
+          "pyw", "pyi", "pyx", "rs", "java", "rb", "rake", "gemspec",
+          "ru", "sh", "bash", "zsh", "ksh", "bat", "ps1", "pwsh",
+          "lua", "luau", "nse", "pl", "pm", "perl", "r", "swift",
+          "go", "sql", "mysql", "pgsql", "postgres", "sqlite", "mssql", "mariadb",
+          "oracle", "hive", "spark", "c", "h", "cpp", "hpp", "cc",
+          "cxx", "hxx", "hh", "c++", "h++", "ino", "ipp", "tpp",
+          "cs", "scala", "kotlin", "kt", "dart", "pas", "pp", "p",
+          "lpr", "dpr", "d", "f", "for", "f77", "f90", "f95",
+          "f03", "f08", "fpp", "ftn", "v", "sv", "svh", "vhd",
+          "vhdl", "asm", "s", "nasm", "cob", "cbl", "cobol", "cr",
+          "groovy", "gradle", "gvy", "julia", "jl", "clj", "cljs", "cljc",
+          "edn", "hs", "lhs", "elm", "erl", "hrl", "lisp", "cl",
+          "lsp", "el", "scm", "ss", "ocaml", "ml", "fs", "fsharp",
+          "sml", "coffeescript", "coffee", "iced", "tex", "sty", "cls", "bib",
+          "stex", "tcl", "tclsh", "feature", "proto", "solr", "sparql", "rq",
+          "ttl", "nt", "msc", "widl", "webidl", "idl", "xq", "xql",
+          "xquery", "xqy", "xqm", "dockerfile", "containerfile", "cmake", "nsi", "nsh",
+          "puppet", "vb", "vbs", "vm", "nginx", "rpm", "spec", "oz",
+          "pig", "pegjs", "peg", "sas", "factor", "fcl", "forth", "frt",
+          "dylan", "dyl", "ebnf", "ecl", "eiffel", "e", "haxe", "hxml",
+          "http", "jinja", "j2", "jinja2", "livescript", "ls", "mathematica", "mma",
+          "mbox", "mirc", "mrc", "modelica", "mo", "octave", "smalltalk", "st",
+          "sieve", "siv", "textile", "tiddlywiki", "tid", "tiki", "troff", "roff",
+          "ttcn", "ttcn3", "ttcnpp", "wast", "wat", "yacas", "z80", "apl",
+          "asn", "asn1", "asc", "asterisk", "brainfuck", "bf", "cypher", "cql",
+          "dtd"
+        ],
+        "description": "文本与代码文件"
       }
     ],
     "windows": {

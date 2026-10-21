@@ -688,7 +688,23 @@
         <div class="tl-item is-latest">
           <span class="tl-dot"></span>
           <div class="tl-card">
-            <div class="tl-head"><span class="tl-ver">v0.6.2</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <div class="tl-head"><span class="tl-ver">v0.6.3</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <ul>
+              <li><b>SVG 源码一键格式化</b>：右键与 <code>Ctrl+Shift+F</code> 都能用，零依赖的保守美化——重缩进、文本叶子收成一行，混合内容与没写结束标签的片段原样保留，绝不替源码凭空补标签</li>
+              <li><b>预览窗格接进右键菜单</b>：HTML / SVG 预览里右键可刷新、全屏、导出为图片；浏览器那套原生右键菜单（重新加载 / 查看网页源代码）在预览里禁掉了</li>
+              <li><b>SVG 导出 PNG</b>：按当前缩放档位出图，先自动裁掉四周空白再按设置留边（设置 → 导出 → 导出图片留白）</li>
+              <li><b>缩放口径三处统一</b>：图片 / HTML / SVG 一律 <code>100% = 实际尺寸</code>，「实际尺寸」按钮从此名副其实；图片预览默认居中铺满（小图也放大、不裁切）并支持滚轮缩放</li>
+              <li><b>修掉「某些窗口比例下一直晃屏」</b>：适应率四舍五入会进位 1px → 冒出滚动条 → 面板缩水 → 重算 → 来回翻，改成向下取整后彻底稳住</li>
+              <li><b>预览工具条改为 hover 浮出</b>：默认收起让内容占满整块，鼠标进面板才从顶缘滑出</li>
+              <li><b>更顺手地当图片查看器</b>：双击图片全屏 / 还原，外部打开图片自动进全屏，文件关联扩到 284 个扩展名（图片 / 网页图形 / PDF·Word·Excel / 文本代码）</li>
+              <li><b>新增 <code>Ctrl+Tab</code></b>：开合工作区侧栏，已登记进设置里的快捷键表</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.6.2</span><span class="tl-date">2026.10</span></div>
             <ul>
               <li><b>修好产品版的 HTML 预览</b>：v0.6.1 的产品版预览网页只剩一个「已阻止此内容」的图标——CSP 少了 <code>frame-src</code>，iframe 回落到 <code>default-src 'self'</code> 把跨源的预览框架整框拦掉；开发机走的是没注入 CSP 的那份页面，所以当时没暴露</li>
               <li><b>发版构建改为先 Windows 后 macOS</b>：两端并成同一条流水线排队跑，macOS 只借顺序不绑依赖（Windows 失败照旧出 mac 包），顺带收掉三端抢建同一份 Release 的竞态</li>
@@ -1017,9 +1033,9 @@
       <h2>现在就开始书写</h2>
       <p>支持 Windows / macOS，体积小巧，开箱即用。</p>
       <div class="hero-cta">
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.2/Mkdown_0.6.2_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.2/Mkdown_0.6.2_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.2/Mkdown_0.6.2_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.3/Mkdown_0.6.3_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.3/Mkdown_0.6.3_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.3/Mkdown_0.6.3_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
       </div>
       <div class="mac-tip">
         <p class="mac-tip-head">本应用未做 Apple 开发者签名，首次打开若提示「无法验证开发者」或「已损坏」，任选其一绕过：</p>
