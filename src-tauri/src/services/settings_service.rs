@@ -50,6 +50,8 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> AppResult<()> {
     if settings.word_import_fidelity != "semantic" && settings.word_import_fidelity != "fidelity" {
         settings.word_import_fidelity = "semantic".into();
     }
+    // 导出留白夹进滑块同区间（0~40px）：手改 settings.json 塞个几千会把导出的图撑成一圈空白
+    settings.export_padding = settings.export_padding.min(40);
     let json = serde_json::to_vec_pretty(&settings)
         .map_err(|e| AppError::Internal(format!("设置序列化失败: {e}")))?;
     crate::services::fs_service::write_atomic(&path, &json)?;

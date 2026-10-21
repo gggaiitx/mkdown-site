@@ -27,8 +27,13 @@ export interface EditorCtxPayload {
   wideAlignable: boolean;
   /** 上报来源引擎（缺省 = Markdown 引擎，保持既有调用点不变）。
    *  富文本（.mh）没有 Markdown 源码语义，菜单只保留「刷新 / 专注模式」两项视图级动作；
-   *  代码引擎同样没有，改为给「搜索 / 复制 / 粘贴代码」三项。 */
-  engine?: 'md' | 'mh' | 'code';
+   *  代码引擎同样没有，改为给「搜索 / 复制 / 粘贴代码」三项。
+   *  'frame' = HTML/SVG 预览窗格：内容既不是源码也不是可读正文，只给视图三项
+   *  （刷新 / 全屏 / 导出为图片），由 frame 再分 svg 与 html。 */
+  engine?: 'md' | 'mh' | 'code' | 'frame';
+  /** engine='frame' 时说明是哪一种预览框：导出为图片只给 SVG
+   *  （HTML 跑在 opaque origin 沙箱里，父页读不到它的画面，栅格化不了） */
+  frame?: 'html' | 'svg';
   /** 阅读态：没有编辑光标、内容也不是源码，故只给视图级动作（搜索 / 复制全文 / 版式 / 切模式），
    *  表格·标题·行内格式这些 Markdown 源码语义项与「显示行号」（只画在 CM 编辑窗格）一并隐去 */
   read?: boolean;

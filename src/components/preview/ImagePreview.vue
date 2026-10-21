@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 图片预览：WebView2 原生可解码格式（png/jpg/gif/bmp/webp/svg/ico），
- * 经 asset:// 加载（img-src CSP 已放行）。支持缩放、适应窗口与放大态拖拽平移。
+ * 经 asset:// 加载（img-src CSP 已放行）。默认适应窗口＝居中铺满，滚轮缩放，
+ * 放大态可拖拽平移，双击整块区域＝页面全屏 / 还原（当图片查看器用的手势）。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
@@ -9,36 +10,32 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 
 import OpenSystemBtn from './OpenSystemBtn.vue';
 import PreviewZoomBar from './PreviewZoomBar.vue';
+import { clampZoom, stepZoom } from './zoomRange';
+import { useEditorStore } from '../../stores/editorStore';
 import { useI18n } from '../../i18n';
 
 const props = defineProps<{ path: string }>();
 
 const { t } = useI18n();
-
-const ZOOM_MIN = 10;
-const ZOOM_MAX = 800;
-const ZOOM_STEP = 5;
+const editor = useEditorStore();
 
 const zoom = ref(100);
-const fitMode = ref(true); // 适应窗口（默认），关掉后按 zoom 百分比显示
+/** 适应窗口（默认）：整块面板铺满；关掉后按「自然尺寸 × zoom%」出宽，100% = 1:1 */
+const fitMode = ref(true);
 const loaded = ref(false);
 const failed = ref(false);
 
 const src = computed(() => convertFileSrc(props.path));
 
-onMounted(() => {
+function resetImage() {
   loaded.value = false;
   failed.value = false;
-});
-watch(
-  () => props.path,
-  () => {
-    loaded.value = false;
-    failed.value = false;
-    fitMode.value = true;
-    zoom.value = 100;
-  },
-);
+  nat.value = null;
+  fitMode.value = true;
+  zoom.value = 100;
+}
+onMounted(resetImage);
+watch(() => props.path, resetImage);
 
 // ---------- 放大态拖拽平移：直接搬 stage 的滚动位置 ----------
 // 不用 transform 位移：滚动范围由图片实际盒算出来，margin:auto 居中那套也不用改；
@@ -75,18 +72,55 @@ function onPanMove(e: MouseEvent) {
   el.scrollTop = panScrollY - (e.clientY - panStartY);
 }
 onBeforeUnmount(stopPan);
+
+// ---------- 缩放：100% = 图片自然尺寸（1:1） ----------
+const imgRef = ref<HTMLImageElement | null>(null);
+/** 自然尺寸只在 load 时取一次，给非适应态算显式宽度用 */
+const nat = ref<{ w: number; h: number } | null>(null);
+
+function onImgLoad(e: Event) {
+  const el = e.target as HTMLImageElement;
+  nat.value = { w: el.naturalWidth, h: el.naturalHeight };
+  loaded.value = true;
+}
+
+/** 非适应态按「自然尺寸 × zoom%」出宽，高度由图片自身宽高比走；
+ *  适应态交给 CSS 的 object-fit:contain 铺满，不写宽度 */
+const imgStyle = computed(() => {
+  if (fitMode.value || !nat.value) return undefined;
+  return { width: `${Math.max(1, Math.round((nat.value.w * zoom.value) / 100))}px` };
+});
+
+/** 适应窗口态下当前视觉比例，折算成同一口径（占自然尺寸的百分比）。
+ *  contain 的缩放率 = min(容器宽/自然宽, 容器高/自然高)，退出适应时从这一档接手才不跳 */
+function apparentZoom(): number {
+  const el = imgRef.value;
+  if (!el || !el.naturalWidth || !el.naturalHeight) return 100;
+  const box = el.getBoundingClientRect();
+  if (!box.width || !box.height) return 100;
+  return clampZoom(Math.min(box.width / el.naturalWidth, box.height / el.naturalHeight) * 100);
+}
+
+/** 双击整块区域 = 页面全屏 / 还原。把码克当图片查看器用时，双击进来就该是整屏，再双击回去。
+ *  写的是 editorStore.pageFull——与工具条「全屏」按钮、F11、外部打开时自动全屏同一份状态，
+ *  不另开一套（见 mkdown-fullscreen-mechanics 那条：全屏必须单一入口）。 */
+function onDblClick(): void {
+  editor.pageFull = !editor.pageFull;
+}
+
+/** 滚轮上下 = 缩放（放大后靠拖拽平移和滚动条挪视口，这是图片查看器的常规分工） */
+function onWheel(e: WheelEvent) {
+  if (fitMode.value) {
+    zoom.value = apparentZoom();
+    fitMode.value = false;
+  }
+  zoom.value = stepZoom(zoom.value, e.deltaY < 0 ? 1 : -1);
+}
 </script>
 
 <template>
-  <div class="img-pane">
-    <PreviewZoomBar
-      v-model:zoom="zoom"
-      v-model:fit="fitMode"
-      :min="ZOOM_MIN"
-      :max="ZOOM_MAX"
-      :step="ZOOM_STEP"
-      show-fit
-    >
+  <div class="img-pane mk-zoom-pane">
+    <PreviewZoomBar v-model:zoom="zoom" v-model:fit="fitMode" show-fit>
       <OpenSystemBtn :path="path" inline />
     </PreviewZoomBar>
     <div
@@ -94,15 +128,18 @@ onBeforeUnmount(stopPan);
       class="img-stage"
       :class="{ dark: !fitMode, panning }"
       @mousedown="onPanStart"
+      @wheel.prevent="onWheel"
+      @dblclick="onDblClick"
     >
       <span v-if="!loaded && !failed" class="pv-hint">{{ t('preview.loading') }}</span>
       <img
+        ref="imgRef"
         v-show="loaded"
         :src="src"
         :class="fitMode ? 'fit' : 'zoomed'"
-        :style="fitMode ? undefined : { width: `${zoom}%` }"
+        :style="imgStyle"
         alt=""
-        @load="loaded = true"
+        @load="onImgLoad"
         @error="failed = true"
       />
       <span v-if="failed" class="pv-error">{{ t('preview.imgLoadFail') }}</span>
@@ -130,9 +167,13 @@ onBeforeUnmount(stopPan);
 .img-stage img {
   margin: auto;
 }
+/* 默认「适应窗口」= 居中铺满：容器框占满可用区，图片由 object-fit:contain 等比缩到
+   长边贴边（小图同样放大，且不裁切）。原先只写 max-width/max-height:100%，那两条
+   只会缩小——64px 的图标在 800×600 面板里就是中间一个小点，看着像没做自适应 */
 .img-stage img.fit {
-  max-width: 100%;
-  max-height: 100%;
+  flex: none;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 .img-stage img.zoomed {

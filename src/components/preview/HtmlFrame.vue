@@ -36,9 +36,13 @@ import OpenSystemBtn from './OpenSystemBtn.vue';
 import PreviewZoomBar from './PreviewZoomBar.vue';
 import { scrollbarCss as buildScrollbarCss } from './scrollbarStyle';
 import { deletePreviewDoc, writePreviewDoc } from '../../api/previewApi';
+import type { EditorCtxPayload } from '../../adapters/IMarkdownEngine';
 import { useI18n } from '../../i18n';
 
 const { t } = useI18n();
+
+/** 预览窗格里的右键：帧内原生菜单已被注入脚本吃掉，改由上层弹应用菜单（刷新 / 全屏 / 调试） */
+const emit = defineEmits<{ (e: 'editorContext', pos: EditorCtxPayload): void }>();
 
 const props = defineProps<{
   /** HTML 源码 */
@@ -51,9 +55,6 @@ const props = defineProps<{
   dark?: boolean;
 }>();
 
-const ZOOM_MIN = 30;
-const ZOOM_MAX = 300;
-const ZOOM_STEP = 5;
 const zoom = ref(100);
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
@@ -74,11 +75,18 @@ const scrollbarCss = computed(() => buildScrollbarCss(!!props.dark));
 
 /** 缩放桥：收 {mkZoom} 置根元素 zoom；就绪回 {mkReady}（让上层补发当前档）、
  *  首帧画完回 {mkPaint}（让上层淡入，见 painted）。
+ *  顺带在捕获阶段吃掉 contextmenu 并把点击位置回报给父页：沙箱里右键弹的是浏览器原生菜单
+ *  （重新加载 / 查看网页源代码 / 图片另存为），与应用菜单无关且干扰阅读，一律禁掉；
+ *  禁掉之后由父页在同一处弹应用菜单（刷新 / 全屏 / 调试）。
+ *  ★ 只能靠注入脚本做：沙箱给 allow-scripts 而不给 allow-same-origin，文档落在
+ *    opaque origin 上，父页读不到它的 contentDocument，连监听都挂不上，回报也只有一条 postMessage。
  *  字符串里的 <\/script> 是 SFC 解析需要 */
 const probeScript =
   '<script data-mk-preview>(function(){var h=document.documentElement;' +
   'addEventListener("message",function(e){var d=e.data;' +
   'if(d&&d.mkZoom)h.style.setProperty("zoom",d.mkZoom,"important")});' +
+  'addEventListener("contextmenu",function(e){e.preventDefault();' +
+  'parent.postMessage({mkCtx:1,x:e.clientX,y:e.clientY},"*")},!0);' +
   'parent.postMessage({mkReady:1},"*");' +
   'function p(){requestAnimationFrame(function(){parent.postMessage({mkPaint:1},"*")})}' +
   'if(document.readyState==="loading")addEventListener("DOMContentLoaded",p);else p();' +
@@ -180,13 +188,28 @@ watch(
   { immediate: true },
 );
 
-/** 页面就绪 → 补发当前缩放档；首帧画完 → 放行淡入。
+/** 页面就绪 → 补发当前缩放档；首帧画完 → 放行淡入；帧内右键 → 转成应用菜单。
  *  只认当前这个 iframe 的回执，别的框架（含页面自己 postMessage）一律不接 */
 function onMessage(e: MessageEvent) {
-  const d = e.data as { mkReady?: number; mkPaint?: number } | null;
+  const d = e.data as
+    | { mkReady?: number; mkPaint?: number; mkCtx?: number; x?: number; y?: number }
+    | null;
   if (!d || e.source !== iframeRef.value?.contentWindow) return;
   if (d.mkReady === 1) pushZoom();
   else if (d.mkPaint === 1) markPainted();
+  else if (d.mkCtx === 1) {
+    // 帧内坐标是内层 CSS px，页面自己那层 zoom 已经把它缩放过 → 乘回 z 再叠 iframe 左上角
+    const z = Math.max(0.1, zoom.value / 100);
+    const rect = iframeRef.value?.getBoundingClientRect();
+    emit('editorContext', {
+      x: Math.round((rect?.left ?? 0) + (d.x ?? 0) * z),
+      y: Math.round((rect?.top ?? 0) + (d.y ?? 0) * z),
+      inTable: false,
+      wideAlignable: false,
+      engine: 'frame',
+      frame: 'html',
+    });
+  }
 }
 
 onMounted(() => window.addEventListener('message', onMessage));
@@ -204,8 +227,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="html-frame-host">
-    <PreviewZoomBar v-model:zoom="zoom" :min="ZOOM_MIN" :max="ZOOM_MAX" :step="ZOOM_STEP">
+  <div class="html-frame-host mk-zoom-pane">
+    <PreviewZoomBar v-model:zoom="zoom">
       <OpenSystemBtn v-if="path" :path="path" inline />
     </PreviewZoomBar>
     <div class="frame-stage">

@@ -128,6 +128,11 @@ fn default_word_import_fidelity() -> String {
     "semantic".into()
 }
 
+/// SVG 导出图片四周留白（px）：默认 2，几乎贴边
+fn default_export_padding() -> u32 {
+    2
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
@@ -183,6 +188,9 @@ pub struct AppSettings {
     /// Word 转 MH 管线："semantic"（默认）| "fidelity"（docx-preview 高保真试点）
     #[serde(default = "default_word_import_fidelity")]
     pub word_import_fidelity: String,
+    /// SVG 预览「导出为图片」的留白（px）：先按内容裁掉四周空白，再在四边各加这么多
+    #[serde(default = "default_export_padding")]
+    pub export_padding: u32,
 }
 
 impl Default for AppSettings {
@@ -213,6 +221,7 @@ impl Default for AppSettings {
             word_font_size: default_word_font_size(),
             word_export_engine: default_word_export_engine(),
             word_import_fidelity: default_word_import_fidelity(),
+            export_padding: default_export_padding(),
         }
     }
 }

@@ -116,6 +116,7 @@ const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
       [sc(altKey(), 'R'), 'settings.scReader'],
       ['F11', 'settings.scEditorFullscreen'],
       ['F1', 'settings.scTogglePanel'],
+      [sc(modKey(), 'Tab'), 'settings.scToggleWorkspace'],
       [sc(modKey(), '= / -'), 'settings.scFontStep'],
       [sc(modKey(), '0'), 'settings.scFontReset'],
     ],
@@ -378,9 +379,7 @@ onBeforeUnmount(onDragEnd);
           <!-- 导出（D2：Word 正文字体基线） -->
           <template v-else-if="active === 'export'">
             <div class="sec-title">{{ t('settings.sectionExport') }}</div>
-            <div class="row">
-              <label>{{ t('settings.exportFontHint') }}</label>
-            </div>
+            <div class="sec-note">{{ t('settings.exportFontHint') }}</div>
             <div class="row">
               <label>{{ t('settings.wordFontZh') }}</label>
               <select :value="settings.settings.wordFontZh" @change="patch({ wordFontZh: ($event.target as HTMLSelectElement).value })">
@@ -425,6 +424,18 @@ onBeforeUnmount(onDragEnd);
                 <option value="semantic">{{ t('settings.wordImportSemantic') }}</option>
                 <option value="fidelity">{{ t('settings.wordImportFidelityOpt') }}</option>
               </select>
+            </div>
+            <!-- 图片导出与 Word 导出指向不是一回事（一个管文档字体基线，一个管预览栅格化），
+                 所以这里另起一栏，别混在上面那组下面 -->
+            <div class="sec-sub">{{ t('settings.sectionExportImage') }}</div>
+            <div class="sec-note">{{ t('settings.exportImageHint') }}</div>
+            <div class="row">
+              <label>{{ t('settings.exportPadding', { n: settings.settings.exportPadding }) }}</label>
+              <input
+                type="range" min="0" max="40" step="1"
+                :value="settings.settings.exportPadding"
+                @change="patch({ exportPadding: Number(($event.target as HTMLInputElement).value) })"
+              />
             </div>
           </template>
 
@@ -583,6 +594,18 @@ onBeforeUnmount(onDragEnd);
 .sec-title {
   margin: 0 0 6px; font-size: 13px; font-weight: 600;
   color: var(--mk-fg);
+}
+/* 组内说明：比正文低一档的灰（原先这类提示直接借用 .row label 的 --mk-fg，
+   跟真正的设置项一样重，抢视线——飞总要求压浅） */
+.sec-note {
+  margin: -2px 0 8px; font-size: 11px; line-height: 1.6;
+  color: var(--mk-fg-muted);
+}
+/* 同页里的第二组：一条分隔线 + 小标题，指向不同的一组设置不混在一起 */
+.sec-sub {
+  margin: 14px 0 2px; padding-top: 12px;
+  border-top: 1px solid var(--mk-border);
+  font-size: 12px; font-weight: 600; color: var(--mk-fg-muted);
 }
 .row {
   display: flex; align-items: center; justify-content: space-between;

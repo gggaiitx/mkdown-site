@@ -17,3 +17,9 @@ export const exportDocx = (docPath: string, data: Uint8Array) =>
  *  docPath 仅用于推导默认文件名（stem + .pdf） */
 export const exportPdf = (docPath: string, html: string) =>
   call<string | null>('export_pdf', { docPath, html });
+
+/** 导出 PNG：前端把 SVG 栅格化后的字节传过来（同 exportDocx 的二进制形态）；
+ *  Rust 侧弹保存对话框 + 原子写 + grant_picked。用户取消返回 null。
+ *  docPath 仅用于推导默认文件名（stem + .png） */
+export const exportPng = (docPath: string, data: Uint8Array) =>
+  call<string | null>('export_png', { docPath, data });

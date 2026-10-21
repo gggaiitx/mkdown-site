@@ -121,6 +121,9 @@ export interface AppSettings {
   wordExportEngine: 'builtin' | 'community';
   /** Word 转 MH 管线："semantic"（mammoth 语义净化，默认）| "fidelity"（docx-preview 高保真试点：保留颜色/字号/对齐） */
   wordImportFidelity: 'semantic' | 'fidelity';
+  /** SVG 预览「导出为图片」四周留白（px）：导出画幅 = 适应窗口那一档 + 2×该值。
+   *  默认 2——他要的是几乎贴边，给到几十就成"图中间一个小图"了 */
+  exportPadding: number;
 }
 
 /** 字号档位（顶栏 ± 按钮、Ctrl+滚轮、Ctrl+=/Ctrl+-、设置滑块共用同一组常量）：
@@ -156,4 +159,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   wordFontSize: 11,
   wordExportEngine: 'builtin',
   wordImportFidelity: 'semantic',
+  exportPadding: 2,
 };

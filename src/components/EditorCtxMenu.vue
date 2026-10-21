@@ -10,6 +10,8 @@
  * 阅读态与分栏的预览窗格（载荷 read=true，两者都是只读窗格）换成只读那一套：
  * 搜索 / 复制全文 / 版式▸ / 模式对向入口——
  * 表格·标题·格式是 Markdown 源码语义，显示行号只画在 CM 编辑窗格，给了都不生效，故一并隐去。
+ * HTML/SVG 预览窗格（engine='frame'）再窄一档，只给视图三项：刷新 / 全屏 / 导出为图片；
+ * 「导出为图片」只给 SVG——HTML 落在 opaque origin 沙箱里，父页取不到它的画面。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
@@ -17,6 +19,7 @@ import {
   Table, ArrowUpLeft, ArrowDownRight, ArrowLeft, ArrowRight, Minus,
   WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check, ListEnd, Maximize, Minimize2,
   Search, Copy, ClipboardPaste, MoveHorizontal, Pencil, Columns2, BookOpen, WrapText,
+  ImageDown,
   Text, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Bold, Italic, Quote, Code, SquareCode, List, ListOrdered, ListTodo, Link,
 } from '@lucide/vue';
@@ -42,6 +45,8 @@ const props = defineProps<{
   lineWrap?: boolean;
   /** 当前标签是纯文本（txt/log/csv…）：同走代码引擎，但动作项文案不该说「代码」 */
   plainText?: boolean;
+  /** 当前标签是 SVG 源码：给「格式化」项（markup 保守美化，与 Ctrl+Shift+F 同源） */
+  svg?: boolean;
   /** 内容版式当前值：阅读态「版式」飞窗给当前项打勾（与设置面板「内容版式」同一字段） */
   readLayout?: ReadLayout;
   /** 当前形态：决定「版式」给不给（md 分栏态不挂 layout--* 类），以及模式项该列哪几档 */
@@ -60,6 +65,10 @@ const emit = defineEmits<{
   (e: 'toggleLineNumbers'): void;
   /** 自动换行：状态同样存设置，由 Workbench 写 settings.update（只影响代码引擎） */
   (e: 'toggleWrap'): void;
+  /** SVG 源码格式化：动作在 Workbench.beautifyActive，与 Ctrl+Shift+F 同源 */
+  (e: 'formatMarkup'): void;
+  /** 预览窗格「导出为图片」：按当前适应窗口的画幅出 PNG（只给 SVG） */
+  (e: 'exportPng'): void;
   /** 文件内查找：与 Ctrl+F 同一条链路（代码引擎与阅读态共用，文案按上下文取） */
   (e: 'search'): void;
   /** 阅读态「复制全文」：取文口径在引擎（md = 源码，.mh = 渲染纯文本），剪贴板与提示在 Workbench */
@@ -83,6 +92,12 @@ const mhOnly = computed(() => props.ctx?.engine === 'mh');
 /** 代码引擎：视图级三项通用，动作区换成搜索/复制/粘贴（行号是 md 内核那套 class 开关，
  *  CodeMirror 的行号槽由内核自带，给了也不起作用，故一并去掉） */
 const codeOnly = computed(() => props.ctx?.engine === 'code');
+/** 格式化只给 SVG 源码（它走代码引擎，靠 svg 标记区分；.html 不给，见 Workbench.beautifyActive） */
+const svgOnly = computed(() => codeOnly.value && props.svg === true);
+/** HTML/SVG 预览窗格：只给视图级四项，源码语义与只读正文那套都不适用 */
+const frameOnly = computed(() => props.ctx?.engine === 'frame');
+/** 导出为图片只给 SVG：HTML 那份在 opaque origin 沙箱里，父页取不到画面 */
+const canExportPng = computed(() => frameOnly.value && props.ctx?.frame === 'svg');
 /** 纯文本标签（txt/log/csv…）：引擎上报仍是 code，但「搜索/复制/粘贴代码」这套说法对它不成立，
  *  动作项改用「文本」口径（html/svg 等标记语言仍算代码） */
 const textDoc = computed(() => codeOnly.value && props.plainText === true);
@@ -211,12 +226,17 @@ onBeforeUnmount(() => {
       <span>{{ t(pageFull ? 'workbench.ctx.exitFullscreen' : 'workbench.ctx.fullscreen') }}</span>
       <kbd class="mk-menu-key">F11</kbd>
     </button>
+    <!-- 预览窗格（HTML / SVG）到这一组为止就是全部：内容既不是源码也不该当正文复制，
+         专注模式 / 行号 / 搜索 / 复制 / 版式 / 模式项给了都不生效，下面一律用 frameOnly 隐去 -->
+    <button v-if="canExportPng" class="mk-menu-item" @click="emit('exportPng')">
+      <ImageDown class="mk-menu-ico" /><span>{{ t('workbench.ctx.exportPng') }}</span>
+    </button>
     <!-- 视图级开关：勾选态即当前状态，点击即切换（状态存设置里，跨文档保持） -->
-    <button class="mk-menu-item" @click="emit('toggleFocus')">
+    <button v-if="!frameOnly" class="mk-menu-item" @click="emit('toggleFocus')">
       <Focus class="mk-menu-ico" /><span>{{ t('workbench.ctx.focusMode') }}</span>
       <Check v-if="focusMode" class="ctx-check" />
     </button>
-    <button v-if="!mhOnly && !codeOnly && !isRead" class="mk-menu-item" @click="emit('toggleLineNumbers')">
+    <button v-if="!mhOnly && !codeOnly && !isRead && !frameOnly" class="mk-menu-item" @click="emit('toggleLineNumbers')">
       <ListEnd class="mk-menu-ico" /><span>{{ t('workbench.ctx.lineNumbers') }}</span>
       <Check v-if="showLineNumbers" class="ctx-check" />
     </button>
@@ -226,9 +246,18 @@ onBeforeUnmount(() => {
       <WrapText class="mk-menu-ico" /><span>{{ t('workbench.ctx.wordWrap') }}</span>
       <Check v-if="lineWrap" class="ctx-check" />
     </button>
+    <!-- 格式化：只给 SVG 源码（markup 保守美化，与 Ctrl+Shift+F 同源）。
+         其余代码文件不给——缩进规则对 json/css/js 并不适用，还会跟各自既有的格式习惯打架；
+         .html 也不给——网页源码几乎全是混合内容，保守规则改不动一个字节，点了只会提示「已是规范格式」 -->
+    <button v-if="svgOnly" class="mk-menu-item" @click="emit('formatMarkup')">
+      <WandSparkles class="mk-menu-ico" /><span>{{ t('workbench.ctx.formatMarkup') }}</span>
+      <kbd class="mk-menu-key">{{ modHint('Shift+F') }}</kbd>
+    </button>
     <!-- 动作区：三引擎共用同一条流程，按引擎与形态裁剪，不再各写一套分支。
          搜索与 Ctrl+F 同源；复制全文的口径在引擎（md = 源码、.mh = 渲染纯文本、代码 = 选区优先）；
-         粘贴只有代码引擎给（走 CM 单事务，Ctrl+Z 一步整体撤回），md/.mh 的粘贴原生 Ctrl+V 已可用 -->
+         粘贴只有代码引擎给（走 CM 单事务，Ctrl+Z 一步整体撤回），md/.mh 的粘贴原生 Ctrl+V 已可用。
+         预览窗格整组不给：iframe 里的文字与应用查找面板不是一套模型 -->
+    <template v-if="!frameOnly">
     <div class="mk-menu-sep" />
     <button class="mk-menu-item" @click="emit('search')">
       <Search class="mk-menu-ico" /><span>{{ t(textDoc ? 'workbench.ctx.searchText' : codeOnly ? 'workbench.ctx.searchCode' : 'workbench.ctx.search') }}</span>
@@ -245,10 +274,11 @@ onBeforeUnmount(() => {
         <ClipboardPaste class="mk-menu-ico" /><span>{{ t(textDoc ? 'workbench.ctx.pasteText' : 'workbench.ctx.pasteCode') }}</span><kbd class="mk-menu-key">{{ modHint('V') }}</kbd>
       </button>
     </template>
+    </template><!-- /!frameOnly（动作区整组） -->
     <!-- 视图组：版式（与设置面板「内容版式」同字段）+ 模式对向入口。
          阅读态给「编辑」（md 另给「分栏」）；编辑/分栏态只在页面全屏里补「阅读」——
          平时顶栏有模式按钮，全屏时顶栏被全屏层盖住才是真缺口（.mh 功能栏已有模式按钮，故不给） -->
-    <template v-if="!codeOnly">
+    <template v-if="!codeOnly && !frameOnly">
       <div class="mk-menu-sep" />
       <div v-if="showLayout" class="ctx-group" @mouseenter="showGroup('layout')" @mouseleave="hideGroup('layout')">
         <button class="mk-menu-item">
@@ -268,7 +298,7 @@ onBeforeUnmount(() => {
       </button>
     </template>
     <!-- Markdown 源码语义的动作：只给 md 的编辑/分栏态（阅读态内容不是源码，.mh 与代码引擎没有这套语义） -->
-    <template v-if="!mhOnly && !codeOnly && !isRead">
+    <template v-if="!mhOnly && !codeOnly && !isRead && !frameOnly">
     <div class="mk-menu-sep" />
 
     <!-- 表格：光标在表内收进二级，表外只留「插入表格」一条 -->

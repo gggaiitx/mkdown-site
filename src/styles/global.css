@@ -317,6 +317,35 @@ body.mk-col-dragging iframe {
 .workbench .text-area.html-mode.split .html-frame-host {
   border-left: 1px solid var(--mk-border);
 }
+/* ── 预览面板工具条：默认收起，内容占满整块，鼠标进面板才从顶缘浮出 ──
+   图片 / HTML / SVG 三个宿主根节点都挂 .mk-zoom-pane，规则只这一份（条身外观仍在
+   PreviewZoomBar 的 scoped 样式里，这里只管"浮在哪、什么时候露出来"）。
+   藏只用 opacity + 位移，不用 visibility:hidden / display:none——那样条上那几个按钮
+   就不可聚焦，键盘 Tab 永远进不去；改成 Tab 落到条上时由 :focus-within 把它顶出来。
+   hover 判定在父文档一侧就够：指针停在 iframe 上时，父文档里这条 iframe 的祖先链
+   同样进 :hover（iframe 是父文档的普通元素）。 */
+.mk-zoom-pane {
+  position: relative;
+}
+.mk-zoom-pane > .zoom-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.mk-zoom-pane:hover > .zoom-bar,
+.mk-zoom-pane:focus-within > .zoom-bar {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
 /* 分栏把手：7px 命中区骑跨在那条 1px 分隔线上（左右各 3px 余量），
    平时透明不抢视觉，hover 才显出一道淡色提示可拖 */
 .workbench .markup-split-handle {

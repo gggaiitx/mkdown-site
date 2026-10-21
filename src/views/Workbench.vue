@@ -36,6 +36,7 @@ import { cancelScrollRestore } from '../adapters/scrollRestore';
 import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
 import { modHint } from '../utils/keyHint';
 import { formatMarkdown } from '../utils/mdFormat';
+import { formatXml } from '../utils/markup';
 import {
   hydrateSession,
   applyActiveTabMode,
@@ -65,7 +66,7 @@ import {
   takePendingOpenArgs,
   writeFileAtomic,
 } from '../api/fileApi';
-import { exportDocx, exportHtml, exportPdf } from '../api/exportApi';
+import { exportDocx, exportHtml, exportPdf, exportPng } from '../api/exportApi';
 import type { WordStyleOpts } from '../convert/htmlToDocx';
 import { allowAssetDir } from '../api/imageApi';
 import type { EditorMode, ReadLayout, ThemeKind } from '../api/types';
@@ -103,6 +104,8 @@ const mdEngineRef = ref<EngineHandle | null>(null);
 const wangEngineRef = ref<EngineHandle | null>(null);
 /** 标签栏组件引用：F2 重命名当前文档经 TabBar.renameActive() 走同一对话框链路 */
 const tabBarRef = ref<InstanceType<typeof TabBar> | null>(null);
+/** SVG 预览框：右键「导出为图片」要问它当前这一档的画幅（尺寸真相源在框内） */
+const svgFrameRef = ref<InstanceType<typeof SvgFrame> | null>(null);
 
 /** 内容区刷新动效：标签右键「刷新」重读完成后短促淡入（先摘 class 再挂回以重启动画） */
 const reloadFlash = ref(false);
@@ -140,6 +143,10 @@ function openReleases(url: string) {
 const hubMode = ref<'file' | 'global'>('file');
 /** 左侧工作区显示/隐藏（隐藏后经顶栏「展开侧边栏」恢复） */
 const sidebarVisible = ref(true);
+/** 工作区侧栏唯一的开合口：工具栏按钮与 Ctrl+Tab 都走这里，别各写一份取反 */
+function toggleSidebar(): void {
+  sidebarVisible.value = !sidebarVisible.value;
+}
 
 /** 轻提示展示层：去重合并 + 分级停留 + 上限 3 条，避免连发刷屏 */
 interface ToastItem {
@@ -225,7 +232,8 @@ function onCodeContentChange(v: string) {
   onContentChange(v);
 }
 
-/** Ctrl+Shift+F：规则式美化当前文档（标脏走统一写回链路，大纲/字数自动同步） */
+/** Ctrl+Shift+F：美化当前文档。Markdown 走规则式美化，SVG 源码走 markup 格式化
+ *  （标脏走统一写回链路，大纲/字数自动同步） */
 function beautifyActive() {
   const tab = tabs.activeTab;
   if (!tab) {
@@ -236,9 +244,24 @@ function beautifyActive() {
     editor.showToast(t('workbench.toast.previewReadonlyBeautify'), 'info');
     return;
   }
-  // 代码 / HTML / 富文本文件不走 Markdown 规则美化，避免规则式改写破坏内容结构
+  // SVG 源码走 markup 的保守格式化（重缩进 + 文本叶子收成一行；混合内容、
+  // 未闭合标签整段原样，绝不替源码补结束标签）。
+  // ★ 不给 .html：真实网页几乎全是「文本与子元素并存」的混合内容，保守规则
+  //   改不动一个字节，用户点了只会收到「已是规范格式」，不如不给这个入口。
+  if (tab.kind === 'svg') {
+    const formatted = formatXml(tab.content);
+    if (!formatted || formatted === tab.content) {
+      editor.showToast(t('workbench.toast.alreadyFormatted'), 'info');
+      return;
+    }
+    onContentChange(formatted);
+    editor.showToast(t('workbench.toast.markupFormatted'), 'success');
+    return;
+  }
+  // 其余代码文件与富文本不走 Markdown 规则美化，避免规则式改写破坏内容结构
   if (usesCodeEngine.value || isMhTab.value) {
-    editor.showToast(t('workbench.toast.codeNoBeautify'), 'info');    return;
+    editor.showToast(t('workbench.toast.codeNoBeautify'), 'info');
+    return;
   }
   const formatted = formatMarkdown(tab.content);
   if (formatted === tab.content) {
@@ -380,6 +403,8 @@ const isMarkupTab = computed(() => {
   const k = tabs.activeTab?.kind;
   return k === 'html' || k === 'svg';
 });
+/** 当前是 SVG 源码标签：格式化（markup 保守美化）只给它，.html 不给 */
+const isSvgTab = computed(() => tabs.activeTab?.kind === 'svg');
 /** 激活标签是否可导出 HTML / Word：md 有预览 HTML 来源，mh 磁盘态即 HTML（D8 起放开） */
 const canExportHtml = computed(() => {
   const k = tabs.activeTab?.kind;
@@ -1536,6 +1561,45 @@ function onCtxRefresh(): void {
   tabBarRef.value?.reloadActive();
 }
 
+/** 右键「导出为图片」（SVG 预览窗格）：按当前「适应窗口」那一档的画幅栅格化成 PNG，
+ *  再交 Rust 弹保存对话框。不给 HTML——那份跑在 opaque origin 沙箱里，父页取不到它的画面。 */
+/** 导出 PNG 中（防重入）：连点会叠两个系统保存对话框，与 doExportWord 的 exportingWord 同策 */
+const exportingPng = ref(false);
+
+async function onCtxExportPng(): Promise<void> {
+  editorCtx.value = null;
+  const tab = tabs.activeTab;
+  if (!tab || !svgFrameRef.value || exportingPng.value) return;
+  exportingPng.value = true;
+  try {
+    let bytes: Uint8Array | null = null;
+    try {
+      bytes = await svgFrameRef.value.exportPng();
+    } catch (err) {
+      // 图里引用了外部位图 / 外链字体时 canvas 被判脏，toBlob 抛 SecurityError：同源策略，绕不过
+      editor.showToast(
+        t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }),
+        'error',
+      );
+      return;
+    }
+    // 设计尺寸还没定出来（面板当时还没布局完）——不能闷着不响，那就又是"点了没反应"
+    if (!bytes) {
+      editor.showToast(t('workbench.toast.exportNotReady'), 'info');
+      return;
+    }
+    const out = await exportPng(tab.path ?? tab.title, bytes);
+    if (out) editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
+  } catch (err) {
+    editor.showToast(
+      t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }),
+      'error',
+    );
+  } finally {
+    exportingPng.value = false;
+  }
+}
+
 /** 右键「专注模式」：视图级开关，状态落设置文件（跨文档保持），点完即收菜单 */
 function onToggleFocusMode(): void {
   editorCtx.value = null;
@@ -1635,6 +1699,12 @@ function onCtxLayout(layout: ReadLayout): void {
   void settings.update({ readLayout: layout });
 }
 
+/** 右键「格式化」（SVG 源码）：动作与 Ctrl+Shift+F 同一个 beautifyActive */
+function onCtxFormatMarkup(): void {
+  editorCtx.value = null;
+  beautifyActive();
+}
+
 // ---------- 快捷键 ----------
 /** CM6 编辑器是否持有焦点（v7 内核 = .cm-editor.cm-focused；CM5 的 .CodeMirror-focused 类已不存在） */
 const isEditorFocused = () => !!document.querySelector('.cm-editor.cm-focused');
@@ -1709,6 +1779,13 @@ function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
 
 function onKeydown(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey;
+  // Ctrl+Tab：开合工作区侧栏（与工具栏那颗按钮同一个函数）。Mac 上 ⌘Tab 被系统截去
+  // 切程序，实际只有 Ctrl 能到这里。按 e.code 匹配——Tab 的 code 恒为 'Tab'，不受输入法影响
+  if (ctrl && e.code === 'Tab' && !e.altKey) {
+    e.preventDefault();
+    toggleSidebar();
+    return;
+  }
   // 模式快捷键：Alt+E 编辑 / Alt+W 分栏 / Alt+R 阅读。
   // Mac 的 Option+字母是死字符输入（e.key 变 '´' 等），必须按 e.code 匹配物理键位
   if (e.altKey && !ctrl) {
@@ -1885,9 +1962,14 @@ function onDragDrop(ev: { payload: { type: string; paths?: string[] } }) {
 // ---------- 「打开方式」/ 双击关联文件 ----------
 // 首次启动：Rust setup 解析启动参数存入待打开队列，挂载后经命令取走；
 // 应用已运行：单实例插件把新文件路径经 open-file-args 事件转发过来。
+/** 外部打开（资源管理器双击、文件关联、命令行带路径）都走这一条。
+ *  ★ 图片按「查看器」用：直接进页面全屏，别让人先看见编辑器外壳再自己按 F11。
+ *    只挂这一条路径——从目录树或标签里点图片仍按当前形态显示，
+ *    否则在工作区里瞄一眼图就把整个壳全屏掉，回不去。 */
 async function openArgsFiles(paths: string[]) {
   if (!paths?.length) return;
   for (const p of paths) await openFilePath(p);
+  if (tabs.activeTab?.kind === 'image') editor.pageFull = true;
 }
 let unlistenOpenArgs: (() => void) | null = null;
 
@@ -2000,7 +2082,7 @@ watch(() => editor.mode, (m) => {
       :printable="canPrintPdf"
       :exporting="exportingWord"
       :mode-bar-position="settings.settings.modeBarPosition"
-      @toggle-sidebar="sidebarVisible = !sidebarVisible"
+      @toggle-sidebar="toggleSidebar"
       @open-file="openFileByDialog"
       @open-workspace="openWorkspace"
       @new="newFromTemplate(TEMPLATES[0])"
@@ -2142,14 +2224,17 @@ watch(() => editor.mode, (m) => {
               :dir="markupDocDir"
               :path="tabs.activeTab.path"
               :dark="settings.isDark"
+              @editor-context="onEditorContext"
             />
             <SvgFrame
               v-else-if="tabs.activeTab.kind === 'svg' && editor.mode !== 'edit'"
+              ref="svgFrameRef"
               class="html-frame-host"
               :content="tabs.activeTab.content"
               :dir="markupDocDir"
               :path="tabs.activeTab.path"
               :dark="settings.isDark"
+              @editor-context="onEditorContext"
             />
             <!-- 分栏拖拽把手：骑在源码区与预览区那条 1px 分隔线上，绝对定位不占 flex 流 -->
             <div
@@ -2278,6 +2363,7 @@ watch(() => editor.mode, (m) => {
       :show-line-numbers="settings.settings.showLineNumbers"
       :line-wrap="settings.settings.codeLineWrap"
       :plain-text="isPlainTextTab"
+      :svg="isSvgTab"
       :read-layout="settings.settings.readLayout"
       :mode="editor.mode"
       @op="onTableOp"
@@ -2287,6 +2373,8 @@ watch(() => editor.mode, (m) => {
       @toggle-focus="onToggleFocusMode"
       @toggle-line-numbers="onToggleLineNumbers"
       @toggle-wrap="onToggleWordWrap"
+      @format-markup="onCtxFormatMarkup"
+      @export-png="onCtxExportPng"
       @search="onCtxSearch"
       @copy-all="onCtxCopyAll"
       @mode="onCtxMode"
