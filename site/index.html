@@ -688,7 +688,24 @@
         <div class="tl-item is-latest">
           <span class="tl-dot"></span>
           <div class="tl-card">
-            <div class="tl-head"><span class="tl-ver">v0.6.3</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <div class="tl-head"><span class="tl-ver">v0.7.0</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <ul>
+              <li><b>应用内文件选择器</b>：打开文件、打开 / 新建工作区、另存为、导出、Word 转换全部走自己的选择器，不再弹系统资源管理器；左栏有常用位置与盘符，路径可手输，隐藏项按开关显示；<b>新建工作区一步到位</b>（名称 + 位置同屏填）</li>
+              <li><b>主题拆成「模式 × 配色」</b>：跟随系统 / 亮 / 暗，外加明色三套（素白、冷灰、米黄）与暗色三套（石墨、午夜蓝、暖褐）；两种模式各记各的配色，默认两套与升级前零视觉差异</li>
+              <li><b>Markdown 能渲染混排原生 HTML</b>：README 里的 <code>&lt;div align="center"&gt;</code>、<code>&lt;details&gt;</code>、<code>&lt;img width=…&gt;</code> 终于成真，同时自带净化（DOMPurify）并把原生 img 的相对路径一并转 <code>asset://</code></li>
+              <li><b>预览区「回到顶部」</b>：长文档滚过一屏后右下角浮出小圆钮，缓动回顶、可被滚轮打断；自适应 / 一直显示两档，在设置 → 操作里</li>
+              <li><b>顶栏「文件」菜单</b>：新建（md / mh / txt 三档开关）、打开文件、新建 / 打开工作区，导出与 Word 转换整组并入；侧栏开关恒钉最左，另加<b>自动保存</b>快捷开关</li>
+              <li><b>新快捷键</b>：<code>⌘⇧N</code> 新建工作区、<code>⌘⇧O</code> 打开工作区、<code>⌘⇧M</code> / <code>⌘⇧H</code> Word 转 MD / MH</li>
+              <li><b>修掉行内原生 HTML 漏净化</b>：探测规则挂早了，<code>&lt;img onerror=…&gt;</code> 不但没被剥，连相对路径也没转 <code>asset://</code>；改挂到 inline 之后一并解决</li>
+              <li><b>修掉跨平台路径拼接</b>：另存为 / 导出 / 相对图片 / 文档互链共 6 处硬编码反斜杠，macOS 上会把「目录 + 文件名」拼成一个文件名——落盘错位、图片 404</li>
+              <li><b>默认值调整</b>：正文默认字号 15 → 13；侧栏默认收起；点弹窗外默认不再关闭（可在设置里改回）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.6.3</span><span class="tl-date">2026.10</span></div>
             <ul>
               <li><b>SVG 源码一键格式化</b>：右键与 <code>Ctrl+Shift+F</code> 都能用，零依赖的保守美化——重缩进、文本叶子收成一行，混合内容与没写结束标签的片段原样保留，绝不替源码凭空补标签</li>
               <li><b>预览窗格接进右键菜单</b>：HTML / SVG 预览里右键可刷新、全屏、导出为图片；浏览器那套原生右键菜单（重新加载 / 查看网页源代码）在预览里禁掉了</li>
@@ -1033,9 +1050,9 @@
       <h2>现在就开始书写</h2>
       <p>支持 Windows / macOS，体积小巧，开箱即用。</p>
       <div class="hero-cta">
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.3/Mkdown_0.6.3_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.3/Mkdown_0.6.3_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.6.3/Mkdown_0.6.3_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.0/Mkdown_0.7.0_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.0/Mkdown_0.7.0_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.0/Mkdown_0.7.0_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
       </div>
       <div class="mac-tip">
         <p class="mac-tip-head">本应用未做 Apple 开发者签名，首次打开若提示「无法验证开发者」或「已损坏」，任选其一绕过：</p>
