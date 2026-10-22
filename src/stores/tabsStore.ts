@@ -22,6 +22,11 @@ export type PreviewKind = 'docx' | 'xlsx' | 'image' | 'pdf';
 export const isPreviewKind = (k: TabKind): k is PreviewKind =>
   k === 'docx' || k === 'xlsx' || k === 'image' || k === 'pdf';
 
+/** 「用户改过没有」的文本口径：编辑器内核（CodeMirror / md-editor）把 CRLF 读成 LF 再回写，
+ *  只差换行符不是编辑——否则 Windows 上刚打开的文件立刻标脏、关标签还要确认保存。 */
+const sameText = (a: string, b: string): boolean =>
+  a === b || a.replace(/\r\n?/g, '\n') === b.replace(/\r\n?/g, '\n');
+
 /** 按扩展名归类文本标签（预览类不经此函数，由 probe_preview_kind 后端判定）。
  *  只有 Markdown 走 md 引擎渲染；txt/log/csv/tsv 及未知文本一律 'code'
  *  （CodeMirror 纯文本编辑，不做 Markdown 渲染，避免 #/* 等字符被误渲染成标题/斜体）。
@@ -232,7 +237,7 @@ export const useTabsStore = defineStore('tabs', {
       const tab = this.tabs.find((t) => t.id === id);
       if (!tab || isPreviewKind(tab.kind)) return;
       tab.content = content;
-      tab.isDirty = content !== tab.savedContent;
+      tab.isDirty = !sameText(content, tab.savedContent);
     },
     markSaved(id: string, content: string) {
       const tab = this.tabs.find((t) => t.id === id);

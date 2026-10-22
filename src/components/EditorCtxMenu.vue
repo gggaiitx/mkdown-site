@@ -10,16 +10,17 @@
  * 阅读态与分栏的预览窗格（载荷 read=true，两者都是只读窗格）换成只读那一套：
  * 搜索 / 复制全文 / 版式▸ / 模式对向入口——
  * 表格·标题·格式是 Markdown 源码语义，显示行号只画在 CM 编辑窗格，给了都不生效，故一并隐去。
- * HTML/SVG 预览窗格（engine='frame'）再窄一档，只给视图三项：刷新 / 全屏 / 导出为图片；
+ * 预览窗格（engine='frame'，图片 / HTML / SVG 三处共用这一套）再窄一档，只给视图项：
+ * 刷新 / 全屏 / 复制图片（只图片）/ 导出为图片（只 SVG），外加「预览工具条」三档飞窗；
  * 「导出为图片」只给 SVG——HTML 落在 opaque origin 沙箱里，父页取不到它的画面。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { Component } from 'vue';
+import type { Component, Ref } from 'vue';
 import {
   Table, ArrowUpLeft, ArrowDownRight, ArrowLeft, ArrowRight, Minus,
   WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check, ListEnd, Maximize, Minimize2,
   Search, Copy, ClipboardPaste, MoveHorizontal, Pencil, Columns2, BookOpen, WrapText,
-  ImageDown,
+  ImageDown, Move, RotateCcw,
   Text, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Bold, Italic, Quote, Code, SquareCode, List, ListOrdered, ListTodo, Link,
 } from '@lucide/vue';
@@ -27,7 +28,7 @@ import { useI18n } from '../i18n';
 import { useCtxMenu } from '../composables/useCtxMenu';
 import { altHint, modHint, modShiftHint } from '../utils/keyHint';
 import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
-import type { EditorMode, ReadLayout } from '../api/types';
+import type { EditorMode, PreviewBarMode, ReadLayout } from '../api/types';
 import type { TableOp } from '../utils/mdTable';
 import type { FormatId, HeadingId } from '../utils/mdActions';
 
@@ -49,6 +50,8 @@ const props = defineProps<{
   svg?: boolean;
   /** 内容版式当前值：阅读态「版式」飞窗给当前项打勾（与设置面板「内容版式」同一字段） */
   readLayout?: ReadLayout;
+  /** 预览浮块工具条当前档：预览窗格「预览工具条」飞窗给当前项打勾（三面板共用一份状态） */
+  barMode?: PreviewBarMode;
   /** 当前形态：决定「版式」给不给（md 分栏态不挂 layout--* 类），以及模式项该列哪几档 */
   mode?: EditorMode;
 }>();
@@ -69,6 +72,12 @@ const emit = defineEmits<{
   (e: 'formatMarkup'): void;
   /** 预览窗格「导出为图片」：按当前适应窗口的画幅出 PNG（只给 SVG） */
   (e: 'exportPng'): void;
+  /** 图片预览「复制图片」：取字节交系统剪贴板（位图形态），动作在 Workbench */
+  (e: 'copyImage'): void;
+  /** 预览浮块工具条显隐档（自动浮出 / 始终显示 / 隐藏）：状态存设置、三面板共用，由 Workbench 写 */
+  (e: 'barMode', v: PreviewBarMode): void;
+  /** 预览浮块工具条回到默认落位（贴底居中）：落位同样存设置 */
+  (e: 'barReset'): void;
   /** 文件内查找：与 Ctrl+F 同一条链路（代码引擎与阅读态共用，文案按上下文取） */
   (e: 'search'): void;
   /** 阅读态「复制全文」：取文口径在引擎（md = 源码，.mh = 渲染纯文本），剪贴板与提示在 Workbench */
@@ -98,6 +107,9 @@ const svgOnly = computed(() => codeOnly.value && props.svg === true);
 const frameOnly = computed(() => props.ctx?.engine === 'frame');
 /** 导出为图片只给 SVG：HTML 那份在 opaque origin 沙箱里，父页取不到画面 */
 const canExportPng = computed(() => frameOnly.value && props.ctx?.frame === 'svg');
+/** 复制图片只给图片面板：位图就是面板里那份原图，读字节后交系统剪贴板
+ *  （HTML/SVG 帧画面在沙箱里取不到，SVG 想复制走「导出为图片」那条栅格化） */
+const canCopyImage = computed(() => frameOnly.value && props.ctx?.frame === 'image');
 /** 纯文本标签（txt/log/csv…）：引擎上报仍是 code，但「搜索/复制/粘贴代码」这套说法对它不成立，
  *  动作项改用「文本」口径（html/svg 等标记语言仍算代码） */
 const textDoc = computed(() => codeOnly.value && props.plainText === true);
@@ -122,13 +134,23 @@ const modeIcon: Record<EditorMode, Component> = { edit: Pencil, split: Columns2,
 const modeKey: Record<EditorMode, string> = { edit: 'E', split: 'W', read: 'R' };
 
 /** 同时只可能展开一个飞窗，故用独立 ref 而非同名 ref（避免卸载/挂载次序影响测量） */
-type GroupId = 'table' | 'heading' | 'layout';
+type GroupId = 'table' | 'heading' | 'layout' | 'bar';
 const openGroup = ref<GroupId | null>(null);
 const tableSubRef = ref<HTMLElement | null>(null);
 const headingSubRef = ref<HTMLElement | null>(null);
 const layoutSubRef = ref<HTMLElement | null>(null);
+const barSubRef = ref<HTMLElement | null>(null);
+/** 三档工具条显隐：与设置 previewBarMode 同源，顺序即菜单顺序 */
+const barModes: PreviewBarMode[] = ['auto', 'shown', 'hidden'];
 /** 版式四档：与设置面板「内容版式」同源，顺序即菜单顺序 */
 const layouts: ReadLayout[] = ['narrow', 'medium', 'wide', 'full'];
+/** 四组飞窗的测量目标。openGroup 一次只会展开一个，故按档位取对应 ref（比 ternary 链好加档） */
+const subRefs: Record<GroupId, Ref<HTMLElement | null>> = {
+  table: tableSubRef,
+  heading: headingSubRef,
+  layout: layoutSubRef,
+  bar: barSubRef,
+};
 /** 飞窗定位覆写：默认贴右（left: calc(100% + 2px)），越界时改为贴左并上移 */
 const subStyle = ref<Record<string, string>>({});
 
@@ -154,11 +176,7 @@ function hideGroup(id: GroupId): void {
 
 /** 飞窗先按贴右渲染，再量真实矩形：右缘越界→翻到组行左侧；下缘越界→按超出量上移 */
 function clampSub(): void {
-  const el = openGroup.value === 'table'
-    ? tableSubRef.value
-    : openGroup.value === 'heading'
-      ? headingSubRef.value
-      : layoutSubRef.value;
+  const el = openGroup.value ? subRefs[openGroup.value].value : null;
   if (!el) return;
   const rect = el.getBoundingClientRect();
   const style: Record<string, string> = {};
@@ -228,9 +246,34 @@ onBeforeUnmount(() => {
     </button>
     <!-- 预览窗格（HTML / SVG）到这一组为止就是全部：内容既不是源码也不该当正文复制，
          专注模式 / 行号 / 搜索 / 复制 / 版式 / 模式项给了都不生效，下面一律用 frameOnly 隐去 -->
+    <button v-if="canCopyImage" class="mk-menu-item" @click="emit('copyImage')">
+      <Copy class="mk-menu-ico" /><span>{{ t('workbench.ctx.copyImage') }}</span>
+    </button>
     <button v-if="canExportPng" class="mk-menu-item" @click="emit('exportPng')">
       <ImageDown class="mk-menu-ico" /><span>{{ t('workbench.ctx.exportPng') }}</span>
     </button>
+    <!-- 预览工具条三档 + 复位：图片 / HTML / SVG 三个面板共用同一份状态（存在设置里）。
+         切到「隐藏」后条子连 hover 都不浮出、Tab 也够不到，只能回到这里改档，
+         所以图片预览面板也接了这套右键（见 ImagePreview 根节点的 contextmenu） -->
+    <template v-if="frameOnly">
+      <div class="mk-menu-sep" />
+      <div class="ctx-group" @mouseenter="showGroup('bar')" @mouseleave="hideGroup('bar')">
+        <button class="mk-menu-item">
+          <Move class="mk-menu-ico" /><span>{{ t('workbench.ctx.bar') }}</span>
+          <ChevronRight class="ctx-arrow" />
+        </button>
+        <div v-if="openGroup === 'bar'" ref="barSubRef" class="mk-menu ctx-sub" :style="subStyle">
+          <button v-for="v in barModes" :key="v" class="mk-menu-item" @click="emit('barMode', v)">
+            <span>{{ t(`workbench.ctx.bar_${v}`) }}</span>
+            <Check v-if="barMode === v" class="ctx-check" />
+          </button>
+          <div class="mk-menu-sep" />
+          <button class="mk-menu-item" @click="emit('barReset')">
+            <RotateCcw class="mk-menu-ico" /><span>{{ t('workbench.ctx.barReset') }}</span>
+          </button>
+        </div>
+      </div>
+    </template>
     <!-- 视图级开关：勾选态即当前状态，点击即切换（状态存设置里，跨文档保持） -->
     <button v-if="!frameOnly" class="mk-menu-item" @click="emit('toggleFocus')">
       <Focus class="mk-menu-ico" /><span>{{ t('workbench.ctx.focusMode') }}</span>

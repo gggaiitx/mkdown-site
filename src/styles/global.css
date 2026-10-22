@@ -211,11 +211,14 @@ body {
    删除后两栏回落全局 ::-webkit-scrollbar 自绘规则：常驻 10px、hover 仅加深滑块，
    与预览/阅读区滚动条行为完全一致（2026-10-08 修大纲区悬浮滚动条异常） */
 
-/* ---- 列宽拖拽期间禁用 iframe 命中 ----
+/* ---- 拖拽期间禁用 iframe 命中 ----
    iframe 是独立文档：拖拽中的 mousemove/mouseup 落进 iframe 后不再到达父页面
    window，拖拽会卡死在半途、松手也无法结束（svg/html 预览页拖目录树宽度必现）。
-   类由各列宽拖拽入口（文件树 / 大纲 / 工作区复原手柄）在拖拽期间挂到 body */
-body.mk-col-dragging iframe {
+   类由各列宽拖拽入口（文件树 / 大纲 / 工作区复原手柄）在拖拽期间挂到 body；
+   mk-bar-dragging 是预览浮块工具条的拖动（PreviewZoomBar）——同一个坑，浮块一被快速
+   拖过 HTML/SVG 帧上方就再也收不到 pointermove，表现为"慢拖可以、快拖卡住" */
+body.mk-col-dragging iframe,
+body.mk-bar-dragging iframe {
   pointer-events: none;
 }
 
@@ -317,11 +320,19 @@ body.mk-col-dragging iframe {
 .workbench .text-area.html-mode.split .html-frame-host {
   border-left: 1px solid var(--mk-border);
 }
-/* ── 预览面板工具条：默认收起，内容占满整块，鼠标进面板才从顶缘浮出 ──
-   图片 / HTML / SVG 三个宿主根节点都挂 .mk-zoom-pane，规则只这一份（条身外观仍在
-   PreviewZoomBar 的 scoped 样式里，这里只管"浮在哪、什么时候露出来"）。
+/* ── 预览面板工具条：三档显隐 + 可拖落位 ──
+   图片 / HTML / SVG 三个宿主根节点都挂 .mk-zoom-pane，规则只这一份（条身外观与拖动
+   逻辑在 PreviewZoomBar 里，这里只管"浮在哪、什么时候露出来"）。
+   ★ 贴底不贴顶：网页自带 sticky 顶栏（官网 header 就是 top:0），顶部悬浮条和它抢的
+   正是同一排，hover 一浮出就把导航整条吃掉、点都点不着；底部几乎没有交互 chrome，
+   居中也让开右侧滚动条轨道。默认落位仍由这两个变量的缺省值给出（0.5 / 8px），
+   拖动后由 PreviewZoomBar 把值写在自己的 style 上：--mk-bar-x 是条身**中心**占面板宽
+   的比例（分栏拖宽后仍贴同一侧），--mk-bar-bottom 是条身**下缘**离面板底缘的 px
+   （窗口变高也该待在底边，所以纵向存 px 不存比例）。
    藏只用 opacity + 位移，不用 visibility:hidden / display:none——那样条上那几个按钮
    就不可聚焦，键盘 Tab 永远进不去；改成 Tab 落到条上时由 :focus-within 把它顶出来。
+   只有 hidden 档例外：它就是「彻底不见」，display:none 让 hover / Tab 都够不到，
+   唯一的出口是预览窗格右键里的「预览工具条」→「自动浮出 / 始终显示」。
    hover 判定在父文档一侧就够：指针停在 iframe 上时，父文档里这条 iframe 的祖先链
    同样进 :hover（iframe 是父文档的普通元素）。 */
 .mk-zoom-pane {
@@ -329,22 +340,26 @@ body.mk-col-dragging iframe {
 }
 .mk-zoom-pane > .zoom-bar {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  left: calc(var(--mk-bar-x, 0.5) * 100%);
+  bottom: var(--mk-bar-bottom, 8px);
   z-index: 3;
   opacity: 0;
-  transform: translateY(-100%);
+  transform: translate(-50%, 10px);
   pointer-events: none;
   transition:
     opacity 0.12s ease,
     transform 0.12s ease;
 }
-.mk-zoom-pane:hover > .zoom-bar,
-.mk-zoom-pane:focus-within > .zoom-bar {
+/* auto = 进面板或 Tab 到条上才浮出；shown = 常驻。hidden 不参与浮出，故单列一条 */
+.mk-zoom-pane:hover > .zoom-bar.auto,
+.mk-zoom-pane:focus-within > .zoom-bar.auto,
+.mk-zoom-pane > .zoom-bar.shown {
   opacity: 1;
-  transform: none;
+  transform: translate(-50%, 0);
   pointer-events: auto;
+}
+.mk-zoom-pane > .zoom-bar.hidden {
+  display: none;
 }
 /* 分栏把手：7px 命中区骑跨在那条 1px 分隔线上（左右各 3px 余量），
    平时透明不抢视觉，hover 才显出一道淡色提示可拖 */

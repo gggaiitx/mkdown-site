@@ -36,6 +36,9 @@ export const probeTextFile = (path: string) => call<boolean>('probe_text_file', 
 export const probePreviewKind = (path: string) =>
   call<'docx' | 'xlsx' | 'image' | 'pdf' | null>('probe_preview_kind', { path });
 
+/** 同目录下与当前文件同族的全部文件（文件名自然排序），左右键切换用 */
+export const listSiblingFiles = (path: string) => call<string[]>('list_sibling_files', { path });
+
 /** 用系统默认程序打开（Office/PDF/图片等；目录则在文件管理器中显示） */
 export const openInSystem = (path: string) => call<void>('open_in_system', { path });
 

@@ -52,6 +52,14 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> AppResult<()> {
     }
     // 导出留白夹进滑块同区间（0~40px）：手改 settings.json 塞个几千会把导出的图撑成一圈空白
     settings.export_padding = settings.export_padding.min(40);
+    // 预览浮块工具条：档位只认三档，其余退回默认「auto」（和上面几组枚举同一个口径）。
+    // 落位只粗夹——真正的贴边夹取由前端按面板实时尺寸做（面板宽会被分栏拖变，
+    // 这里存死的 px 反而会把浮块顶到看不见的位置）
+    if !matches!(settings.preview_bar_mode.as_str(), "auto" | "shown" | "hidden") {
+        settings.preview_bar_mode = "auto".into();
+    }
+    settings.preview_bar_x = settings.preview_bar_x.clamp(0.0, 1.0);
+    settings.preview_bar_bottom = settings.preview_bar_bottom.clamp(4.0, 2000.0);
     let json = serde_json::to_vec_pretty(&settings)
         .map_err(|e| AppError::Internal(format!("设置序列化失败: {e}")))?;
     crate::services::fs_service::write_atomic(&path, &json)?;

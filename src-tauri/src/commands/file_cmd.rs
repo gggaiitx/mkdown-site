@@ -268,6 +268,19 @@ pub async fn probe_preview_kind(
         .map_err(|e| AppError::Internal(format!("探测线程异常: {e}")))?
 }
 
+/// 左右键同目录切换用：列出与 path 同族的全部文件（图片/PDF/Word/Excel 按预览种类，
+/// 文本按 md/mh/html/svg/同扩展名分组，文件名自然排序）。
+/// 只读目录项，不读文件内容；目录本身同样要过白名单。
+#[tauri::command]
+pub async fn list_sibling_files(
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<String>> {
+    let p = PathBuf::from(&path);
+    state.ensure_allowed(&p)?;
+    spawn_io(move || fs_service::sibling_files(&p)).await
+}
+
 /// 用系统默认程序打开文件（Office/PDF/图片/音视频/压缩包等），
 /// 目录则在文件管理器中显示。
 #[tauri::command]

@@ -81,6 +81,18 @@ const valueHtml = ref(htmlToDisplay(props.modelValue) || '<p><br></p>');
  * 混用会导致父级每次回写都被误判为"外部变更"而全量重置编辑器（P0-2）。
  */
 let lastEmitted = props.modelValue || '<p><br></p>';
+/**
+ * 上次程序化灌值之后，用户是否真的动过编辑器。
+ * ★ 首次创建 / setHtml 会让 Slate 把整篇重新序列化一遍（div 拍平、B→strong、
+ *   style 补分号、删块间换行……），那一次 onChange 不是编辑。若照常上报，父级拿
+ *   磁盘原文一比就把「刚打开」标成脏，关标签还弹保存确认。
+ * 只认用户输入链路（指针按下、beforeinput/input、粘贴/剪切、拖放、按键）之后的变化；
+ * 灌值时复位，因此不会吞掉真正的第一次编辑。
+ */
+let userTouched = false;
+function markUserTouched(): void {
+  userTouched = true;
+}
 
 // ---------- 相对路径 ↔ asset:// ----------
 
@@ -227,6 +239,7 @@ watch(
   (v) => {
     const disk = v || '<p><br></p>';
     if (disk === lastEmitted) return;
+    userTouched = false; // 换了一份外部内容：下一次 onChange 若是重序列化，不算编辑
     valueHtml.value = htmlToDisplay(disk);
     lastEmitted = disk;
   },
@@ -236,11 +249,13 @@ function onChange(): void {
   const html = editorRef.value?.getHtml() ?? '';
   // valueHtml 收显示态（v-model 口径，图片 asset://）；lastEmitted 收磁盘态（实际 emit 的值）（P0-2）
   valueHtml.value = html;
-  lastEmitted = htmlToDisk(html);
-  emit('update:modelValue', htmlToDisk(html));
   emitOutlineSoon();
   // 查找态存活时随内容编辑刷新高亮 Range（Slate 渲染会复用/重建文本节点，旧 Range 失效）
   if (findState) refreshHighlight();
+  // 程序化灌值后的重新序列化：不写 lastEmitted、不上报，标签保持干净（见 userTouched）
+  if (!userTouched) return;
+  lastEmitted = htmlToDisk(html);
+  emit('update:modelValue', htmlToDisk(html));
 }
 
 function onCreated(editor: IDomEditor): void {
@@ -248,6 +263,7 @@ function onCreated(editor: IDomEditor): void {
   applyMode(editor, props.mode);
   // 初值内容不用管：wrapper 的 createEditor({ html: props.modelValue }) 已灌过
   // （dist/index.esm.js:69）。这里再 setHtml 等于把方案骨架这类大文档重复解析一遍
+  userTouched = false; // 首次创建会把初值重序列化，这一次 change 不是用户编辑
   bindFocusListener(!!props.focusMode); // 语言切换重建实例后重新挂监听
   void nextTick(applyFocusBlocks); // 首挂即上色
   emitOutlineSoon();
@@ -278,6 +294,7 @@ function requestModeSwitch(): void {
 // ---------- Ctrl+S（wangEditor 无内置保存，容器层捕获） ----------
 
 function onKeydown(e: KeyboardEvent): void {
+  markUserTouched();
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
     e.preventDefault();
     emit('save');
@@ -657,6 +674,12 @@ function restoreScroll(top: number): void {
   restoreScrollTop(findScrollRoot, top);
 }
 
+/** 换文档后回顶：restoreScrollTop 对 0 明确跳过（0 不算有效存档），这里直接写 */
+function scrollToTop(): void {
+  const host = findScrollRoot();
+  if (host) host.scrollTop = 0;
+}
+
 defineExpose({
   scrollToLine,
   scrollToMatch,
@@ -669,6 +692,7 @@ defineExpose({
   getDisplayHtml,
   captureScroll,
   restoreScroll,
+  scrollToTop,
   activeHeadingIndex,
   copyAllText,
 });
@@ -690,6 +714,12 @@ onBeforeUnmount(() => {
     class="wang-engine-root"
     :class="[`mode-${props.mode}`, { dark: props.theme === 'dark', 'page-full': isPageFull }, `layout--${props.readLayout ?? 'medium'}`]"
     @keydown.capture="onKeydown"
+    @pointerdown.capture="markUserTouched"
+    @beforeinput.capture="markUserTouched"
+    @input.capture="markUserTouched"
+    @paste.capture="markUserTouched"
+    @cut.capture="markUserTouched"
+    @drop.capture="markUserTouched"
     @click.capture="onClickCapture"
     @contextmenu.capture="onContextMenuCapture"
     @pointermove="onReadFocusPointer"

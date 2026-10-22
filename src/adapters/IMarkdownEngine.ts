@@ -32,8 +32,10 @@ export interface EditorCtxPayload {
    *  （刷新 / 全屏 / 导出为图片），由 frame 再分 svg 与 html。 */
   engine?: 'md' | 'mh' | 'code' | 'frame';
   /** engine='frame' 时说明是哪一种预览框：导出为图片只给 SVG
-   *  （HTML 跑在 opaque origin 沙箱里，父页读不到它的画面，栅格化不了） */
-  frame?: 'html' | 'svg';
+   *  （HTML 跑在 opaque origin 沙箱里，父页读不到它的画面，栅格化不了）。
+   *  'image' = 图片预览面板：宿主是同源普通 DOM，右键在 ImagePreview 根节点上拦，
+   *  菜单里刷新 / 全屏 / 预览工具条三档对它都成立（没有源码语义项） */
+  frame?: 'html' | 'svg' | 'image';
   /** 阅读态：没有编辑光标、内容也不是源码，故只给视图级动作（搜索 / 复制全文 / 版式 / 切模式），
    *  表格·标题·行内格式这些 Markdown 源码语义项与「显示行号」（只画在 CM 编辑窗格）一并隐去 */
   read?: boolean;
@@ -65,6 +67,8 @@ export interface CommonEngineHandle {
    * 滚动位置会被浏览器清零），故内部自带重试，调用方 fire-and-forget。
    */
   restoreScroll?(top: number): void;
+  /** 回到文档顶部（换文档时用：restoreScroll(0) 按「0 不是有效存档」被刻意跳过） */
+  scrollToTop?(): void;
   /**
    * 当前阅读位置对应的标题序号（滚动联动：内容滚到哪个标题，大纲选中哪一条）。
    * 量的是「读者在看的那一栏」——md 分栏量预览、阅读态量阅读栏，-1 = 无标题/未挂载。

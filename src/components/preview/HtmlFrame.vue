@@ -20,10 +20,15 @@
  *
  * 注入两样东西，都排在页面自身内容之前（页面自带 CSP 也拦不到它们）：
  * - <base href=asset://原文档目录/>：相对路径的图片 / CSS 仍指向原文档所在目录；
- * - 缩放桥脚本：收 parent 的 {mkZoom} 置 documentElement 的 zoom（同浏览器
- *   Ctrl+滚轮语义，改档不重载、不重新落盘）；就绪回 {mkReady} 让本层补发当前档，
- *   首帧画完回 {mkPaint} 放行淡入——iframe 挂上时会先铺一层白再画页面，
- *   从编辑切过来就是白屏一晃，遮到回执为止再 0.18s 淡进。
+ * - 桥脚本：除缩放/首帧回执/右键回报外，★ 必须在捕获阶段吃掉所有 <a> 点击 ——
+ *   <base> 会把文档基准 URI 整个换掉，`href="#features"` 这类纯锚点解析出来的是
+ *   「原目录 + #features」，跟本预览文档不是同一个文档，点一下 iframe 就导航走，
+ *   asset scope 又只放开 $APPCONFIG/**（原目录在门外），面板直接变成一片白。
+ *   纯锚点改成就地同文档跳转，其余链接交父页（http/https/mailto 走系统浏览器，
+ *   指向别的文档只给一条轻提示），沙箱因此可以一直不给 allow-popups。
+ *   缩放走 postMessage（同浏览器 Ctrl+滚轮语义，改档不重载、不重新落盘）；
+ *   就绪回 {mkReady} 让本层补发当前档，首帧画完回 {mkPaint} 放行淡入——iframe
+ *   挂上时会先铺一层白再画页面，从编辑切过来就是白屏一晃，遮到回执为止再 0.18s 淡进。
  * 滚动交给页面自己（iframe 恒等于面板尺寸）。早先按「内容 scrollHeight」撑盒、由外层
  * stage 统一滚，有两个坑：documentElement.scrollHeight 以盒高为下限，早期一次超测
  * （CSS 还没就位）就把盒锁死缩不回来，文档结尾拖出一长段空白；而几千 px 高的 iframe
@@ -36,13 +41,20 @@ import OpenSystemBtn from './OpenSystemBtn.vue';
 import PreviewZoomBar from './PreviewZoomBar.vue';
 import { scrollbarCss as buildScrollbarCss } from './scrollbarStyle';
 import { deletePreviewDoc, writePreviewDoc } from '../../api/previewApi';
+import { openUrl } from '../../api/fileApi';
 import type { EditorCtxPayload } from '../../adapters/IMarkdownEngine';
+import { useEditorStore } from '../../stores/editorStore';
 import { useI18n } from '../../i18n';
 
 const { t } = useI18n();
+const editor = useEditorStore();
 
-/** 预览窗格里的右键：帧内原生菜单已被注入脚本吃掉，改由上层弹应用菜单（刷新 / 全屏 / 调试） */
-const emit = defineEmits<{ (e: 'editorContext', pos: EditorCtxPayload): void }>();
+/** 预览窗格里的右键：帧内原生菜单已被注入脚本吃掉，改由上层弹应用菜单（刷新 / 全屏 / 调试）。
+ *  siblingStep：焦点在帧内时 ←/→ 无法冒泡到父页，由注入脚本 postMessage 上来，交上层切同目录文件。 */
+const emit = defineEmits<{
+  (e: 'editorContext', pos: EditorCtxPayload): void;
+  (e: 'siblingStep', step: 1 | -1): void;
+}>();
 
 const props = defineProps<{
   /** HTML 源码 */
@@ -80,6 +92,9 @@ const scrollbarCss = computed(() => buildScrollbarCss(!!props.dark));
  *  禁掉之后由父页在同一处弹应用菜单（刷新 / 全屏 / 调试）。
  *  ★ 只能靠注入脚本做：沙箱给 allow-scripts 而不给 allow-same-origin，文档落在
  *    opaque origin 上，父页读不到它的 contentDocument，连监听都挂不上，回报也只有一条 postMessage。
+ *  链接点击同样在这一层拦：纯锚点回落到本文档（`location.hash`，hashchange / 后退 /
+ *  页面自己的 smooth 全还在），其余一律 preventDefault 后回报 {mkOpen}——不拦的话
+ *  它们按 <base> 解析成原目录的 URL，iframe 跟着导航走成白板。
  *  字符串里的 <\/script> 是 SFC 解析需要 */
 const probeScript =
   '<script data-mk-preview>(function(){var h=document.documentElement;' +
@@ -87,6 +102,18 @@ const probeScript =
   'if(d&&d.mkZoom)h.style.setProperty("zoom",d.mkZoom,"important")});' +
   'addEventListener("contextmenu",function(e){e.preventDefault();' +
   'parent.postMessage({mkCtx:1,x:e.clientX,y:e.clientY},"*")},!0);' +
+  // ←/→ 回报父页切同目录文件；不 preventDefault——上层不接时（编辑/分栏态）页面自己用
+  'addEventListener("keydown",function(e){var k=e.key;' +
+  'if(k!=="ArrowLeft"&&k!=="ArrowRight")return;' +
+  'if(e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey)return;' +
+  'var t=e.target;if(t&&t.closest&&t.closest("input,textarea,select,[contenteditable=true]"))return;' +
+  'parent.postMessage({mkNav:k==="ArrowRight"?1:-1},"*")},!0);' +
+  'addEventListener("click",function(e){' +
+  'var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;' +
+  'var raw=a.getAttribute("href")||"";' +
+  'if(raw.charAt(0)==="#"){e.preventDefault();' +
+  'if(raw.length>1)location.hash=raw;else scrollTo(0,0);return;}' +
+  'e.preventDefault();parent.postMessage({mkOpen:1,url:a.href},"*")},!0);' +
   'parent.postMessage({mkReady:1},"*");' +
   'function p(){requestAnimationFrame(function(){parent.postMessage({mkPaint:1},"*")})}' +
   'if(document.readyState==="loading")addEventListener("DOMContentLoaded",p);else p();' +
@@ -188,15 +215,43 @@ watch(
   { immediate: true },
 );
 
-/** 页面就绪 → 补发当前缩放档；首帧画完 → 放行淡入；帧内右键 → 转成应用菜单。
+/** 帧内非锚点链接：沙箱没有 allow-popups / allow-top-navigation，点了本来什么也不会发生。
+ *  外链交系统浏览器，指向别的文档在这里无路可走，只给一条轻提示，别让指针点下去没反应。
+ *  scheme 白名单与 Rust 侧 open_url 同口径（http/https/mailto），别把任意 URL 递过去。 */
+async function openLink(url?: string) {
+  if (!url) return;
+  if (/^(https?:|mailto:)/i.test(url)) {
+    try {
+      await openUrl(url);
+    } catch (err) {
+      editor.showToast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  } else {
+    editor.showToast(t('preview.linkOtherDoc'), 'info');
+  }
+}
+
+/** 页面就绪 → 补发当前缩放档；首帧画完 → 放行淡入；帧内右键 → 转成应用菜单；
+ *  帧内链接 → 交系统浏览器。
  *  只认当前这个 iframe 的回执，别的框架（含页面自己 postMessage）一律不接 */
 function onMessage(e: MessageEvent) {
   const d = e.data as
-    | { mkReady?: number; mkPaint?: number; mkCtx?: number; x?: number; y?: number }
+    | {
+        mkReady?: number;
+        mkPaint?: number;
+        mkCtx?: number;
+        mkOpen?: number;
+        mkNav?: number;
+        url?: string;
+        x?: number;
+        y?: number;
+      }
     | null;
   if (!d || e.source !== iframeRef.value?.contentWindow) return;
   if (d.mkReady === 1) pushZoom();
   else if (d.mkPaint === 1) markPainted();
+  else if (d.mkOpen === 1) void openLink(d.url);
+  else if (d.mkNav === 1 || d.mkNav === -1) emit('siblingStep', d.mkNav === 1 ? 1 : -1);
   else if (d.mkCtx === 1) {
     // 帧内坐标是内层 CSS px，页面自己那层 zoom 已经把它缩放过 → 乘回 z 再叠 iframe 左上角
     const z = Math.max(0.1, zoom.value / 100);

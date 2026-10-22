@@ -164,6 +164,7 @@ pub fn run() -> tauri::Result<()> {
             commands::file_cmd::get_file_meta,
             commands::file_cmd::probe_text_file,
             commands::file_cmd::probe_preview_kind,
+            commands::file_cmd::list_sibling_files,
             commands::file_cmd::open_in_system,
             commands::file_cmd::open_url,
             commands::file_cmd::open_web_window,

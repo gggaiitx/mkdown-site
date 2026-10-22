@@ -37,6 +37,7 @@ import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
 import { modHint } from '../utils/keyHint';
 import { formatMarkdown } from '../utils/mdFormat';
 import { formatXml } from '../utils/markup';
+import { copyImageFile } from '../utils/clipboardImage';
 import {
   hydrateSession,
   applyActiveTabMode,
@@ -47,7 +48,7 @@ import type { OutlineItem } from '../stores/editorStore';
 
 import { useSettingsStore } from '../stores/settingsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
-import { textKindOf, useTabsStore } from '../stores/tabsStore';
+import { textKindOf, isPreviewKind, useTabsStore } from '../stores/tabsStore';
 import type { TabKind } from '../stores/tabsStore';
 import { extractHtmlOutline, useEditorStore } from '../stores/editorStore';
 import { useSearchStore } from '../stores/searchStore';
@@ -60,8 +61,10 @@ import {
   openWebWindow,
   pickOpenFile,
   pickWorkspaceDir,
+  listSiblingFiles,
   probePreviewKind,
   probeTextFile,
+  readFile,
   saveAs as saveAsApi,
   takePendingOpenArgs,
   writeFileAtomic,
@@ -69,7 +72,7 @@ import {
 import { exportDocx, exportHtml, exportPdf, exportPng } from '../api/exportApi';
 import type { WordStyleOpts } from '../convert/htmlToDocx';
 import { allowAssetDir } from '../api/imageApi';
-import type { EditorMode, ReadLayout, ThemeKind } from '../api/types';
+import type { EditorMode, PreviewBarMode, ReadLayout, ThemeKind } from '../api/types';
 import { DEFAULT_SETTINGS, FONT_MAX, FONT_MIN, FONT_STEP } from '../api/types';
 import { fileKind, isCodeExt } from '../utils/fileKind';
 import type { TableOp } from '../utils/mdTable';
@@ -1540,6 +1543,111 @@ function onEditorContext(payload: EditorCtxPayload): void {
   ctxPageFull.value = editor.pageFull || engineRef.value?.isPageFullscreen?.() === true;
   editorCtx.value = payload;
 }
+
+/** ←/→ 同目录轮换：预览类（图片/PDF/Word/Excel）恒可用；文本类任何视图都可切，
+ *  但焦点在正文编辑区时 onKeydown 放行——方向键归光标。编辑/分栏态点开预览、
+ *  工具栏或空白处（编辑区失焦）后即可左右翻文件。 */
+function siblingNavOn(): boolean {
+  const tab = tabs.activeTab;
+  if (!tab?.path) return false;
+  if (isPreviewKind(tab.kind)) return true;
+  // 'text' 是旧会话快照遗留的 kind（新打开不再产生），按 code 处理
+  return (
+    tab.kind === 'md' ||
+    tab.kind === 'mh' ||
+    tab.kind === 'html' ||
+    tab.kind === 'svg' ||
+    tab.kind === 'code' ||
+    tab.kind === 'text'
+  );
+}
+
+const navPathKey = (p: string): string => p.replace(/\//g, '\\').toLowerCase();
+const navSame = (a: string, b: string): boolean => a === b || navPathKey(a) === navPathKey(b);
+const navDirOf = (p: string): string => p.replace(/[\\/][^\\/]*$/, '');
+
+/** 列表按「目录 + 当前标签种类」缓存；目录内增删不实时——切到的文件不在列表里时重拉一次 */
+let navCacheKey = '';
+let navList: string[] = [];
+let navBusy = false;
+
+async function navSiblings(path: string, refresh = false): Promise<string[]> {
+  const key = `${navDirOf(path)}\u0000${tabs.activeTab?.kind ?? ''}`;
+  if (!refresh && key === navCacheKey) return navList;
+  try {
+    const list = await listSiblingFiles(path);
+    navCacheKey = key;
+    navList = list;
+    return list;
+  } catch {
+    return []; // 失败不写缓存：下次按键重试（授权/瞬时 IO 问题恢复后仍能切）
+  }
+}
+
+/** 沿用当前标签切到同族相邻文件（到头回绕），不新开标签；
+ *  目标已开在别的标签里则直接激活，避免同路径两份。
+ *  文本类要先读盘再落值；有未保存修改时不切，免得静默丢改动。 */
+async function stepSibling(step: 1 | -1): Promise<void> {
+  const tab = tabs.activeTab;
+  if (!tab?.path || navBusy || !siblingNavOn()) return;
+  navBusy = true;
+  try {
+    let list = await navSiblings(tab.path);
+    let idx = list.findIndex((p) => navSame(p, tab.path!));
+    if (idx < 0) {
+      // 缓存里没有当前文件（刚被删/改名，或换了标签）：重拉一次再找
+      list = await navSiblings(tab.path, true);
+      idx = list.findIndex((p) => navSame(p, tab.path!));
+    }
+    if (idx < 0 || list.length < 2) return;
+    const next = list[(idx + step + list.length) % list.length];
+    if (navSame(next, tab.path)) return;
+    const existing = tabs.tabs.find((t) => t.id !== tab.id && t.path && navSame(t.path, next));
+    if (existing) {
+      tabs.activate(existing.id);
+      return;
+    }
+    if (isPreviewKind(tab.kind)) {
+      // 预览类只换路径/标题：组件按新路径自取字节（模板 key 含 path，旧的在途加载随卸载作废）
+      tabs.updateTab(tab.id, { path: next, title: baseName(next) });
+      void syncTreeToActiveTab();
+      return;
+    }
+    if (tab.isDirty) {
+      editor.showToast(t('workbench.toast.siblingDirty'), 'info');
+      return;
+    }
+    const file = await readFile(next);
+    // 读盘期间标签可能已被切走/关闭：只在它仍是当前标签时落值
+    if (tabs.activeTab?.id !== tab.id) return;
+    tabs.updateTab(tab.id, {
+      path: next,
+      title: baseName(next),
+      content: file.content,
+      savedContent: file.content,
+      isDirty: false,
+      encoding: file.encoding,
+      hadBom: file.hadBom,
+      isUtf8: file.isUtf8,
+      cursorLine: 1,
+    });
+    // 引擎常驻，滚动位置不会随换文档自己归零：下一份文档从头开始
+    await nextTick();
+    engineRef.value?.scrollToTop?.();
+    void syncTreeToActiveTab();
+  } catch (err) {
+    editor.showToast(err instanceof Error ? err.message : String(err), 'error');
+  } finally {
+    navBusy = false;
+  }
+}
+
+/** 帧内方向键（HtmlFrame 注入 / SvgFrame 同源监听）转成切换请求 */
+function onFrameSiblingStep(step: 1 | -1): void {
+  if (!siblingNavOn()) return;
+  void stepSibling(step);
+}
+
 function onTableOp(op: 'insert' | TableOp): void {
   editorCtx.value = null;
   if (op === 'insert') {
@@ -1597,6 +1705,25 @@ async function onCtxExportPng(): Promise<void> {
     );
   } finally {
     exportingPng.value = false;
+  }
+}
+
+/** 右键图片预览「复制图片」：读字节 → png 原样交出去、其余先转 PNG → 写系统剪贴板，
+ *  贴进 Word / 微信就是当截图用。失败一律报出来别闷着（剪贴板要前台焦点，被拦了就写清楚）。
+ *  ★ 不复用面板里那个 `<img>`：它从 asset:// 加载，一进 canvas 就被判脏、toBlob 抛 SecurityError，
+ *    所以走"读字节 → Blob → createImageBitmap"这条同源路，见 utils/clipboardImage.ts */
+async function onCtxCopyImage(): Promise<void> {
+  editorCtx.value = null;
+  const path = tabs.activeTab?.path;
+  if (!path) return;
+  try {
+    await copyImageFile(path);
+    editor.showToast(t('workbench.toast.imageCopied'), 'success');
+  } catch (err) {
+    editor.showToast(
+      t('workbench.toast.imageCopyFailed', { msg: err instanceof Error ? err.message : String(err) }),
+      'error',
+    );
   }
 }
 
@@ -1699,6 +1826,23 @@ function onCtxLayout(layout: ReadLayout): void {
   void settings.update({ readLayout: layout });
 }
 
+/** 右键「预览工具条」三档：图片 / HTML / SVG 共用这一份状态，写进设置跨重启保持。
+ *  切到 hidden 后浮块连 hover 都不出、Tab 也够不到——唯一的出口就是这条菜单，
+ *  所以图片预览面板也接进了同一套右键（见 ImagePreview 根节点的 contextmenu） */
+function onCtxBarMode(mode: PreviewBarMode): void {
+  editorCtx.value = null;
+  void settings.update({ previewBarMode: mode });
+}
+
+/** 右键「回到默认位置」：与浮块上双击空白处同一条落位口径（都取 DEFAULT_SETTINGS） */
+function onCtxBarReset(): void {
+  editorCtx.value = null;
+  void settings.update({
+    previewBarX: DEFAULT_SETTINGS.previewBarX,
+    previewBarBottom: DEFAULT_SETTINGS.previewBarBottom,
+  });
+}
+
 /** 右键「格式化」（SVG 源码）：动作与 Ctrl+Shift+F 同一个 beautifyActive */
 function onCtxFormatMarkup(): void {
   editorCtx.value = null;
@@ -1779,6 +1923,26 @@ function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
 
 function onKeydown(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey;
+  // ←/→：同目录同族轮换。正文编辑区有焦点时一律放行（方向键归光标），编辑/分栏态
+  // 失焦后即可翻文件；输入控件、搜索/设置浮层、右键菜单里的方向键也归它们自己
+  //（iframe 焦点由帧内转发上来）
+  if (
+    !ctrl && !e.altKey && !e.shiftKey &&
+    (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+    !e.defaultPrevented && !e.isComposing
+  ) {
+    const tgt = e.target as HTMLElement | null;
+    if (
+      siblingNavOn() &&
+      !isEditorFocused() &&
+      !tgt?.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable=""]') &&
+      !document.querySelector('.mask, .hub, .mk-menu')
+    ) {
+      e.preventDefault();
+      void stepSibling(e.key === 'ArrowRight' ? 1 : -1);
+    }
+    return;
+  }
   // Ctrl+Tab：开合工作区侧栏（与工具栏那颗按钮同一个函数）。Mac 上 ⌘Tab 被系统截去
   // 切程序，实际只有 Ctrl 能到这里。按 e.code 匹配——Tab 的 code 恒为 'Tab'，不受输入法影响
   if (ctrl && e.code === 'Tab' && !e.altKey) {
@@ -2131,11 +2295,12 @@ watch(() => editor.mode, (m) => {
           v-if="tabs.activeTab"
         >
           <!-- 预览类标签（docx/xlsx/图片/pdf）：只读预览，不进编辑器。
-               :key=reloadSeq：右键「刷新」bump 后重挂，重新经 asset:// 自取字节 -->
-          <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
-          <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
-          <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
-          <PdfPreview v-else-if="tabs.activeTab.kind === 'pdf'" :key="tabs.activeTab.reloadSeq ?? 0" :path="tabs.activeTab.path ?? ''" />
+               :key=path|reloadSeq：左右键换文件时按新路径重挂；右键「刷新」bump 后重挂，
+               两条路都让旧的在途加载随卸载作废，避免串图/串页 -->
+          <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
+          <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
+          <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" @editor-context="onEditorContext" />
+          <PdfPreview v-else-if="tabs.activeTab.kind === 'pdf'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
           <!-- 文本类标签：md 由 Markdown 引擎、html/svg/code/txt 由代码引擎、.mh 由富文本引擎接管。
                html/svg 三模式：edit=代码编辑器，split=代码编辑器+Frame，read=Frame。
                ★ 三引擎均为「首次用到才挂、此后常驻」，显隐走 v-show（script 段有整套约束说明）；
@@ -2219,15 +2384,18 @@ watch(() => editor.mode, (m) => {
             />
             <HtmlFrame
               v-if="tabs.activeTab.kind === 'html' && editor.mode !== 'edit'"
+              :key="tabs.activeTab.path ?? ''"
               class="html-frame-host"
               :content="tabs.activeTab.content"
               :dir="markupDocDir"
               :path="tabs.activeTab.path"
               :dark="settings.isDark"
               @editor-context="onEditorContext"
+              @sibling-step="onFrameSiblingStep"
             />
             <SvgFrame
               v-else-if="tabs.activeTab.kind === 'svg' && editor.mode !== 'edit'"
+              :key="tabs.activeTab.path ?? ''"
               ref="svgFrameRef"
               class="html-frame-host"
               :content="tabs.activeTab.content"
@@ -2235,6 +2403,7 @@ watch(() => editor.mode, (m) => {
               :path="tabs.activeTab.path"
               :dark="settings.isDark"
               @editor-context="onEditorContext"
+              @sibling-step="onFrameSiblingStep"
             />
             <!-- 分栏拖拽把手：骑在源码区与预览区那条 1px 分隔线上，绝对定位不占 flex 流 -->
             <div
@@ -2365,6 +2534,7 @@ watch(() => editor.mode, (m) => {
       :plain-text="isPlainTextTab"
       :svg="isSvgTab"
       :read-layout="settings.settings.readLayout"
+      :bar-mode="settings.settings.previewBarMode"
       :mode="editor.mode"
       @op="onTableOp"
       @format="onFormatFromMenu"
@@ -2375,10 +2545,13 @@ watch(() => editor.mode, (m) => {
       @toggle-wrap="onToggleWordWrap"
       @format-markup="onCtxFormatMarkup"
       @export-png="onCtxExportPng"
+      @copy-image="onCtxCopyImage"
       @search="onCtxSearch"
       @copy-all="onCtxCopyAll"
       @mode="onCtxMode"
       @layout="onCtxLayout"
+      @bar-mode="onCtxBarMode"
+      @bar-reset="onCtxBarReset"
       @copy-code="onCtxCopyCode"
       @paste-code="onCtxPasteCode"
       @dismiss="editorCtx = null"

@@ -76,6 +76,11 @@ export type ReadLayout = 'narrow' | 'medium' | 'wide' | 'full';
 /** 编辑内核（语义=新建文件默认格式）：markdown→.md / wangeditor→.mh（唯一定义处） */
 export type EditorKernel = 'markdown' | 'wangeditor';
 
+/** 预览浮块工具条的显隐档（图片 / HTML / SVG 三个面板共用同一份，不是各面板一份）：
+ *  auto = 鼠标进面板或 Tab 到条上才浮出（出厂默认）| shown = 常驻 | hidden = 彻底不出现。
+ *  hidden 下条子不可聚焦也不可拖，只能从预览窗格右键调回——所以图片面板也接了同一套菜单 */
+export type PreviewBarMode = 'auto' | 'shown' | 'hidden';
+
 export interface AppSettings {
   theme: ThemeKind;
   /** 全局字号（px）：0.5px 一档，见 FONT_STEP */
@@ -124,6 +129,14 @@ export interface AppSettings {
   /** SVG 预览「导出为图片」四周留白（px）：导出画幅 = 适应窗口那一档 + 2×该值。
    *  默认 2——他要的是几乎贴边，给到几十就成"图中间一个小图"了 */
   exportPadding: number;
+  /** 预览浮块工具条显隐档（右键「预览工具条」三档，见 PreviewBarMode） */
+  previewBarMode: PreviewBarMode;
+  /** 浮块横向落位：条身**中心**占面板宽的比例 0~1。存比例而不是 px——分栏把预览拖窄后
+   *   它仍贴着同一侧；实际渲染前会按浮块自然宽再夹一次，保证不会被 overflow 裁掉半截 */
+  previewBarX: number;
+  /** 浮块纵向落位：条身**下缘**离面板底缘的 px（默认 8 贴底）。窗口变高时它该待在底边，
+   *   所以纵向存 px 而不是比例 */
+  previewBarBottom: number;
 }
 
 /** 字号档位（顶栏 ± 按钮、Ctrl+滚轮、Ctrl+=/Ctrl+-、设置滑块共用同一组常量）：
@@ -160,4 +173,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   wordExportEngine: 'builtin',
   wordImportFidelity: 'semantic',
   exportPadding: 2,
+  previewBarMode: 'auto',
+  previewBarX: 0.5,
+  previewBarBottom: 8,
 };

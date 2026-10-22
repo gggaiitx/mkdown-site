@@ -1173,6 +1173,12 @@ function restoreScroll(top: number): void {
   restoreScrollTop(scrollHost, top);
 }
 
+/** 换文档后回顶：restoreScrollTop 对 0 明确跳过（0 不算有效存档），这里直接写 */
+function scrollToTop(): void {
+  const host = scrollHost();
+  if (host) host.scrollTop = 0;
+}
+
 defineExpose({
   scrollToLine,
   insert,
@@ -1193,6 +1199,7 @@ defineExpose({
   replaceDocText,
   captureScroll,
   restoreScroll,
+  scrollToTop,
   activeHeadingIndex,
 });
 

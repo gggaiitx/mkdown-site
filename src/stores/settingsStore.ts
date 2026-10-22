@@ -40,7 +40,11 @@ export const useSettingsStore = defineStore('settings', {
     },
     async update(patch: Partial<AppSettings>) {
       this.settings = { ...this.settings, ...patch };
-      this.applyTheme();
+      /* ★ 只有真的改到这两项才写 <html>：applyTheme 动的是 documentElement 的
+         data-theme 与 --mk-font-size，哪怕值没变，属性一写整棵树的主题/字号样式就全部
+         失效重算——预览类设置（浮块落位、显隐档、行号……）每改一次都白付一次全页面重排，
+         拖动松手那一下还能把预览 iframe 的盒尺寸顶动，表现出来就是闪一下 */
+      if ('theme' in patch || 'fontSize' in patch) this.applyTheme();
       persist(this.settings);
     },
     applyTheme() {

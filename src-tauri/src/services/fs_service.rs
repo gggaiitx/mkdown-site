@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -354,6 +355,100 @@ pub fn preview_kind(path: &Path) -> Option<&'static str> {
     }
 }
 
+/// 同一目录下、与 path 同族的全部文件，按文件名自然排序。
+/// 图片 / PDF / Word / Excel 按 preview_kind 分族；文本按前端 TabKind 的归类分族
+/// （md、mh、html/htm、svg，其余同扩展名一族）。左右键切换用它：只读目录项，不读文件内容。
+pub fn sibling_files(path: &Path) -> AppResult<Vec<String>> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| AppError::InvalidArg(format!("路径没有父目录: {}", path.display())))?;
+    let Some(group) = nav_group(path) else {
+        return Ok(Vec::new());
+    };
+    let mut out: Vec<String> = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let Ok(entry) = entry else { continue };
+        let Ok(ft) = entry.file_type() else { continue };
+        if !ft.is_file() {
+            continue;
+        }
+        let p = entry.path();
+        // Word 打开文档时会生成 "~$xxx.docx" 属主锁文件；macOS 拷贝会留下 "._xxx" 资源叉。
+        // 两者扩展名都对得上，但预览必失败，不参与轮换。
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("~$") || name.starts_with("._") {
+            continue;
+        }
+        if nav_group(&p).is_some_and(|g| g == group) {
+            out.push(p.to_string_lossy().into_owned());
+        }
+    }
+    out.sort_by(|a, b| natural_cmp(file_name(a), file_name(b)));
+    Ok(out)
+}
+
+/// 同目录轮换的分组键。预览类直接复用 preview_kind，文本类与 textKindOf 保持同一归类口径。
+fn nav_group(path: &Path) -> Option<String> {
+    if let Some(kind) = preview_kind(path) {
+        return Some(kind.to_string());
+    }
+    let ext = path.extension()?.to_string_lossy().to_lowercase();
+    if ext.is_empty() {
+        return None;
+    }
+    Some(match ext.as_str() {
+        "md" | "markdown" | "mdx" => "md".to_string(),
+        "mh" => "mh".to_string(),
+        "html" | "htm" => "html".to_string(),
+        "svg" => "svg".to_string(),
+        other => format!("ext:{other}"),
+    })
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
+}
+
+/// 文件名自然排序：连续数字按数值比（img2 < img10），其余字符按小写比。
+/// 资源管理器的习惯排序，避免 img10 排到 img2 前面。
+fn natural_cmp(a: &str, b: &str) -> Ordering {
+    let mut ac = a.chars().peekable();
+    let mut bc = b.chars().peekable();
+    loop {
+        let (x, y) = match (ac.peek().copied(), bc.peek().copied()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) => (x, y),
+        };
+        if x.is_ascii_digit() && y.is_ascii_digit() {
+            let mut xn = String::new();
+            while let Some(d) = ac.peek().copied().filter(|c| c.is_ascii_digit()) {
+                xn.push(d);
+                ac.next();
+            }
+            let mut yn = String::new();
+            while let Some(d) = bc.peek().copied().filter(|c| c.is_ascii_digit()) {
+                yn.push(d);
+                bc.next();
+            }
+            let xt = xn.trim_start_matches('0');
+            let yt = yn.trim_start_matches('0');
+            let ord = xt.len().cmp(&yt.len()).then_with(|| xt.cmp(yt));
+            if ord != Ordering::Equal {
+                return ord;
+            }
+        } else {
+            let ord = x.to_ascii_lowercase().cmp(&y.to_ascii_lowercase());
+            if ord != Ordering::Equal {
+                return ord;
+            }
+            ac.next();
+            bc.next();
+        }
+    }
+}
+
 /// 内容嗅探：读前 8KB——有 BOM 或合法 UTF-8 即文本；含 NUL 字节即二进制；
 /// 其余交给 chardetng，仅当能无损解码才认作文本（保底的 GBK 日志/配置）。
 fn sniff_text(path: &Path) -> bool {
@@ -579,5 +674,41 @@ mod tests {
                 "{ext} 列在 IMAGE_EXTS 里却不被 preview_kind 受理"
             );
         }
+    }
+
+    #[test]
+    fn sibling_files_groups_by_type_and_sorts_naturally() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in [
+            "img10.PNG",
+            "img2.jpg",
+            "img1.webp",
+            "note.md",
+            "note10.md",
+            "note2.md",
+            "clip.gif",
+            "~$note.docx",
+            "plan.docx",
+            "plan.pdf",
+        ] {
+            fs::write(dir.path().join(name), b"x").unwrap();
+        }
+        fs::create_dir(dir.path().join("folder.png")).unwrap();
+
+        let images = sibling_files(&dir.path().join("img2.jpg")).unwrap();
+        let names: Vec<&str> = images.iter().map(|p| file_name(p)).collect();
+        assert_eq!(
+            names,
+            vec!["clip.gif", "img1.webp", "img2.jpg", "img10.PNG"],
+            "图片同族、目录不算，且数字按数值排序"
+        );
+
+        let notes = sibling_files(&dir.path().join("note2.md")).unwrap();
+        let names: Vec<&str> = notes.iter().map(|p| file_name(p)).collect();
+        assert_eq!(names, vec!["note.md", "note2.md", "note10.md"]);
+
+        let words = sibling_files(&dir.path().join("plan.docx")).unwrap();
+        let names: Vec<&str> = words.iter().map(|p| file_name(p)).collect();
+        assert_eq!(names, vec!["plan.docx"], "~$ 属主锁文件不参与轮换");
     }
 }

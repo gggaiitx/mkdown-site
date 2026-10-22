@@ -11,10 +11,18 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import OpenSystemBtn from './OpenSystemBtn.vue';
 import PreviewZoomBar from './PreviewZoomBar.vue';
 import { clampZoom, stepZoom } from './zoomRange';
+import type { EditorCtxPayload } from '../../adapters/IMarkdownEngine';
 import { useEditorStore } from '../../stores/editorStore';
 import { useI18n } from '../../i18n';
 
 const props = defineProps<{ path: string }>();
+/** 面板内右键 → 上层弹应用菜单（刷新 / 全屏 / 预览工具条三档）。
+ *  工具条是三个预览面板共用的，档位又只能从这条菜单改——图片面板不给右键的话，
+ *  一旦把工具条设成「隐藏」，在图片标签里就再也调不出来了。
+ *  ←/→ 同目录轮换由 Workbench 统一接管（所有预览类共用一份守卫与缓存）。 */
+const emit = defineEmits<{
+  (e: 'editorContext', pos: EditorCtxPayload): void;
+}>();
 
 const { t } = useI18n();
 const editor = useEditorStore();
@@ -34,7 +42,9 @@ function resetImage() {
   fitMode.value = true;
   zoom.value = 100;
 }
-onMounted(resetImage);
+onMounted(() => {
+  resetImage();
+});
 watch(() => props.path, resetImage);
 
 // ---------- 放大态拖拽平移：直接搬 stage 的滚动位置 ----------
@@ -71,7 +81,9 @@ function onPanMove(e: MouseEvent) {
   el.scrollLeft = panScrollX - (e.clientX - panStartX);
   el.scrollTop = panScrollY - (e.clientY - panStartY);
 }
-onBeforeUnmount(stopPan);
+onBeforeUnmount(() => {
+  stopPan();
+});
 
 // ---------- 缩放：100% = 图片自然尺寸（1:1） ----------
 const imgRef = ref<HTMLImageElement | null>(null);
@@ -116,10 +128,26 @@ function onWheel(e: WheelEvent) {
   }
   zoom.value = stepZoom(zoom.value, e.deltaY < 0 ? 1 : -1);
 }
+
+// ---------- ←/→：同目录轮换由 Workbench 统一接管 ----------
+
+/** 面板内右键：宿主是同源的普通 DOM（不像 HTML 帧得往 iframe 里注入脚本），
+ *  拦掉原生菜单把坐标报给上层，由上层在同一处弹应用菜单 */
+function onCtx(e: MouseEvent): void {
+  e.preventDefault();
+  emit('editorContext', {
+    x: e.clientX,
+    y: e.clientY,
+    inTable: false,
+    wideAlignable: false,
+    engine: 'frame',
+    frame: 'image',
+  });
+}
 </script>
 
 <template>
-  <div class="img-pane mk-zoom-pane">
+  <div class="img-pane mk-zoom-pane" @contextmenu="onCtx">
     <PreviewZoomBar v-model:zoom="zoom" v-model:fit="fitMode" show-fit>
       <OpenSystemBtn :path="path" inline />
     </PreviewZoomBar>

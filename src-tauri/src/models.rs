@@ -133,6 +133,21 @@ fn default_export_padding() -> u32 {
     2
 }
 
+/// 预览浮块工具条显隐档："auto"（进面板才浮出）| "shown"（常驻）| "hidden"（彻底不出现）
+fn default_preview_bar_mode() -> String {
+    "auto".into()
+}
+
+/// 浮块横向落位：条身中心占面板宽的比例，默认 0.5 = 居中
+fn default_preview_bar_x() -> f64 {
+    0.5
+}
+
+/// 浮块纵向落位：条身下缘离面板底缘的 px，默认 8 = 贴底
+fn default_preview_bar_bottom() -> f64 {
+    8.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
@@ -191,6 +206,15 @@ pub struct AppSettings {
     /// SVG 预览「导出为图片」的留白（px）：先按内容裁掉四周空白，再在四边各加这么多
     #[serde(default = "default_export_padding")]
     pub export_padding: u32,
+    /// 预览浮块工具条显隐档："auto" | "shown" | "hidden"（图片/HTML/SVG 三面板共用一份）
+    #[serde(default = "default_preview_bar_mode")]
+    pub preview_bar_mode: String,
+    /// 浮块横向落位：条身中心占面板宽的比例（0~1，渲染前前端还会按浮块自然宽夹一次）
+    #[serde(default = "default_preview_bar_x")]
+    pub preview_bar_x: f64,
+    /// 浮块纵向落位：条身下缘离面板底缘的 px
+    #[serde(default = "default_preview_bar_bottom")]
+    pub preview_bar_bottom: f64,
 }
 
 impl Default for AppSettings {
@@ -222,6 +246,9 @@ impl Default for AppSettings {
             word_export_engine: default_word_export_engine(),
             word_import_fidelity: default_word_import_fidelity(),
             export_padding: default_export_padding(),
+            preview_bar_mode: default_preview_bar_mode(),
+            preview_bar_x: default_preview_bar_x(),
+            preview_bar_bottom: default_preview_bar_bottom(),
         }
     }
 }
