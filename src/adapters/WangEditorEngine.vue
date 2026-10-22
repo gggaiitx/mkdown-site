@@ -28,6 +28,9 @@ import { useI18n } from '../i18n';
 import { modKey, altHint } from '../utils/keyHint';
 import { captureScrollTop, restoreScrollTop } from './scrollRestore';
 import { createReadFocus } from '../utils/readFocusBlock';
+import { smoothScrollTop } from '../utils/smoothScroll';
+import { joinRelPath } from '../utils/pathJoin';
+import BackTop from '../components/preview/BackTop.vue';
 
 const props = defineProps<{
   /** .mh 原始 HTML（磁盘口径：相对路径）；未保存新建为空串 */
@@ -100,14 +103,15 @@ function docDir(): string {
   return props.docPath ? props.docPath.replace(/[\\/][^\\/]*$/, '') : '';
 }
 
-/** ./assets/x.png → asset://（显示口径；无 docPath 时原样返回） */
+/** ./assets/x.png → asset://（显示口径；无 docPath 时原样返回）。
+ *  分隔符走 joinRelPath（Windows `\` / mac-Linux `/`），写死 `\` 在 mac 上会拼成一个文件名 */
 function relToAsset(rel: string): string {
   const raw = (rel ?? '').trim();
   const dir = docDir();
   if (!dir || /^(https?|data|asset|blob):/i.test(raw) || raw.startsWith('/')) return raw;
   const path = raw.replace(/^\.\//, '');
   if (!path) return raw;
-  return convertFileSrc(`${dir}\\${path.replaceAll('/', '\\')}`);
+  return convertFileSrc(joinRelPath(dir, path));
 }
 
 /** 磁盘 HTML（相对路径）→ 编辑器显示 HTML（asset://） */
@@ -680,6 +684,12 @@ function scrollToTop(): void {
   if (host) host.scrollTop = 0;
 }
 
+/** 「回到顶部」浮标：带缓动过渡（换文档回顶仍走上面那个瞬时版本，
+ *  切文档时还在"往回滚"是另一回事） */
+function smoothBackToTop(): void {
+  smoothScrollTop(findScrollRoot());
+}
+
 defineExpose({
   scrollToLine,
   scrollToMatch,
@@ -817,6 +827,10 @@ onBeforeUnmount(() => {
       />
     </div>
 
+    <!-- 回到顶部浮标：.mh 是所见即所得，编辑态与阅读态看到的都是同一份正文，两态都给。
+         滚动宿主走 findScrollRoot（.w-e-scroll 在 text-container 的【子】层，见其注释） -->
+    <BackTop :scroll="findScrollRoot" :bind-key="mode" @top="smoothBackToTop" />
+
     <!-- 导出/打印宿主：屏幕上隐藏，打印时由文件末尾全局 @media print 规则单独显示（机制同 MdEditorV3Engine） -->
     <Teleport to="body">
       <div class="mk-export-host" aria-hidden="true">
@@ -839,6 +853,9 @@ onBeforeUnmount(() => {
   width: 100%;
   overflow: hidden;
   background: var(--mk-bg);
+  /* 回到顶部浮标（BackTop）的定位父级：绝对定位贴右下角靠这一行锚定；
+     绝对定位子项不参与 flex 排版，正文宽度不受影响 */
+  position: relative;
 }
 .wang-edit-pane {
   flex: 1;
@@ -980,7 +997,7 @@ onBeforeUnmount(() => {
   color: var(--mk-fg);
 }
 .wang-engine-root :deep(.w-e-text-container [data-slate-editor]) {
-  font-size: var(--mk-font-size, 15px);
+  font-size: var(--mk-font-size, 13px);
   line-height: 1.7;
   padding-block: 12px;
   /* 正文列限宽：左右 padding = (容器宽 - 版式宽)/2，窄窗回落 20px（同 md 编辑态） */
@@ -1077,7 +1094,7 @@ onBeforeUnmount(() => {
 /* ---- 导出/打印宿主（@media print 全局规则移植自 MdEditorV3Engine，机制同官方 ExportPDF.css） ---- */
 .wang-export-body {
   font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  font-size: var(--mk-font-size, 15px);
+  font-size: var(--mk-font-size, 13px);
   line-height: 1.7;
   color: #24292f;
   background: #fff;

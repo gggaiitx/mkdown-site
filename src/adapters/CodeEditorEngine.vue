@@ -233,17 +233,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- 选区/光标色按亮暗注入（不透明标准选区蓝，VS Code 规范色；低透明度选区在白底上不可见） -->
-  <div
-    ref="rootRef"
-    class="code-editor-engine"
-    @contextmenu="onContextMenu"
-    :style="{
-      '--mk-cm-sel': theme === 'dark' ? '#264f78' : '#add6ff',
-      '--mk-cm-caret': theme === 'dark' ? '#58a6ff' : '#0969da',
-      '--mk-cm-active': theme === 'dark' ? 'rgba(255, 255, 255, 0.055)' : 'rgba(0, 0, 0, 0.045)',
-    }"
-  ></div>
+  <!-- 选区/光标/当前行色**不再内联注入**：改由 global.css 的 --mk-cm-* token 提供
+       （:root 为素白、:root[data-theme='dark'] 为石墨，其余配色在各自 palette 块里覆盖）。
+       内联值会以元素级声明压死 palette 覆盖，6 套配色下选区不跟随配色——这正是要避免的 -->
+  <div ref="rootRef" class="code-editor-engine" @contextmenu="onContextMenu"></div>
 </template>
 
 <style scoped>

@@ -5,6 +5,8 @@
  * 不 import 编辑器内核；全部本地 fetch，无网络依赖之外的逻辑（http(s) 外链图失败即降级）。
  */
 
+import { joinRelPath } from '../utils/pathJoin';
+
 /** docx ImageRun 支持的位图类型（svg 单独走 SvgMediaOptions） */
 export type DocxAssetType = 'png' | 'jpg' | 'gif' | 'bmp' | 'svg';
 
@@ -192,7 +194,8 @@ export async function loadDocxAsset(src: string, baseDir?: string): Promise<Docx
       const rel = raw.replace(/^\.\//, '');
       if (!rel || rel.startsWith('..')) return null;
       const { convertFileSrc } = await import('@tauri-apps/api/core');
-      const url = convertFileSrc(`${baseDir}\\${rel.replaceAll('/', '\\')}`);
+      // 分隔符按 baseDir 形态决定：写死 `\` 在 mac/Linux 上会把整条相对路径拼成一个文件名
+      const url = convertFileSrc(joinRelPath(baseDir, rel));
       const res = await fetch(url);
       if (!res.ok) return null;
       const buf = new Uint8Array(await res.arrayBuffer());

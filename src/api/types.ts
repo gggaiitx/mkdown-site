@@ -37,6 +37,30 @@ export interface FileMeta {
   isReadonly: boolean;
 }
 
+/** 应用内文件选择器的一条条目；kind 仅快捷位置（home/documents/…）与盘符根（root）有值 */
+export interface DirEntry {
+  name: string;
+  path: string;
+  kind: string | null;
+  /** 隐藏项：默认不列出，选择器里的开关打开才显示 */
+  hidden: boolean;
+}
+
+/** 一次目录浏览的结果：当前位置 + 子目录（+ 文件模式的当前目录文件）
+ *  + 常用位置 + 盘符根 */
+export interface DirBrowse {
+  path: string;
+  parent: string | null;
+  dirs: DirEntry[];
+  /** 文件/保存模式才列出；文件夹模式恒为空 */
+  files: DirEntry[];
+  /** 请求路径本身指向文件时回填，供前端预选 */
+  selected: string | null;
+  places: DirEntry[];
+  roots: DirEntry[];
+  truncated: boolean;
+}
+
 export interface SearchQuery {
   root: string;
   query: string;
@@ -68,7 +92,15 @@ export interface RecentFile {
   openedAtMs: number;
 }
 
+/** 解析后的模式（明/暗）：驱动 `data-theme`，全应用「是否暗色」的唯一判据 */
 export type ThemeKind = 'light' | 'dark';
+/** 模式偏好：system = 跟随系统（仅切模式，配色各模式下各自保留）；light/dark = 手动锁定 */
+export type ThemeModePref = 'system' | ThemeKind;
+/** 明色三套配色（paper = 素白，出厂默认） */
+export type LightPalette = 'paper' | 'fog' | 'sepia';
+/** 暗色三套配色（graphite = 石墨，出厂默认） */
+export type DarkPalette = 'graphite' | 'midnight' | 'ember';
+export type ThemePalette = LightPalette | DarkPalette;
 export type EditorMode = 'edit' | 'split' | 'read';
 /** 内容版式：窄 / 中 / 宽 = 正文列限宽三档；full = 自适应铺满（不给阅读列上限） */
 export type ReadLayout = 'narrow' | 'medium' | 'wide' | 'full';
@@ -81,8 +113,21 @@ export type EditorKernel = 'markdown' | 'wangeditor';
  *  hidden 下条子不可聚焦也不可拖，只能从预览窗格右键调回——所以图片面板也接了同一套菜单 */
 export type PreviewBarMode = 'auto' | 'shown' | 'hidden';
 
+/** 正文预览区「回到顶部」按钮的显现方式（md 阅读/分栏 与 .mh 共用一份）：
+ *  auto = 指针移入右下角热区才浮出（出厂默认，不打扰阅读）| always = 滚动后常驻。
+ *  两种档位都以「已向下滚过一段」为前提，文档没超出屏宽时按钮不出现 */
+export type BackTopMode = 'auto' | 'always';
+
 export interface AppSettings {
+  /** @deprecated 旧版单字段（仅 light/dark）。保留只为旧配置迁移与回滚兼容：
+   *  运行时由 themeMode 解析结果回写，真正决定外观的是 themeMode + 两套 palette */
   theme: ThemeKind;
+  /** 模式偏好：system（跟随系统）/ light / dark */
+  themeMode: ThemeModePref;
+  /** 明色模式下的配色（paper 素白 / fog 冷灰 / sepia 米黄） */
+  themePaletteLight: LightPalette;
+  /** 暗色模式下的配色（graphite 石墨 / midnight 午夜蓝 / ember 暖褐） */
+  themePaletteDark: DarkPalette;
   /** 全局字号（px）：0.5px 一档，见 FONT_STEP */
   fontSize: number;
   editorMode: EditorMode;
@@ -111,6 +156,12 @@ export interface AppSettings {
   focusMode: boolean;
   /** 显示行号：Markdown 编辑窗格左侧画一列行号（数字取自每行 data-ln 属性，代码引擎由 basicSetup 自带） */
   showLineNumbers: boolean;
+  /** ←/→ 同目录文件切换：预览类恒可用；文本类仅编辑器失焦时生效（否则方向键归光标）。
+   *  出厂开；关掉后应用层与预览帧内转发都不再切文件 */
+  siblingNav: boolean;
+  /** 点弹窗外（遮罩）是否关闭弹窗：出厂关 = 只能用「取消 / 关闭」、右上角 × 或 Esc 关闭。
+   *  设置 / 文件夹与文件选择 / Word 转换 / 确认框等所有带遮罩的弹窗共用这一份口径 */
+  dialogCloseOnMask: boolean;
   /** 大纲呈现方式：classic = 右侧面板 / fresh = 视口右缘的短横线浮标（出厂默认，
    *  md 双栏与阅读态、.mh 阅读态通用） */
   outlineStyle: 'classic' | 'fresh';
@@ -137,6 +188,12 @@ export interface AppSettings {
   /** 浮块纵向落位：条身**下缘**离面板底缘的 px（默认 8 贴底）。窗口变高时它该待在底边，
    *   所以纵向存 px 而不是比例 */
   previewBarBottom: number;
+  /** 正文预览区「回到顶部」按钮开关（设置-操作）。默认开：长 md / .mh 文档滚下去后
+   *   右下角浮出一颗回到顶部的小圆钮（见 BackTopMode） */
+  backTopEnabled: boolean;
+  /** 「回到顶部」显现方式：auto = 指针移入右下角才浮出（默认）/ always = 滚动后常驻。
+   *  与开关分开两个字段：关掉再打开时能记住上次选的方式 */
+  backTopMode: BackTopMode;
 }
 
 /** 字号档位（顶栏 ± 按钮、Ctrl+滚轮、Ctrl+=/Ctrl+-、设置滑块共用同一组常量）：
@@ -148,7 +205,10 @@ export const FONT_STEP = 0.5;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
-  fontSize: 15,
+  themeMode: 'light',
+  themePaletteLight: 'paper',
+  themePaletteDark: 'graphite',
+  fontSize: 13,
   editorMode: 'split',
   autoSave: false,
   autoSaveDelayMs: 800,
@@ -165,6 +225,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showToolbar: true,
   focusMode: false,
   showLineNumbers: false,
+  siblingNav: true,
+  dialogCloseOnMask: false,
   outlineStyle: 'fresh',
   editorEngine: 'markdown',
   wordFontZh: '等线',
@@ -176,4 +238,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   previewBarMode: 'auto',
   previewBarX: 0.5,
   previewBarBottom: 8,
+  backTopEnabled: true,
+  backTopMode: 'auto',
 };

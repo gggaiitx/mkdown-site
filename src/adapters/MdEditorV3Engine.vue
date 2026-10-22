@@ -29,7 +29,9 @@ import { buildTableSkeleton, editTable, isWideAlignable, parseTable, tsvToTable 
 import { formatBlockLines, type BlockFormatKind, type BlockKind } from '../utils/mdLineFormat';
 import { setFocusMode } from './cmFocusLine';
 import { createReadFocus } from '../utils/readFocusBlock';
+import { smoothScrollTop } from '../utils/smoothScroll';
 import { useI18n } from '../i18n';
+import BackTop from '../components/preview/BackTop.vue';
 
 const props = defineProps<{
   modelValue: string;
@@ -1173,10 +1175,45 @@ function restoreScroll(top: number): void {
   restoreScrollTop(scrollHost, top);
 }
 
-/** 换文档后回顶：restoreScrollTop 对 0 明确跳过（0 不算有效存档），这里直接写 */
+/** 换文档后回顶：restoreScrollTop 对 0 明确跳过（0 不算有效存档），这里直接写。
+ *  分栏态两侧一起归零——内核按**比例**同步，只动一侧会先跳一下再被另一侧拉回 */
 function scrollToTop(): void {
-  const host = scrollHost();
-  if (host) host.scrollTop = 0;
+  const root = rootRef.value;
+  if (!root) return;
+  const sels = props.mode === 'read'
+    ? ['.read-scroll']
+    : ['.cm-scroller', '.md-editor-preview-wrapper'];
+  for (const sel of sels) {
+    const host = root.querySelector<HTMLElement>(sel);
+    if (host) host.scrollTop = 0;
+  }
+}
+
+/** 「回到顶部」浮标：带缓动的过渡，不是一下跳到顶（用户明确要"有过程"）。
+ *  分栏态只驱动编辑窗格——内核 scrollAuto 按**比例**双向同步，
+ *  两栏各跑一条动画会互相覆盖（一会儿编辑栏写、一会儿预览栏写，看着就是抖）；
+ *  关掉滚动同步时内核不再联动，这才两栏各跑一条。 */
+function smoothBackToTop(): void {
+  const root = rootRef.value;
+  if (!root) return;
+  if (props.mode === 'read') {
+    smoothScrollTop(root.querySelector<HTMLElement>('.read-scroll'));
+    return;
+  }
+  smoothScrollTop(root.querySelector<HTMLElement>('.cm-scroller'));
+  if (props.scrollSync === false) {
+    smoothScrollTop(root.querySelector<HTMLElement>('.md-editor-preview-wrapper'));
+  }
+}
+
+/** 「回到顶部」浮标的监听目标：阅读态是自建 .read-scroll，分栏态是右侧预览栏
+ *  （用户在预览栏里滚，滚动事件落在它身上；滚编辑区时内核同步会带动它一起发事件） */
+function backTopScroller(): HTMLElement | null {
+  const root = rootRef.value;
+  if (!root) return null;
+  return root.querySelector<HTMLElement>(
+    props.mode === 'read' ? '.read-scroll' : '.md-editor-preview-wrapper',
+  );
 }
 
 defineExpose({
@@ -1738,6 +1775,14 @@ onBeforeUnmount(() => {
       @on-upload-img="handleUploadImg"
       @on-html-changed="onHtmlChanged"
     />
+    <!-- 回到顶部浮标：只给有预览的形态（分栏右侧预览栏 / 阅读态整块）。
+         编辑态没有"预览页"，不给；开关与显现方式在设置-操作里，组件自己读 -->
+    <BackTop
+      v-if="mode !== 'edit'"
+      :scroll="backTopScroller"
+      :bind-key="mode"
+      @top="smoothBackToTop"
+    />
     <!-- 导出/打印 PDF 宿主（官方 ExportPDF 机制同构）：Teleport 到 body 直下，
          屏幕上隐藏，打印时由文件末尾 @media print 规则（移植自官方 ExportPDF.css）单独显示。
          theme 恒 light：打印产物固定白底黑字，不跟随应用暗色主题 -->
@@ -1762,6 +1807,9 @@ onBeforeUnmount(() => {
   height: 100%;
   width: 100%;
   overflow: hidden;
+  /* 回到顶部浮标（BackTop）的定位父级：它绝对定位贴右下角，靠这一行锚定，
+     页面全屏态改为 fixed 时同样生效 */
+  position: relative;
 }
 /* 阅读态页面全屏（见 readPageFull）：铺满视口，层级与 .mh 页面全屏同带——
    压过顶栏 9500，低于浮层菜单 10110（右键菜单在全屏里仍要能弹出） */
@@ -1787,10 +1835,35 @@ onBeforeUnmount(() => {
 .engine-root :deep(.md-editor:not(.md-editor-previewOnly)) {
   border: 1px solid var(--mk-panel);
 }
-/* 暗色下 md-editor 内置背景板（--md-bk-color 默认 #000）对齐全局 --mk-bg，
-   消除 editor-area 与编辑/分栏/阅读区（含 #mkdown-editor-pv）的色差分裂 */
-.engine-root :deep(.md-editor[data-theme='dark']) {
+/* md 内核画布/边框统一接 palette（data-palette 覆盖块见 global.css）：
+   - 内核自带 --md-bk-color（亮 #fff / 暗 #000），此前只对暗色做了对齐，
+     于是「米黄 / 冷灰」选下来后编辑区与预览仍是一块死白，「午夜蓝 / 暖褐」则是纯黑，
+     与 chrome 的色差直接裂开；
+   - paper 下本值 = #fff，与内核原值等价；graphite 下与原规则等价 → 默认两套零视觉变化；
+   - 预览正文排版与代码块底色仍归「预览主题」（previewTheme）管——那是内容主题，不在这里抢 */
+.engine-root :deep(.md-editor) {
   --md-bk-color: var(--mk-bg);
+  --md-bk-color-outstand: var(--mk-panel);
+  --md-border-color: var(--mk-border);
+}
+
+/* 非默认配色：预览内容里的"面"也换成 palette 中性面。
+   内核把内容主题变量挂在 .md-editor-preview 本身上（特异性 0,2,0），
+   这里用 `.engine-root[data-v] .md-editor .md-editor-preview` 压过它。
+   只统一面（表格头/行内码/围栏码/分隔线/提醒块），文字色（标题/链接/强调）
+   仍归「预览主题」——不抹掉主题个性。
+   paper / graphite 不在此列：默认两套保持预览主题原貌，升级零视觉变化 */
+:root[data-palette='fog'] .engine-root :deep(.md-editor .md-editor-preview),
+:root[data-palette='sepia'] .engine-root :deep(.md-editor .md-editor-preview),
+:root[data-palette='midnight'] .engine-root :deep(.md-editor .md-editor-preview),
+:root[data-palette='ember'] .engine-root :deep(.md-editor .md-editor-preview) {
+  --md-theme-bg-color: var(--mk-bg);
+  --md-theme-bg-color-inset: var(--mk-panel-muted);
+  --md-theme-border-color: var(--mk-border);
+  --md-theme-border-color-inset: var(--mk-border);
+  --md-theme-code-block-bg-color: var(--mk-panel-soft);
+  --md-theme-code-inline-bg-color: var(--mk-panel-muted);
+  --md-theme-table-thead-bg-color: var(--mk-panel-muted);
 }
 
 /* ---- 内容版式：控制"正文列"宽度，即两侧留白（编辑器外壳保持铺满） ----

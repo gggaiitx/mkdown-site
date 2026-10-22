@@ -40,6 +40,37 @@ pub struct WorkspaceNode {
     pub mtime_ms: Option<i64>,
 }
 
+/// 应用内文件选择器的一条条目。`kind` 只给快捷位置（home/documents/…）
+/// 与盘符根（root）用，普通子目录/文件为 None；选择器只列名字，不读内容。
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirEntry {
+    pub name: String,
+    pub path: String,
+    pub kind: Option<String>,
+    /// 隐藏项（点开头，或 Windows 的隐藏/系统属性）：前端据此默认过滤，
+    /// 打开「显示隐藏项」开关才列出
+    pub hidden: bool,
+}
+
+/// 选择器一次浏览的结果：当前位置 + 子目录（+ 文件模式的当前目录文件）
+/// + 常用位置 + 盘符根
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirBrowse {
+    pub path: String,
+    pub parent: Option<String>,
+    pub dirs: Vec<DirEntry>,
+    /// 文件/保存模式才列出；文件夹模式恒为空
+    pub files: Vec<DirEntry>,
+    /// 请求路径本身指向一个文件时回填，供前端预选；否则为空
+    pub selected: Option<String>,
+    pub places: Vec<DirEntry>,
+    pub roots: Vec<DirEntry>,
+    /// 子目录或文件超过上限被截断：前端据此提示，避免用户误以为目录里只有这些
+    pub truncated: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileMeta {
@@ -148,10 +179,48 @@ fn default_preview_bar_bottom() -> f64 {
     8.0
 }
 
+/// 预览区「回到顶部」按钮显现方式："auto"（指针移入右下角才浮出，出厂默认）| "always"（滚动后常驻）
+fn default_back_top_mode() -> String {
+    "auto".into()
+}
+
+/// 「回到顶部」按钮开关：出厂开（长文档滚下去才出现，短文档不受影响）
+fn default_back_top_enabled() -> bool {
+    true
+}
+
+/// ←/→ 同目录文件切换：出厂开
+fn default_sibling_nav() -> bool {
+    true
+}
+
+/// 明色配色出厂值：素白（= v0.1 起的原有外观，升级零视觉变化）
+fn default_theme_palette_light() -> String {
+    "paper".into()
+}
+
+/// 暗色配色出厂值：石墨（= v0.1 起的原有暗色，升级零视觉变化）
+fn default_theme_palette_dark() -> String {
+    "graphite".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
+    /// @deprecated 旧版单字段（light/dark）。保留只为迁移与回滚兼容：
+    /// 真正决定外观的是 theme_mode + 两套 palette，前端每次 applyTheme 会把解析结果回写此字段
     pub theme: String,
+    /// 模式偏好："system"（跟随系统）| "light" | "dark"。
+    /// **空字符串 = 本版之前的旧配置**（只有 theme 没有 themeMode）→ 前端按 theme 迁移成手动模式，
+    /// 这样升级用户不会被"跟随系统"意外改掉原来的亮暗选择
+    #[serde(default)]
+    pub theme_mode: String,
+    /// 明色配色："paper"（素白，默认）| "fog"（冷灰）| "sepia"（米黄）
+    #[serde(default = "default_theme_palette_light")]
+    pub theme_palette_light: String,
+    /// 暗色配色："graphite"（石墨，默认）| "midnight"（午夜蓝）| "ember"（暖褐）
+    #[serde(default = "default_theme_palette_dark")]
+    pub theme_palette_dark: String,
     /// 全局字号（px）：前端以 0.5px 为一档增减，故必须是浮点不是 u32
     /// （存成整数会让 15.5 这种值在 `set_settings` 反序列化时直接报错，整个设置写不进去）
     pub font_size: f64,
@@ -182,6 +251,12 @@ pub struct AppSettings {
     pub focus_mode: bool,
     /// 显示行号：Markdown 编辑窗格左侧一列行号（data-ln 属性 + CSS 伪元素）
     pub show_line_numbers: bool,
+    /// ←/→ 同目录文件切换：预览类恒可用，文本类仅编辑器失焦时生效
+    #[serde(default = "default_sibling_nav")]
+    pub sibling_nav: bool,
+    /// 点弹窗外（遮罩）是否关闭弹窗：出厂关（缺失字段的旧配置同为关），
+    /// 只能用「取消 / 关闭」、右上角 × 或 Esc 关闭
+    pub dialog_close_on_mask: bool,
     /// 大纲呈现方式："classic"（右侧面板）| "fresh"（右缘短横线浮标，掠过展开）
     #[serde(default = "default_outline_style")]
     pub outline_style: String,
@@ -215,13 +290,22 @@ pub struct AppSettings {
     /// 浮块纵向落位：条身下缘离面板底缘的 px
     #[serde(default = "default_preview_bar_bottom")]
     pub preview_bar_bottom: f64,
+    /// 正文预览区「回到顶部」按钮开关（长 md / .mh 文档，设置-操作）
+    #[serde(default = "default_back_top_enabled")]
+    pub back_top_enabled: bool,
+    /// 「回到顶部」显现方式："auto"（指针移入右下角才浮出）| "always"（滚动后常驻）
+    #[serde(default = "default_back_top_mode")]
+    pub back_top_mode: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: "light".into(),
-            font_size: 15.0,
+            theme_mode: String::new(),
+            theme_palette_light: default_theme_palette_light(),
+            theme_palette_dark: default_theme_palette_dark(),
+            font_size: 13.0,
             editor_mode: "split".into(),
             auto_save: false,
             auto_save_delay_ms: 800,
@@ -238,6 +322,8 @@ impl Default for AppSettings {
             show_toolbar: true,
             focus_mode: false,
             show_line_numbers: false,
+            sibling_nav: default_sibling_nav(),
+            dialog_close_on_mask: false,
             outline_style: default_outline_style(),
             editor_engine: default_editor_engine(),
             word_font_zh: default_word_font_zh(),
@@ -249,6 +335,8 @@ impl Default for AppSettings {
             preview_bar_mode: default_preview_bar_mode(),
             preview_bar_x: default_preview_bar_x(),
             preview_bar_bottom: default_preview_bar_bottom(),
+            back_top_enabled: default_back_top_enabled(),
+            back_top_mode: default_back_top_mode(),
         }
     }
 }

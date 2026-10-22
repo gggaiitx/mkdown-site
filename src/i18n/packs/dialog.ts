@@ -8,6 +8,7 @@ export default {
     dialog: {
       confirm: '确定',
       cancel: '取消',
+      close: '关闭',
       error: {
         notFound: '路径不存在',
         permissionDenied: '没有权限',
@@ -26,6 +27,7 @@ export default {
     dialog: {
       confirm: 'OK',
       cancel: 'Cancel',
+      close: 'Close',
       error: {
         notFound: 'Path not found',
         permissionDenied: 'Permission denied',

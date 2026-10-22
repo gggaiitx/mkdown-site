@@ -9,6 +9,7 @@
  */
 import { config, en_US, zh_CN } from 'md-editor-v3';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import DOMPurify from 'dompurify';
 import mermaid from 'mermaid';
 import katex from 'katex';
 // v7 传 katex.instance 后不再注入 CDN 样式（index4.mjs 仅在无 instance 时注入），
@@ -168,6 +169,7 @@ import { headingLineExtension } from './cmHeadingLine';
 import { focusLineExtension } from './cmFocusLine';
 import { lineNumberAttrExtension } from './cmLineNumber';
 import { isMac } from '../utils/keyHint';
+import { joinRelPath } from '../utils/pathJoin';
 
 let currentDocDir = '';
 
@@ -246,8 +248,52 @@ function toAssetUrl(src: string): string {
   // 去掉查询/锚点后再拼目录
   const rel = raw.replace(/^\.\//, '').split('#')[0].split('?')[0];
   if (!rel) return raw;
-  const abs = `${currentDocDir}\\${rel.replaceAll('/', '\\')}`;
-  return convertFileSrc(abs);
+  // 分隔符按 currentDocDir 的形态决定（Windows `\` / mac-Linux `/`），
+  // 写死 `\` 在 mac 上会把整条相对路径拼成一个文件名，图片直接 404
+  return convertFileSrc(joinRelPath(currentDocDir, rel));
+}
+
+/**
+ * ★ 原生 HTML 混排渲染（README / 官网文档常见写法）的支持层。
+ *
+ * 差距根因：内核创建 markdown-it 实例时硬编码 `html: false`（es/chunks/index4.mjs:1113，
+ * 源码注释「关闭源文本中的原生 HTML 解析」）。于是 <div align="center">、<table>、
+ * <details>、<img width=…> 这类与 markdown 混排的原始 HTML 会被整体转义成文本，
+ * 预览/阅读里只剩一堆尖括号。
+ *
+ * 修法：在内核的 markdownItConfig 回调里（每个 md 实例建好后立即调用一次，随后不再
+ * 改 options）用 md.set 打开 html，使原生 HTML 直通「编辑内预览 / 分栏 / 阅读 /
+ * 打印导出」全部渲染路径——这四条链路共用同一套 md 实例工厂。
+ *
+ * 打开后必须自带净化：html:true 会把 <script>、on* 属性原样交给 v-html。WebView 侧
+ * CSP（script-src 'self'，无 'unsafe-inline'）已能拦住内联脚本，但这里是纵深防御，
+ * 且 README 多来自第三方仓库。DOMPurify 采用 html + svg + mathMl 三档 profile——
+ * 默认 profile 只保留 html，会把 KaTeX 的 <math> 层剥掉（视觉层 katex-html 尚存，
+ * 但公式的可访问性/复制口径会退化）。
+ *
+ * 相对路径图片：原生 HTML 里的 <img> 不经过 markdown-it 的 image 规则（那是 token 级
+ * 渲染，见上方注释），只能在这一层统一改写成 asset://，否则 WebView 会把
+ * 「docs/public/x.png」按 dev server 根解析成 404。已在 image 规则里转过的值再转一次
+ * 是幂等的（asset: 前缀直接放行）。
+ */
+let purifyHookReady = false;
+function sanitizeMixedHtml(html: string): string {
+  if (!purifyHookReady) {
+    purifyHookReady = true;
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      if (node.nodeName !== 'IMG') return;
+      const src = node.getAttribute('src');
+      if (!src) return;
+      const url = toAssetUrl(src);
+      if (url !== src) node.setAttribute('src', url);
+    });
+  }
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true, svg: true, mathMl: true },
+    // 表格居中/宽度一类 presentational 属性不在 DOMPurify 默认白名单里，
+    // GitHub 系 README 大量使用（align="center"、valign="middle"）
+    ADD_ATTR: ['align', 'valign', 'target'],
+  });
 }
 
 let configured = false;
@@ -333,6 +379,19 @@ export function setupMdRenderer(): void {
       languageUserDefined: { ...zhWithShortcuts, ...enWithShortcuts },
     },
     markdownItConfig(md) {
+      // ---- 混排 HTML 直通（详见 sanitizeMixedHtml 注释）----
+      // 必须在本回调内 set：内核 `st({html:false,…})` 之后紧接着回调本函数，
+      // 此后不再改动 options，是唯一可覆盖 html 语义的时机。
+      md.set({ html: true });
+      const renderBase = md.render.bind(md) as (
+        src: string,
+        env?: Record<string, unknown>,
+      ) => string;
+      md.render = ((src: string, env?: Record<string, unknown>) => {
+        const html = renderBase(src, env);
+        return env?.__mkRawHtml === true ? sanitizeMixedHtml(html) : html;
+      }) as typeof md.render;
+
       const defaultImage =
         md.renderer.rules.image ??
         ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
@@ -345,6 +404,36 @@ export function setupMdRenderer(): void {
         }
         return defaultImage(tokens, idx, options, _env, self);
       };
+
+      // ---- 原生 HTML 探测：只有真出现 raw HTML token 才走 DOMPurify ----
+      // 纯 markdown 文档（含 KaTeX/mermaid）不做 DOM 解析开销；代码块里的 <div>
+      // 属于 fence token，不会误判。env 逐次渲染由内核新建，这里仍先复位，避免
+      // 复用的 env 把上一份文档的结论带进来。
+      //
+      // ★ 必须挂在 'inline' **之后**：core 规则顺序是
+      //   normalize → block → inline → linkify → replacements → smartquotes → text_join，
+      //   在 block 之后 inline 尚未解析，inline token 的 children 还是 null，
+      //   html_inline（`正文里 <img onerror=…>` 这种行内原生 HTML）永远扫不到 →
+      //   整份输出跳过 DOMPurify，白名单净化形同虚设。挂在 inline 之后两者都命中，
+      //   纯 md 文档仍判 false（不付净化开销）。
+      md.core.ruler.after('inline', 'mk_raw_html_flag', (state) => {
+        const env = (state.env ??= {}) as { __mkRawHtml?: boolean };
+        env.__mkRawHtml = false;
+        for (const token of state.tokens) {
+          if (token.type === 'html_block') {
+            env.__mkRawHtml = true;
+            break;
+          }
+          if (
+            token.type === 'inline' &&
+            token.children?.some((child) => child.type === 'html_inline')
+          ) {
+            env.__mkRawHtml = true;
+            break;
+          }
+        }
+        return true;
+      });
 
       // ---- 源码行号标记（data-line）：预览/阅读态跳转定位的行级锚点 ----
       // markdown-it 块级 token 自带 map: [起始行, 结束行)（0-based），

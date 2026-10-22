@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { useI18n } from '../i18n';
+import { useDialogClose } from '../composables/useDialogClose';
 
 const { t } = useI18n();
+const { maskCloses } = useDialogClose();
 
 const props = withDefaults(
   defineProps<{
@@ -67,6 +69,8 @@ function onKey(e: KeyboardEvent) {
     e.stopPropagation();
     emit('cancel');
   } else if (e.key === 'Enter' && props.input) {
+    // 焦点在按钮上时交给按钮自己处理，否则一次回车会同时触发按钮与提交
+    if (document.activeElement instanceof HTMLButtonElement) return;
     emit('confirm', val.value);
   } else if (e.key === 'Tab') {
     trapTab(e);
@@ -94,12 +98,19 @@ function trapTab(e: KeyboardEvent) {
 function submit() {
   emit('confirm', val.value);
 }
+
+function onMaskClick() {
+  if (maskCloses()) emit('cancel');
+}
 </script>
 
 <template>
-  <div v-if="visible" class="mask" @click.self="emit('cancel')">
+  <div v-if="visible" class="mask" @click.self="onMaskClick">
     <div ref="dialogRef" class="dialog" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
-      <div class="title" :id="titleId">{{ title }}</div>
+      <div class="head">
+        <div class="title" :id="titleId">{{ title }}</div>
+        <button class="close" :title="t('dialog.close')" :aria-label="t('dialog.close')" @click="emit('cancel')">×</button>
+      </div>
       <div class="body">
         <p v-if="message" class="msg">{{ message }}</p>
         <input
@@ -136,8 +147,15 @@ function submit() {
 }
 /* 容器只是键盘落点（tabindex="-1"），不需要整框焦点环 */
 .dialog:focus { outline: none; }
-.title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
-.msg { font-size: 13px; line-height: 1.6; margin: 0 0 8px; color: var(--mk-fg); }
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.title { font-size: 14px; font-weight: 600; min-width: 0; }
+.close {
+  flex: none; margin: -2px -2px 0 0; padding: 0 2px;
+  border: none; background: transparent; color: var(--mk-fg-muted);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.close:hover { color: var(--mk-fg); }
+.msg { font-size: 13px; line-height: 1.6; margin: 0 0 8px; color: var(--mk-fg); overflow-wrap: anywhere; }
 .ipt {
   width: 100%; box-sizing: border-box;
   border: 1px solid var(--mk-border); border-radius: 6px;

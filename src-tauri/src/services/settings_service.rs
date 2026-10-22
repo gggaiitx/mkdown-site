@@ -94,6 +94,29 @@ mod tests {
         assert_eq!(s.theme, "dark");
         assert_eq!(s.font_size, 14.0);
         assert_eq!(s.outline_style, "fresh");
+        assert!(s.sibling_nav, "旧 settings.json 没有该字段时左右键切换默认开启");
+        assert!(!s.dialog_close_on_mask, "旧 settings.json 没有该字段时点弹窗外不关闭");
+    }
+
+    #[test]
+    fn theme_mode_and_palettes_roundtrip() {
+        // 旧配置（本版之前只有 theme）：themeMode 读出空串 → 前端据此按 theme 迁移成手动模式，
+        // 两套配色落到出厂值（素白 / 石墨），升级后外观与升级前完全一致
+        let old: AppSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.theme_mode, "", "旧配置没有 themeMode 时必须是空串哨兵，不能默认成 system");
+        assert_eq!(old.theme_palette_light, "paper");
+        assert_eq!(old.theme_palette_dark, "graphite");
+
+        // 新配置：三字段 camelCase 存回读出
+        let s: AppSettings = serde_json::from_str(
+            r#"{"themeMode":"system","themePaletteLight":"sepia","themePaletteDark":"midnight"}"#,
+        )
+        .unwrap();
+        assert_eq!(s.theme_mode, "system");
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"themeMode\":\"system\""));
+        assert!(json.contains("\"themePaletteLight\":\"sepia\""));
+        assert!(json.contains("\"themePaletteDark\":\"midnight\""));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Download, ExternalLink, SquareArrowOutUpRight, Info, Keyboard, Palette, RefreshCw, SlidersHorizontal } from '@lucide/vue';
 import pkg from '../../package.json';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -7,9 +7,11 @@ import { useI18n } from '../i18n';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { openUrl } from '../api/fileApi';
 import { flushSessionSnapshot } from '../utils/sessionSnapshot';
+import { BRAND_NAME } from '../utils/brand';
 import { altKey, modKey, shiftKey } from '../utils/keyHint';
 import type { AppSettings } from '../api/types';
 import { FONT_MAX, FONT_MIN } from '../api/types';
+import SettingsHintIcon from './SettingsHintIcon.vue';
 
 const settings = useSettingsStore();
 const { t } = useI18n();
@@ -22,6 +24,11 @@ function onEsc(e: KeyboardEvent) {
 }
 document.addEventListener('keydown', onEsc);
 onBeforeUnmount(() => document.removeEventListener('keydown', onEsc));
+
+/** 点弹窗外是否关闭由设置决定（默认关）：× / Esc 始终可关 */
+function onMaskClick() {
+  if (settings.settings.dialogCloseOnMask) emit('close');
+}
 
 /** 顶栏 GitHub 入口同款仓库地址 */
 const GITHUB_URL = 'https://github.com/gggaiitx/mkdown-site';
@@ -108,6 +115,8 @@ const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
       [sc(modKey(), 'S'), 'settings.scSave'],
       [sc(modKey(), 'N'), 'settings.scNewDoc'],
       [sc(modKey(), 'O'), 'settings.scOpenFile'],
+      [sc(modKey(), shiftKey(), 'N'), 'settings.scNewWorkspace'],
+      [sc(modKey(), shiftKey(), 'O'), 'settings.scOpenWorkspace'],
       [sc(modKey(), 'W'), 'settings.scCloseTab'],
       [sc(modKey(), shiftKey(), 'W'), 'settings.scCloseAllTabs'],
       ['F2', 'settings.scRename'],
@@ -141,10 +150,42 @@ const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
       [sc(modKey(), shiftKey(), 'F'), 'settings.scBeautify'],
     ],
   },
+  {
+    title: 'settings.scGroupConvert',
+    items: [
+      [sc(modKey(), shiftKey(), 'M'), 'settings.scWordToMd'],
+      [sc(modKey(), shiftKey(), 'H'), 'settings.scWordToMh'],
+    ],
+  },
 ];
 
 function patch(p: Partial<AppSettings>) {
   void settings.update(p);
+}
+
+/**
+ * 配色可选项：只列当前解析模式（明/暗）下的三套。
+ * 明暗各存一个字段（themePaletteLight / themePaletteDark），所以「跟随系统」时
+ * 白天与夜里各自保留上一次选中的配色，不会来回被覆盖。
+ */
+const paletteOptions = computed<Array<{ value: string; label: string }>>(() =>
+  settings.isDark
+    ? [
+        { value: 'graphite', label: 'settings.palGraphite' },
+        { value: 'midnight', label: 'settings.palMidnight' },
+        { value: 'ember', label: 'settings.palEmber' },
+      ]
+    : [
+        { value: 'paper', label: 'settings.palPaper' },
+        { value: 'fog', label: 'settings.palFog' },
+        { value: 'sepia', label: 'settings.palSepia' },
+      ],
+);
+
+/** 按当前模式写入对应那一路配色字段 */
+function patchPalette(v: string) {
+  if (settings.isDark) patch({ themePaletteDark: v as AppSettings['themePaletteDark'] });
+  else patch({ themePaletteLight: v as AppSettings['themePaletteLight'] });
 }
 
 /**
@@ -162,15 +203,27 @@ const previewThemes: Array<{ value: string; label: string }> = [
 ];
 
 // ---- 左右分栏分类导航（对齐 WorkBuddy 设置面板形态） ----
-type SectionId = 'appearance' | 'editor' | 'export' | 'shortcuts' | 'about';
+type SectionId = 'appearance' | 'editor' | 'actions' | 'export' | 'about';
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'settings.sectionAppearance', icon: Palette },
   { id: 'editor', label: 'settings.sectionEditor', icon: SlidersHorizontal },
+  { id: 'actions', label: 'settings.sectionActions', icon: Keyboard },
   { id: 'export', label: 'settings.sectionExport', icon: SquareArrowOutUpRight },
-  { id: 'shortcuts', label: 'settings.sectionShortcuts', icon: Keyboard },
   { id: 'about', label: 'settings.sectionAbout', icon: Info },
 ];
 const active = ref<SectionId>('appearance');
+
+/** 设置页副描述默认收起：点标题旁的信息图标展开，再点收起（全局同时只开一条） */
+type HintKey =
+  | 'switch' | 'dialog' | 'shortcuts' | 'back-top'
+  | 'engine' | 'auto-save' | 'scroll-sync' | 'toolbar' | 'focus' | 'line-numbers'
+  | 'export-font' | 'export-image';
+const openHint = ref<HintKey | null>(null);
+function toggleHint(key: HintKey) {
+  openHint.value = openHint.value === key ? null : key;
+}
+// 换页即收起，回到该页时从清爽列表开始
+watch(active, () => { openHint.value = null; });
 
 // ---- 面板拖拽（标题栏 pointer 事件；clamp 在视口内，标题栏至少留 48px 可抓回） ----
 const dialogRef = ref<HTMLElement | null>(null);
@@ -209,7 +262,7 @@ onBeforeUnmount(onDragEnd);
 </script>
 
 <template>
-  <div class="mask" @click.self="emit('close')">
+  <div class="mask" @click.self="onMaskClick">
     <div
       ref="dialogRef"
       class="dialog"
@@ -242,10 +295,17 @@ onBeforeUnmount(onDragEnd);
           <template v-if="active === 'appearance'">
             <div class="sec-title">{{ t('settings.sectionAppearance') }}</div>
             <div class="row">
-              <label>{{ t('settings.theme') }}</label>
-              <select :value="settings.settings.theme" @change="patch({ theme: ($event.target as HTMLSelectElement).value as AppSettings['theme'] })">
+              <label>{{ t('settings.themeMode') }}</label>
+              <select :value="settings.settings.themeMode" @change="patch({ themeMode: ($event.target as HTMLSelectElement).value as AppSettings['themeMode'] })">
+                <option value="system">{{ t('settings.themeSystem') }}</option>
                 <option value="light">{{ t('settings.themeLight') }}</option>
                 <option value="dark">{{ t('settings.themeDark') }}</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>{{ t('settings.themePalette') }}</label>
+              <select :value="settings.palette" @change="patchPalette(($event.target as HTMLSelectElement).value)">
+                <option v-for="p in paletteOptions" :key="p.value" :value="p.value">{{ t(p.label) }}</option>
               </select>
             </div>
             <div class="row">
@@ -301,9 +361,11 @@ onBeforeUnmount(onDragEnd);
           <template v-else-if="active === 'editor'">
             <div class="sec-title">{{ t('settings.sectionEditor') }}</div>
             <div class="row">
-              <label>{{ t('settings.editorEngine') }}</label>
+              <span class="row-label">
+                {{ t('settings.editorEngine') }}
+                <SettingsHintIcon target="engine" :open="openHint === 'engine'" @toggle="toggleHint('engine')" />
+              </span>
               <select
-                :title="t('settings.editorEngineHint')"
                 :value="settings.settings.editorEngine"
                 @change="patch({ editorEngine: ($event.target as HTMLSelectElement).value as AppSettings['editorEngine'] })"
               >
@@ -311,9 +373,13 @@ onBeforeUnmount(onDragEnd);
                 <option value="wangeditor">{{ t('settings.engineWangeditor') }}</option>
               </select>
             </div>
+            <div v-if="openHint === 'engine'" id="hint-engine" class="sec-note">{{ t('settings.editorEngineHint') }}</div>
             <div class="row">
-              <label>{{ t('settings.autoSave') }}</label>
-              <label class="switch" :title="t('settings.autoSaveHint')">
+              <span class="row-label">
+                {{ t('settings.autoSave') }}
+                <SettingsHintIcon target="auto-save" :open="openHint === 'auto-save'" @toggle="toggleHint('auto-save')" />
+              </span>
+              <label class="switch">
                 <input
                   type="checkbox"
                   :checked="settings.settings.autoSave"
@@ -322,6 +388,7 @@ onBeforeUnmount(onDragEnd);
                 <span class="track" />
               </label>
             </div>
+            <div v-if="openHint === 'auto-save'" id="hint-auto-save" class="sec-note">{{ t('settings.autoSaveHint') }}</div>
             <div class="row" v-if="settings.settings.autoSave">
               <label>{{ t('settings.autoSaveDelay', { n: settings.settings.autoSaveDelayMs }) }}</label>
               <input
@@ -331,8 +398,11 @@ onBeforeUnmount(onDragEnd);
               />
             </div>
             <div class="row">
-              <label>{{ t('settings.scrollSync') }}</label>
-              <label class="switch" :title="t('settings.scrollSyncHint')">
+              <span class="row-label">
+                {{ t('settings.scrollSync') }}
+                <SettingsHintIcon target="scroll-sync" :open="openHint === 'scroll-sync'" @toggle="toggleHint('scroll-sync')" />
+              </span>
+              <label class="switch">
                 <input
                   type="checkbox"
                   :checked="settings.settings.scrollSync"
@@ -341,9 +411,13 @@ onBeforeUnmount(onDragEnd);
                 <span class="track" />
               </label>
             </div>
+            <div v-if="openHint === 'scroll-sync'" id="hint-scroll-sync" class="sec-note">{{ t('settings.scrollSyncHint') }}</div>
             <div class="row">
-              <label>{{ t('settings.showToolbar') }}</label>
-              <label class="switch" :title="t('settings.showToolbarHint')">
+              <span class="row-label">
+                {{ t('settings.showToolbar') }}
+                <SettingsHintIcon target="toolbar" :open="openHint === 'toolbar'" @toggle="toggleHint('toolbar')" />
+              </span>
+              <label class="switch">
                 <input
                   type="checkbox"
                   :checked="settings.settings.showToolbar"
@@ -352,9 +426,13 @@ onBeforeUnmount(onDragEnd);
                 <span class="track" />
               </label>
             </div>
+            <div v-if="openHint === 'toolbar'" id="hint-toolbar" class="sec-note">{{ t('settings.showToolbarHint') }}</div>
             <div class="row">
-              <label>{{ t('settings.focusMode') }}</label>
-              <label class="switch" :title="t('settings.focusModeHint')">
+              <span class="row-label">
+                {{ t('settings.focusMode') }}
+                <SettingsHintIcon target="focus" :open="openHint === 'focus'" @toggle="toggleHint('focus')" />
+              </span>
+              <label class="switch">
                 <input
                   type="checkbox"
                   :checked="settings.settings.focusMode"
@@ -363,9 +441,13 @@ onBeforeUnmount(onDragEnd);
                 <span class="track" />
               </label>
             </div>
+            <div v-if="openHint === 'focus'" id="hint-focus" class="sec-note">{{ t('settings.focusModeHint') }}</div>
             <div class="row">
-              <label>{{ t('settings.showLineNumbers') }}</label>
-              <label class="switch" :title="t('settings.showLineNumbersHint')">
+              <span class="row-label">
+                {{ t('settings.showLineNumbers') }}
+                <SettingsHintIcon target="line-numbers" :open="openHint === 'line-numbers'" @toggle="toggleHint('line-numbers')" />
+              </span>
+              <label class="switch">
                 <input
                   type="checkbox"
                   :checked="settings.settings.showLineNumbers"
@@ -374,12 +456,16 @@ onBeforeUnmount(onDragEnd);
                 <span class="track" />
               </label>
             </div>
+            <div v-if="openHint === 'line-numbers'" id="hint-line-numbers" class="sec-note">{{ t('settings.showLineNumbersHint') }}</div>
           </template>
 
           <!-- 导出（D2：Word 正文字体基线） -->
           <template v-else-if="active === 'export'">
-            <div class="sec-title">{{ t('settings.sectionExport') }}</div>
-            <div class="sec-note">{{ t('settings.exportFontHint') }}</div>
+            <div class="sec-title">
+              <span>{{ t('settings.sectionExport') }}</span>
+              <SettingsHintIcon target="export-font" :open="openHint === 'export-font'" @toggle="toggleHint('export-font')" />
+            </div>
+            <div v-if="openHint === 'export-font'" id="hint-export-font" class="sec-note">{{ t('settings.exportFontHint') }}</div>
             <div class="row">
               <label>{{ t('settings.wordFontZh') }}</label>
               <select :value="settings.settings.wordFontZh" @change="patch({ wordFontZh: ($event.target as HTMLSelectElement).value })">
@@ -427,8 +513,11 @@ onBeforeUnmount(onDragEnd);
             </div>
             <!-- 图片导出与 Word 导出指向不是一回事（一个管文档字体基线，一个管预览栅格化），
                  所以这里另起一栏，别混在上面那组下面 -->
-            <div class="sec-sub">{{ t('settings.sectionExportImage') }}</div>
-            <div class="sec-note">{{ t('settings.exportImageHint') }}</div>
+            <div class="sec-sub">
+              <span>{{ t('settings.sectionExportImage') }}</span>
+              <SettingsHintIcon target="export-image" :open="openHint === 'export-image'" @toggle="toggleHint('export-image')" />
+            </div>
+            <div v-if="openHint === 'export-image'" id="hint-export-image" class="sec-note">{{ t('settings.exportImageHint') }}</div>
             <div class="row">
               <label>{{ t('settings.exportPadding', { n: settings.settings.exportPadding }) }}</label>
               <input
@@ -439,9 +528,78 @@ onBeforeUnmount(onDragEnd);
             </div>
           </template>
 
-          <!-- 快捷键 -->
-          <template v-else-if="active === 'shortcuts'">
-            <div class="sec-title">{{ t('settings.sectionShortcuts') }}</div>
+          <!-- 操作：左右键切换（上栏）+ 快捷键（下栏） -->
+          <template v-else-if="active === 'actions'">
+            <div class="sec-title">{{ t('settings.sectionActions') }}</div>
+
+            <div class="sec-sub first">
+              <span>{{ t('settings.actionGroupSwitch') }}</span>
+              <SettingsHintIcon target="switch" :open="openHint === 'switch'" @toggle="toggleHint('switch')" />
+            </div>
+            <div class="row">
+              <label>{{ t('settings.actionSwitch') }}</label>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.siblingNav"
+                  @change="patch({ siblingNav: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div v-if="openHint === 'switch'" id="hint-switch" class="sec-note">{{ t('settings.actionSwitchHint') }}</div>
+
+            <div class="sec-sub">
+              <span>{{ t('settings.actionGroupDialog') }}</span>
+              <SettingsHintIcon target="dialog" :open="openHint === 'dialog'" @toggle="toggleHint('dialog')" />
+            </div>
+            <div class="row">
+              <label>{{ t('settings.dialogMaskClose') }}</label>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.dialogCloseOnMask"
+                  @change="patch({ dialogCloseOnMask: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div v-if="openHint === 'dialog'" id="hint-dialog" class="sec-note">{{ t('settings.dialogMaskCloseHint') }}</div>
+
+            <!-- 回到顶部：开关 + 显现方式。两个字段分开存——关掉再打开能记住上次选的方式 -->
+            <div class="sec-sub">
+              <span>{{ t('settings.actionGroupBackTop') }}</span>
+              <SettingsHintIcon target="back-top" :open="openHint === 'back-top'" @toggle="toggleHint('back-top')" />
+            </div>
+            <div class="row">
+              <label>{{ t('settings.backTop') }}</label>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.backTopEnabled"
+                  @change="patch({ backTopEnabled: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div v-if="openHint === 'back-top'" id="hint-back-top" class="sec-note">{{ t('settings.backTopHint') }}</div>
+            <div class="row" v-if="settings.settings.backTopEnabled">
+              <label>{{ t('settings.backTopMode') }}</label>
+              <select
+                :value="settings.settings.backTopMode"
+                @change="patch({ backTopMode: ($event.target as HTMLSelectElement).value as AppSettings['backTopMode'] })"
+              >
+                <option value="auto">{{ t('settings.backTopAuto') }}</option>
+                <option value="always">{{ t('settings.backTopAlways') }}</option>
+              </select>
+            </div>
+
+            <div class="sec-sub">
+              <span>{{ t('settings.actionGroupShortcuts') }}</span>
+              <SettingsHintIcon target="shortcuts" :open="openHint === 'shortcuts'" @toggle="toggleHint('shortcuts')" />
+            </div>
+            <!-- 说明紧跟分组标题（标题栏下），作为整组的前置说明；勿再挪回卡片底部当脚注 -->
+            <div v-if="openHint === 'shortcuts'" id="hint-shortcuts" class="sec-note">{{ t('settings.shortcutsNote') }}</div>
             <!-- 单卡分组：组头条（muted 底）+ 行式条目（动作名左 / 键帽右），与关于页信息组同语言 -->
             <div class="sc-card">
               <template v-for="g in SHORTCUT_GROUPS" :key="g.title">
@@ -452,7 +610,6 @@ onBeforeUnmount(onDragEnd);
                 </div>
               </template>
             </div>
-            <div class="sc-note">{{ t('settings.shortcutsNote') }}</div>
           </template>
 
           <!-- 关于 -->
@@ -470,7 +627,7 @@ onBeforeUnmount(onDragEnd);
                 <rect x="63" y="60" width="11" height="14" rx="2.5" fill="#378ADD" />
               </svg>
               <div class="about-meta">
-                <div class="about-name">{{ t('settings.brandName') }} <span class="ver">v{{ pkg.version }}</span></div>
+                <div class="about-name">{{ BRAND_NAME }} <span class="ver">v{{ pkg.version }}</span></div>
                 <div class="about-line">{{ t('settings.brandTagline') }}</div>
               </div>
             </div>
@@ -592,20 +749,32 @@ onBeforeUnmount(onDragEnd);
   padding: 14px 20px 16px;
 }
 .sec-title {
+  display: flex; align-items: center; gap: 6px;
   margin: 0 0 6px; font-size: 13px; font-weight: 600;
   color: var(--mk-fg);
 }
-/* 组内说明：比正文低一档的灰（原先这类提示直接借用 .row label 的 --mk-fg，
-   跟真正的设置项一样重，抢视线——飞总要求压浅） */
+/* 组内说明收起开关：标题旁的小信息图标，点开才显示说明（默认收起，同时只开一组） */
 .sec-note {
   margin: -2px 0 8px; font-size: 11px; line-height: 1.6;
   color: var(--mk-fg-muted);
 }
+/* 行级副描述开关挂在左侧标题上；与组标题用同一枚图标 */
+.row-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--mk-fg);
+}
 /* 同页里的第二组：一条分隔线 + 小标题，指向不同的一组设置不混在一起 */
 .sec-sub {
+  display: flex; align-items: center; gap: 6px;
   margin: 14px 0 2px; padding-top: 12px;
   border-top: 1px solid var(--mk-border);
   font-size: 12px; font-weight: 600; color: var(--mk-fg-muted);
+}
+/* 组内说明收起开关由 SettingsHintIcon 统一提供（图标 + tooltip + aria） */
+/* 紧跟页标题的第一组不画顶部分隔线 */
+.sec-sub.first {
+  margin-top: 2px; padding-top: 0;
+  border-top: none;
 }
 .row {
   display: flex; align-items: center; justify-content: space-between;
@@ -691,12 +860,13 @@ onBeforeUnmount(onDragEnd);
 }
 /* 相邻行之间画发丝线；行跟在组头条后不画（头条自带 border-bottom） */
 .sc-row + .sc-row { border-top: 1px solid var(--mk-border); }
+/* 说明紧跟组标题时，卡片不再额外让位（说明自带 8px 下间距） */
+.sec-note + .sc-card { margin-top: 2px; }
 kbd {
   background: var(--mk-panel); border: 1px solid var(--mk-border); border-bottom-width: 2px;
   border-radius: 4px; padding: 1px 8px; font-size: 11px; color: var(--mk-fg-muted);
   min-width: 84px; text-align: center; flex: none;
 }
-.sc-note { margin-top: 8px; font-size: 11px; color: var(--mk-fg-muted); line-height: 1.6; }
 
 /* 关于：品牌卡（logo 与 Welcome 同源 SVG）+ 信息组行式布局 */
 .about-card {

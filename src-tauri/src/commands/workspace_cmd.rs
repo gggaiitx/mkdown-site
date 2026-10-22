@@ -44,6 +44,22 @@ pub async fn create_entry(
     spawn_io(move || workspace_service::create_entry(Path::new(&parent), &name, kind)).await
 }
 
+/// 新建工作区目录：位置来自「新建工作区」弹窗（默认位置或用户另选），弹窗里已向用户展示，
+/// 故创建时不再要求父目录已在白名单；建好后只授权新根，后续目录树与读写走正常工作区流程。
+#[tauri::command]
+pub async fn create_workspace(
+    parent: String,
+    name: String,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let node = spawn_io(move || {
+        workspace_service::create_entry(Path::new(&parent), &name, NodeKind::Dir)
+    })
+    .await?;
+    state.grant_root(Path::new(&node.path));
+    Ok(node.path)
+}
+
 #[tauri::command]
 pub async fn rename_entry(
     path: String,

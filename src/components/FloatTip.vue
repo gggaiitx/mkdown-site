@@ -11,7 +11,7 @@
 import { onBeforeUnmount, onMounted, ref, nextTick, reactive } from 'vue';
 
 const host = ref<HTMLElement | null>(null);
-const st = reactive({ text: '', x: 0, y: 0, ax: 14, on: false });
+const st = reactive({ text: '', x: 0, y: 0, ax: 14, on: false, arrow: 'top' as 'top' | 'bottom' });
 
 let timer: number | undefined;
 let currentEl: Element | null = null;
@@ -82,6 +82,9 @@ async function positionBubble(): Promise<void> {
   }
   bx = Math.min(Math.max(8, bx), window.innerWidth - bw - 8);
   by = Math.min(Math.max(8, by), window.innerHeight - bh - 8);
+  // 气泡被视口夹到锚点另一侧时，箭头跟着换到气泡底部，否则会指反方向
+  const anchorY = followCursor ? my : r.top + r.height / 2;
+  st.arrow = by + bh / 2 >= anchorY ? 'top' : 'bottom';
   // 箭头水平位置：跟随宿主中心（光标模式跟随光标），钳制在气泡内并避开两端圆角缺口
   const anchorX = followCursor ? mx : rightAlign ? r.right - 12 : r.left + r.width / 2;
   const clamped = clampArrowX(anchorX - bx, bw);
@@ -139,6 +142,7 @@ function onMove(e: MouseEvent) {
     st.x = bx;
     st.y = by;
     st.ax = clampArrowX(mx - bx, bw) ?? bw / 2;
+    st.arrow = by + bh / 2 >= my ? 'top' : 'bottom';
   }
 }
 function onDown() { hide(); }
@@ -171,7 +175,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div ref="host" class="float-tip" :class="{ on: st.on }" :style="{ left: `${st.x}px`, top: `${st.y}px` }">
-      <i class="ft-arrow" :style="{ left: `${st.ax}px` }" />
+      <i class="ft-arrow" :class="st.arrow" :style="{ left: `${st.ax}px` }" />
       <span class="ft-text">{{ st.text }}</span>
     </div>
   </Teleport>
@@ -195,15 +199,21 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 .float-tip.on { opacity: 1; }
-/* 箭头：border 三角，底边与气泡上缘同基准（top:-5px + 高5px = 上缘），无缝 */
+/* 箭头：实心三角 + 位移居中。left 是三角中心（不是左缘）；高度多 1px 压进气泡，
+   避免亚像素取整在底边留出一道缝。气泡被夹到锚点上方时切到底部（.bottom）。 */
 .ft-arrow {
   position: absolute;
   top: -5px;
-  width: 0;
-  height: 0;
-  border: 5px solid transparent;
-  border-top-width: 0;
-  border-bottom-color: var(--mk-tip-bg);
+  width: 10px;
+  height: 6px;
+  background: var(--mk-tip-bg);
+  transform: translateX(-50%);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.ft-arrow.bottom {
+  top: auto;
+  bottom: -5px;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
 .ft-text { display: block; }
 </style>

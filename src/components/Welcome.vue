@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { FolderOpen, FileText, FilePlus2, History } from '@lucide/vue';
+import { FolderOpen, FolderPlus, FileText, FilePlus2, History } from '@lucide/vue';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useI18n } from '../i18n';
+import { BRAND_NAME } from '../utils/brand';
 import type { MdTemplate } from '../utils/markdownTemplate';
 
 const props = defineProps<{
@@ -14,6 +15,7 @@ const settings = useSettingsStore();
 
 const emit = defineEmits<{
   (e: 'open-workspace'): void;
+  (e: 'create-workspace'): void;
   (e: 'open-file'): void;
   (e: 'new-template', tpl: MdTemplate): void;
   (e: 'open-recent', path: string): void;
@@ -48,7 +50,7 @@ function fmtTime(ms: number) {
           />
           <rect x="63" y="60" width="11" height="14" rx="2.5" fill="#378ADD" />
         </svg>
-        <h1>{{ t('welcome.title') }}</h1>
+        <h1>{{ BRAND_NAME }}</h1>
       </div>
       <p class="sub">{{ t('welcome.subtitle') }}</p>
       <p class="engines">{{ t('welcome.enginesLine') }}</p>
@@ -58,6 +60,7 @@ function fmtTime(ms: number) {
       <section class="col">
         <h2>{{ t('welcome.start') }}</h2>
         <button class="big" @click="emit('open-workspace')"><FolderOpen class="b-icon" />{{ t('welcome.openWorkspace') }}</button>
+        <button class="big" @click="emit('create-workspace')"><FolderPlus class="b-icon" />{{ t('welcome.createWorkspace') }}</button>
         <button class="big" @click="emit('open-file')"><FileText class="b-icon" />{{ t('welcome.openFile') }}</button>
         <h2>{{ t('welcome.fromTemplate') }}</h2>
         <button v-for="tpl in props.templates" :key="tpl.id" class="big" @click="emit('new-template', tpl)">
@@ -66,7 +69,7 @@ function fmtTime(ms: number) {
       </section>
       <section class="col recent-col">
         <h2><History class="h-icon" /> {{ t('welcome.recent') }}</h2>
-        <template v-if="recent.length > 0">
+        <div v-if="recent.length > 0" class="recent-list">
           <button
             v-for="r in recent"
             :key="r.path"
@@ -77,7 +80,7 @@ function fmtTime(ms: number) {
             <span class="r-name">{{ r.path.split(/[\\/]/).pop() }}</span>
             <span class="r-time">{{ fmtTime(r.openedAtMs) }}</span>
           </button>
-        </template>
+        </div>
         <p v-else class="none">{{ t('welcome.noRecent') }}</p>
       </section>
     </div>
@@ -117,11 +120,16 @@ h1 {
 }
 .sub { margin: 14px 0 0; font-size: 13px; color: var(--mk-fg-muted); }
 .engines { margin: 6px 0 0; font-size: 12px; color: var(--mk-fg-muted); opacity: 0.85; letter-spacing: 0.5px; }
-/* 窄窗两列自动换行（宽屏仍并排；recent-col 自带 max-width 42vw 防撑宽） */
-.cols { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px 48px; align-items: flex-start; }
+/* 窄窗两列自动换行（宽屏仍并排；recent-col 自带 max-width 42vw 防撑宽）
+   align-items: stretch —— 两列等高：右列高度跟随左列（2026-10-22 飞总指定） */
+.cols { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px 48px; align-items: stretch; }
 .col { min-width: 220px; }
-/* 最近打开列：限宽防止超长文件名把整列撑开（截断由 .r-name 省略号负责） */
-.recent-col { width: 560px; max-width: 42vw; }
+/* 最近打开列：限宽防止超长文件名把整列撑开（截断由 .r-name 省略号负责）；
+   flex column + recent-list 撑满 —— 条目按可用高度均分，末条底边与左列末按钮底边齐平 */
+.recent-col { width: 560px; max-width: 42vw; display: flex; flex-direction: column; }
+.recent-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* 末按钮去掉尾部 6px 间距，否则左列视觉底边比右列高 6px，等高后看起来仍不齐 */
+.col > .big:last-child { margin-bottom: 0; }
 h2 { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mk-fg-muted); letter-spacing: 2px; margin: 18px 0 8px; font-weight: 600; }
 .h-icon { width: 12px; height: 12px; }
 .big {
@@ -138,6 +146,8 @@ h2 { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(-
 .recent {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
   width: 100%; text-align: left;
+  /* flex:1 —— 条目在等高列内均分剩余高度；max-height 兜底，记录很少时不出现超高行 */
+  flex: 1 1 auto; max-height: 44px;
   border: none; background: transparent; color: var(--mk-fg);
   padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px;
 }

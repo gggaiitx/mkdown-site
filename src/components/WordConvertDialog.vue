@@ -16,15 +16,18 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { FileUp } from '@lucide/vue';
 import { useI18n } from '../i18n';
-import { saveAs as saveAsApi, pickOpenFile } from '../api/fileApi';
+import { saveTextAt } from '../api/fileApi';
 import { allowAssetDir } from '../api/imageApi';
 import { useTabsStore } from '../stores/tabsStore';
 import { useEditorStore } from '../stores/editorStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useFilePickerStore } from '../stores/filePickerStore';
+import { useDialogClose } from '../composables/useDialogClose';
 import { docxToMd } from '../convert/docxToMd';
 import { docxToMh } from '../convert/docxToMh';
 import { docxToMhFidelity } from '../convert/docxPreviewToMh';
 import type { ImageSaveStats } from '../convert/mammothImages';
+import { joinPath } from '../utils/pathJoin';
 
 const props = defineProps<{
   visible: boolean;
@@ -40,6 +43,8 @@ const { t } = useI18n();
 const tabs = useTabsStore();
 const editor = useEditorStore();
 const settings = useSettingsStore();
+const filePicker = useFilePickerStore();
+const { maskCloses } = useDialogClose();
 
 type Phase = 'idle' | 'converting' | 'done' | 'error';
 const phase = ref<Phase>('idle');
@@ -58,9 +63,10 @@ const sourceName = computed(() => srcPath.value.split(/[\\/]/).pop() ?? srcPath.
 const sourceDir = computed(() => srcPath.value.replace(/[\\/][^\\/]*$/, ''));
 const stem = computed(() => sourceName.value.replace(/\.[^.]*$/, ''));
 const ext = computed(() => (props.target === 'mh' ? 'mh' : 'md'));
-/** 意向路径（§6.5）：docx 同目录的 xxx.md/xxx.mh，文件尚未创建 */
+/** 意向路径（§6.5）：docx 同目录的 xxx.md/xxx.mh，文件尚未创建。
+ *  分隔符按 sourceDir 形态决定（joinPath）：写死 `\` 在 mac/Linux 上会得到一个不存在的路径 */
 const draftPath = computed(() =>
-  sourceDir.value ? `${sourceDir.value}\\${stem.value}.${ext.value}` : null,
+  sourceDir.value ? joinPath(sourceDir.value, `${stem.value}.${ext.value}`) : null,
 );
 const title = computed(() => `${sourceName.value} → ${props.target}`);
 const previewText = computed(() => content.value.slice(0, 2000));
@@ -85,7 +91,8 @@ async function useFile(p: string) {
   if (phase.value === 'converting') return; // 转换中忽略重复选择
   srcPath.value = p;
   const dir = p.replace(/[\\/][^\\/]*$/, '');
-  if (dir) void allowAssetDir(dir).catch(() => undefined);
+  // 选择器只列出路径不授权；先等授权落定再读，避免打开瞬间被白名单拦下
+  if (dir) await allowAssetDir(dir).catch(() => undefined);
   await startConvert();
 }
 
@@ -143,7 +150,7 @@ function unbindDrop() {
 }
 
 function onDragEvent(ev: { payload: { type: string; paths?: string[] | null } }) {
-  if (phase.value !== 'idle') return; // 转换中/完成后不再响应拖拽
+  if (phase.value !== 'idle' || filePicker.visible) return; // 转换中/完成后或选择器打开时不响应拖拽
   const type = ev.payload.type;
   if (type === 'enter' || type === 'over') {
     dragActive.value = true;
@@ -164,10 +171,17 @@ function onDragEvent(ev: { payload: { type: string; paths?: string[] | null } })
   }
 }
 
-/** 点击拖拽区 / 选择按钮：系统对话框（.docx 过滤） */
+/** 点击拖拽区 / 选择按钮：应用内选择器（只列 .docx） */
 async function onPickClick() {
   try {
-    const p = await pickOpenFile(['docx'], 'Word');
+    const from = sourceDir.value
+      || (tabs.activeTab?.path ? tabs.activeTab.path.replace(/[\\/][^\\/]*$/, '') : '');
+    const p = await filePicker.open({
+      mode: 'file',
+      title: t('workbench.folderPicker.openFileTitle'),
+      initialPath: from,
+      exts: ['docx'],
+    });
     if (p) void useFile(p);
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
@@ -199,6 +213,9 @@ watch(
       unbindDrop();
     }
   },
+  // 父级用 v-if 挂载，创建时 visible 已经是 true；不带 immediate 的话首次打开
+  // 既不挂拖拽/Esc，也不走 docx 直转，直到下次开合才有监听。
+  { immediate: true },
 );
 
 onBeforeUnmount(() => {
@@ -207,26 +224,33 @@ onBeforeUnmount(() => {
 });
 
 function onKey(e: KeyboardEvent) {
+  // 文件选择器叠在本弹窗之上：Esc 只关选择器，别把转换页一起收掉
+  if (filePicker.visible) return;
   if (e.key === 'Escape') {
     e.stopPropagation();
     emit('close');
   }
 }
 
-/** 直接保存：系统对话框（初始目录 = docx 同目录，V5）。
- *  用户取消对话框 ≠ 取消转换（V10）：模态保持打开，两操作仍可用，无错误 toast */
+function onMaskClick() {
+  if (maskCloses()) emit('close');
+}
+
+/** 直接保存：应用内选择器（初始目录 = docx 同目录，V5）。
+ *  用户取消选择 ≠ 取消转换（V10）：模态保持打开，两操作仍可用，无错误 toast */
 async function onSaveDirect() {
   try {
-    const res = await saveAsApi(
-      `${stem.value}.${ext.value}`,
-      content.value,
-      ext.value,
-      sourceDir.value || undefined,
-    );
-    if (res) {
-      editor.showToast(t('workbench.toast.exported', { path: res.path }), 'success');
-      emit('close');
-    }
+    const p = await filePicker.open({
+      mode: 'save',
+      title: t('workbench.folderPicker.saveTitle'),
+      initialPath: sourceDir.value,
+      defaultName: `${stem.value}.${ext.value}`,
+      ext: ext.value,
+    });
+    if (!p) return;
+    const res = await saveTextAt(p, content.value);
+    editor.showToast(t('workbench.toast.exported', { path: res.path }), 'success');
+    emit('close');
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
   }
@@ -245,7 +269,7 @@ function onOpenAfter() {
   emit('close');
   if (images.value.saved > 0) {
     editor.showToast(
-      t('workbench.wordConvert.imgSavedHint', { dir: `${sourceDir.value}\\assets` }),
+      t('workbench.wordConvert.imgSavedHint', { dir: joinPath(sourceDir.value, 'assets') }),
       'success',
     );
   } else if (images.value.inline > 0) {
@@ -257,11 +281,16 @@ function onOpenAfter() {
 </script>
 
 <template>
-  <div v-if="visible" class="mask" @click.self="emit('close')">
+  <div v-if="visible" class="mask" @click.self="onMaskClick">
     <div class="dialog" role="dialog" aria-modal="true">
-      <div class="title">
-        {{ titleText }}
-        <span v-if="srcPath" class="src" :title="srcPath">{{ sourceName }}</span>
+      <div class="head">
+        <div class="title">
+          {{ titleText }}
+          <span v-if="srcPath" class="src" :title="srcPath">{{ sourceName }}</span>
+        </div>
+        <button class="close" :title="t('dialog.close')" :aria-label="t('dialog.close')" @click="emit('close')">
+          ×
+        </button>
       </div>
 
       <!-- 闲置：拖入 / 选择文件 -->
@@ -351,7 +380,14 @@ function onOpenAfter() {
   padding: 16px;
   box-sizing: border-box;
 }
-.title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.title { min-width: 0; font-size: 14px; font-weight: 600; }
+.close {
+  flex: none; margin: -2px -2px 0 0; padding: 0 2px;
+  border: none; background: transparent; color: var(--mk-fg-muted);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.close:hover { color: var(--mk-fg); }
 .title .src {
   font-weight: 400; font-size: 12px; color: var(--mk-fg-muted);
   margin-left: 8px; max-width: 300px;

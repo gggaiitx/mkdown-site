@@ -1,10 +1,14 @@
 node_modules/
 dist/
+dist-smoke*/
 src-tauri/target/
 src-tauri/gen/
 *.log
 .DS_Store
 .workbuddy/
 repro/
+# 本地一次性产物：设计走查截图与临时数据清理脚本，随实现过期，不入库
+.design-qa/
+scripts/clean_test3.cjs
 _env_probe.txt
 .wbapp_*.genie

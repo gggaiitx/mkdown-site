@@ -1,5 +1,5 @@
 import { call } from './ipc';
-import type { FileContent, FileMeta, SaveResult } from './types';
+import type { DirBrowse, FileContent, FileMeta, SaveResult } from './types';
 
 export const readFile = (path: string) => call<FileContent>('read_file', { path });
 
@@ -9,20 +9,22 @@ export const takePendingOpenArgs = () => call<string[]>('take_pending_open_args'
 export const writeFileAtomic = (path: string, content: string, keepBom: boolean) =>
   call<SaveResult>('write_file_atomic', { path, content, keepBom });
 
-/** 另存为：ext 缺省 md（旧行为）；initial_dir = 对话框初始目录（V5，反转产物保存用） */
-export const saveAs = (defaultName: string, content: string, ext?: string, initialDir?: string) =>
-  call<SaveResult | null>('save_as', { defaultName, content, ext, initialDir });
+/** 按应用内选择器给出的路径写入（另存为 / 导出）：登记授权后原子写 */
+export const saveTextAt = (path: string, content: string) =>
+  call<SaveResult>('save_text_at', { path, content });
 
 /**
- * 系统打开文件对话框。
- * - 不传参：全类型可选（应用能开的一律能选，选完由 routeByType 分流），
- *   macOS 侧甚至不下发任何扩展名白名单——见 Rust 侧 pick_open_file 注释。
- * - 传 exts：按窄列表过滤（Word 反转只选 .docx），label 决定过滤器文案。
+ * 应用内文件选择器。
+ * - includeFiles：文件/保存模式需列出当前目录文件；
+ * - allowMissing：保存模式允许输入尚不存在的目标文件，后端退回父目录并回填 selected；
+ * - path 为空时由后端给默认落点。
  */
-export const pickOpenFile = (exts?: string[], label?: string) =>
-  call<string | null>('pick_open_file', { exts: exts ?? null, label: label ?? null });
-
-export const pickWorkspaceDir = () => call<string | null>('pick_workspace_dir');
+export const browseDirs = (path?: string, includeFiles = false, allowMissing = false) =>
+  call<DirBrowse>('browse_dirs', {
+    path: path ?? null,
+    includeFiles,
+    allowMissing,
+  });
 
 export const getFileMeta = (path: string) => call<FileMeta>('get_file_meta', { path });
 

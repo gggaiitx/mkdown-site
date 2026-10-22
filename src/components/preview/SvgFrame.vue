@@ -235,7 +235,7 @@ function exportSize(): { w: number; h: number } | null {
 }
 
 /** 右键「导出为图片」：按上面这组分辨率栅格化、**裁掉四周空白**，再按设置-导出
- *  「导出图片留白」留边（默认 2px）。字节交回上层弹保存对话框——文件名与写盘链路都在 Workbench */
+ *  「导出图片留白」留边（默认 2px）。字节交回上层选保存位置——文件名与写盘链路都在 Workbench */
 async function exportPng(): Promise<Uint8Array | null> {
   const size = exportSize();
   if (!size) return null;

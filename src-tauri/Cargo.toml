@@ -40,12 +40,16 @@ grep-regex = "0.1"
 grep-searcher = "0.1"
 trash = "5"
 uuid = { version = "1", features = ["v4"] }
-rfd = "0.15"
 base64 = "0.22"
 regex = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.13", features = ["json", "stream"] }
 futures-util = "0.3"
+
+# 应用内文件夹选择器的盘符列表：GetLogicalDrives 只返回位掩码，不会去探测网络盘，
+# 比逐个 read_dir 试盘符快且不会卡在失效映射盘上
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [profile.release]
 opt-level = "s"

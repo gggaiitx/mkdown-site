@@ -2,10 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use tauri::async_runtime::spawn_blocking;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::error::{AppError, AppResult};
-use crate::models::{FileContent, FileMeta, SaveResult};
+use crate::models::{DirBrowse, DirEntry, FileContent, FileMeta, SaveResult};
 use crate::services::fs_service;
 use crate::state::AppState;
 
@@ -19,16 +19,7 @@ pub(crate) async fn spawn_io<T: Send + 'static>(
         .map_err(|e| AppError::Internal(format!("IO 线程异常: {e}")))?
 }
 
-async fn spawn_dialog<T: Send + 'static>(
-    f: impl FnOnce() -> AppResult<T> + Send + 'static,
-) -> AppResult<T> {
-    // rfd 对话框不能阻塞主线程，放到 blocking 线程池执行
-    spawn_blocking(f)
-        .await
-        .map_err(|e| AppError::Internal(format!("对话框线程异常: {e}")))?
-}
-
-/// 用户经对话框显式选中的位置即视为授权：把目标所在目录加入白名单，
+/// 用户经选择器显式选中的位置即视为授权：把目标所在目录加入白名单，
 /// 后续读写不必重复授权（ADR-01 所说的"用户显式意图"授权点）。
 /// pub(crate)：export_html 等导出路径保存后同样需要补登记（P2-9）。
 pub(crate) fn grant_picked(state: &State<'_, AppState>, picked: &std::path::Path) {
@@ -100,128 +91,309 @@ pub async fn write_file_atomic(
     .await
 }
 
+/// 按用户在选择器里选定的路径写入（另存为 / Word 反转直接保存）。
+/// 选择结果本身就是授权依据：先登记目标目录再写，后续就地保存、粘贴图片才有权限。
 #[tauri::command]
-pub async fn save_as(
-    default_name: String,
+pub async fn save_text_at(
+    path: String,
     content: String,
-    ext: Option<String>,
-    initial_dir: Option<String>,
     state: State<'_, AppState>,
-) -> AppResult<Option<SaveResult>> {
-    // ext 由前端按当前标签的真实类型传入（三引擎之后不再一律落 .md）；
-    // 只接受 1–8 位字母数字，缺省或异常值按 md 兜底（R8 旧行为不变）
-    let ext = ext
-        .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
-        .filter(|e| {
-            (1..=8).contains(&e.len()) && e.chars().all(|c| c.is_ascii_alphanumeric())
+) -> AppResult<SaveResult> {
+    let p = PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err(AppError::InvalidArg("请输入完整路径".into()));
+    }
+    if p.is_dir() {
+        return Err(AppError::InvalidArg("目标是一个文件夹".into()));
+    }
+    grant_picked(&state, &p);
+    spawn_io(move || {
+        fs_service::write_atomic(&p, content.as_bytes())?;
+        let meta = fs::metadata(&p)?;
+        Ok(SaveResult {
+            path: p.to_string_lossy().into_owned(),
+            size: meta.len(),
+            mtime_ms: fs_service::mtime_ms(&p),
         })
-        .unwrap_or_else(|| "md".to_string());
-    let res = spawn_dialog(move || {
-        let mut dlg = rfd::FileDialog::new().set_file_name(&default_name);
-        // 过滤器与默认扩展名跟着 ext 走（R3/R4 反转产物保存 .md / .mh）
-        let filter_name = match ext.as_str() {
-            "md" => "Markdown (*.md)".to_string(),
-            "mh" => "Markhtml (*.mh)".to_string(),
-            e => filter_label(&e.to_ascii_uppercase(), &[e]),
-        };
-        dlg = dlg.add_filter(&filter_name, &[ext.as_str()]);
-        // initial_dir（V5）：反转产物「直接保存」的初始目录 = docx 同目录，保证 assets 不分家
-        if let Some(dir) = initial_dir {
-            if !dir.is_empty() {
-                dlg = dlg.set_directory(dir);
+    })
+    .await
+}
+
+/// 应用内文件选择器：默认只列子目录（供「打开工作区」与「新建工作区-更改位置」）；
+/// `include_files` 打开后同时列出当前目录文件，供打开文件 / 另存为 / 导出共用。
+///
+/// 这里刻意不套工作区白名单：选择器需要浏览任意位置才能找到目标目录；
+/// 选中确认后仍由打开工作区的 `list_workspace_tree`、打开文件的目录授权、
+/// 保存命令的 `grant_picked` 授权，边界没有放宽。
+///
+/// `allow_missing`：保存模式下允许输入尚不存在的文件路径——后端退回其父目录，
+/// 并把该路径作为 `selected` 回填，前端据此预填文件名。
+#[tauri::command]
+pub async fn browse_dirs(
+    app: AppHandle,
+    path: Option<String>,
+    include_files: Option<bool>,
+    allow_missing: Option<bool>,
+) -> AppResult<DirBrowse> {
+    let places = quick_places(&app);
+    let fallback = app
+        .path()
+        .document_dir()
+        .ok()
+        .filter(|p| p.is_dir())
+        .or_else(|| app.path().home_dir().ok().filter(|p| p.is_dir()))
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(system_root);
+    let requested = path
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from);
+    spawn_io(move || {
+        browse_dir(
+            requested,
+            fallback,
+            places,
+            include_files.unwrap_or(false),
+            allow_missing.unwrap_or(false),
+        )
+    })
+    .await
+}
+
+/// 单次浏览的条目上限：超大目录（System32、node_modules）没必要全量搬到前端
+const MAX_BROWSE_ENTRIES: usize = 1000;
+
+fn browse_dir(
+    requested: Option<PathBuf>,
+    fallback: PathBuf,
+    places: Vec<DirEntry>,
+    include_files: bool,
+    allow_missing: bool,
+) -> AppResult<DirBrowse> {
+    let mut selected = None;
+    let dir = match requested {
+        Some(p) => {
+            if !p.is_absolute() {
+                return Err(AppError::InvalidArg("请输入完整路径".into()));
+            }
+            let p = normalize_dir(p);
+            if p.is_dir() {
+                p
+            } else if include_files && p.is_file() {
+                // 打开文件模式：路径指到文件本身 → 列父目录并预选该文件
+                selected = Some(p.to_string_lossy().into_owned());
+                p.parent().map(PathBuf::from).unwrap_or(p)
+            } else if allow_missing && p.parent().map(|d| d.is_dir()).unwrap_or(false) {
+                // 保存模式：尚不存在的目标文件 → 落到父目录，路径回填给前端预填文件名
+                selected = Some(p.to_string_lossy().into_owned());
+                p.parent().map(PathBuf::from).unwrap_or(p)
+            } else {
+                return Err(AppError::NotFound(format!("路径不存在: {}", p.display())));
             }
         }
-        let Some(mut picked) = dlg.save_file() else {
-            return Ok(None);
+        None => normalize_dir(fallback),
+    };
+
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&dir)?.flatten() {
+        let Ok(ft) = entry.file_type() else { continue };
+        // 符号链接/联接点：file_type 指向链接本身，需跟一次才能判断真实类型
+        let is_dir = if ft.is_symlink() {
+            entry.path().is_dir()
+        } else {
+            ft.is_dir()
         };
-        if picked.extension().is_none() {
-            picked.set_extension(&ext);
+        let is_file = if ft.is_symlink() {
+            entry.path().is_file()
+        } else {
+            ft.is_file()
+        };
+        if !is_dir && !(include_files && is_file) {
+            continue;
         }
-        fs_service::write_atomic(&picked, content.as_bytes())?;
-        Ok(Some(SaveResult {
-            path: picked.to_string_lossy().into_owned(),
-            size: fs::metadata(&picked)?.len(),
-            mtime_ms: fs_service::mtime_ms(&picked),
-        }))
-    })
-    .await?;
-    // 对话框结果本身即授权依据，写完后补登记，后续就地保存 / 粘贴图片才有权限
-    if let Some(r) = &res {
-        grant_picked(&state, std::path::Path::new(&r.path));
-    }
-    Ok(res)
-}
-
-/// 把扩展名列表拼成对话框过滤器文案，如 `码克文档 (*.md *.mh)`。
-fn filter_label(name: &str, exts: &[impl AsRef<str>]) -> String {
-    let pattern = exts
-        .iter()
-        .map(|e| format!("*.{}", e.as_ref()))
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!("{name} ({pattern})")
-}
-
-/// 系统打开文件对话框。
-///
-/// 传了 `exts`（Word 反转选 .docx）就按其窄过滤，三端一致——列的是真扩展名，
-/// macOS 的白名单语义正好合适。没传时按平台分道，这是硬约束不是历史包袱：
-///
-/// rfd 的 macOS 后端把所有 filter 的扩展名摊成一个数组交给
-/// `NSOpenPanel.setAllowedFileTypes`（见 rfd `panel_ffi.rs::add_filters`），那是
-/// 只认扩展名的**硬白名单**，`*` 在其中不是通配符，而且打开面板没有可切换的下拉框。
-/// 所以「支持类型 + 所有文件兜底」这套写法在 Mac 上等于永久限制——曾经只挂
-/// `Markdown (*.md)` 一组，「打开文件」里 .txt/.mh/代码文件全被灰掉就是这么来的。
-///
-/// - macOS：**一个 filter 都不加**。rfd 在 filters 为空时根本不调
-///   setAllowedFileTypes，面板即全放开。顺带解掉 Makefile/LICENSE/.gitignore 这类
-///   无扩展名文本——扩展名白名单永远表达不了它们，而 `TEXT_NAMES` 确实支持。
-/// - Windows / Linux：默认选中「所有文件」，再给「码克文档」作可选收窄。
-///
-/// 放开到什么程度都不在本命令里判类型：前端 `routeByType` 以 Rust 侧
-/// `probe_text_file` / `probe_preview_kind` 为唯一真相源分流——文本进编辑器、
-/// docx/xlsx/图片/PDF 开应用内预览标签、其余交系统默认程序。返回选中路径。
-#[tauri::command]
-pub async fn pick_open_file(
-    state: State<'_, AppState>,
-    exts: Option<Vec<String>>,
-    label: Option<String>,
-) -> AppResult<Option<String>> {
-    let picked = spawn_dialog(move || {
-        let wanted = exts.unwrap_or_default();
-        let mut dlg = rfd::FileDialog::new();
-        if !wanted.is_empty() {
-            let name = label.unwrap_or_else(|| "文件".to_string());
-            dlg = dlg.add_filter(filter_label(&name, &wanted), &wanted);
-        } else if !cfg!(target_os = "macos") {
-            dlg = dlg.add_filter("所有文件 (*.*)", &["*"]);
-            let docs = fs_service::DOC_EXTS;
-            dlg = dlg.add_filter(filter_label("码克文档", docs), docs);
+        let item = DirEntry {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: entry.path().to_string_lossy().into_owned(),
+            kind: None,
+            hidden: is_hidden(&entry),
+        };
+        if is_dir {
+            dirs.push(item);
+        } else {
+            files.push(item);
         }
-        Ok(dlg
-            .pick_file()
-            .map(|p| p.to_string_lossy().into_owned()))
-    })
-    .await?;
-    if let Some(p) = &picked {
-        grant_picked(&state, std::path::Path::new(p));
     }
-    Ok(picked)
+    let by_name = |a: &DirEntry, b: &DirEntry| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.name.cmp(&b.name))
+    };
+    dirs.sort_by(by_name);
+    files.sort_by(by_name);
+    let mut truncated = false;
+    if dirs.len() > MAX_BROWSE_ENTRIES {
+        dirs.truncate(MAX_BROWSE_ENTRIES);
+        truncated = true;
+    }
+    if files.len() > MAX_BROWSE_ENTRIES {
+        files.truncate(MAX_BROWSE_ENTRIES);
+        truncated = true;
+    }
+
+    Ok(DirBrowse {
+        path: dir.to_string_lossy().into_owned(),
+        parent: dir.parent().map(|p| p.to_string_lossy().into_owned()),
+        dirs,
+        files,
+        selected,
+        places,
+        roots: list_roots(),
+        truncated,
+    })
 }
 
-/// 系统选择文件夹对话框（选工作区根目录）
-#[tauri::command]
-pub async fn pick_workspace_dir(state: State<'_, AppState>) -> AppResult<Option<String>> {
-    let picked = spawn_dialog(|| {
-        Ok(rfd::FileDialog::new()
-            .pick_folder()
-            .map(|p| p.to_string_lossy().into_owned()))
-    })
-    .await?;
-    if let Some(p) = &picked {
-        state.grant_root(std::path::Path::new(p));
+/// 是否应在「显示隐藏文件夹」关闭时隐藏：Windows 看隐藏/系统属性；
+/// 点开头的名字也算（.git/.idea 这类开发目录不一定带隐藏属性）。
+fn is_hidden(entry: &fs::DirEntry) -> bool {
+    if entry.file_name().to_string_lossy().starts_with('.') {
+        return true;
     }
-    Ok(picked)
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+        if let Ok(meta) = entry.metadata() {
+            return meta.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0;
+        }
+    }
+    false
+}
+
+/// 归一化 `.` / `..`（用户可能手输路径）；不做 canonicalize，
+/// 避免 Windows 的 `\\?\` 前缀与网络路径超时污染展示值。
+fn normalize_dir(p: PathBuf) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// 快捷位置：主目录 / 文档 / 桌面 / 下载（只返回真实存在的）。
+/// 显示名由前端按 kind 本地化，name 仅作未知 kind 的兜底。
+fn quick_places(app: &AppHandle) -> Vec<DirEntry> {
+    let paths = app.path();
+    let mut out = Vec::new();
+    for (kind, dir) in [
+        ("home", paths.home_dir().ok()),
+        ("documents", paths.document_dir().ok()),
+        ("desktop", paths.desktop_dir().ok()),
+        ("downloads", paths.download_dir().ok()),
+    ] {
+        let Some(p) = dir.filter(|p| p.is_dir()) else {
+            continue;
+        };
+        out.push(DirEntry {
+            name: p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.to_string_lossy().into_owned()),
+            path: p.to_string_lossy().into_owned(),
+            kind: Some(kind.into()),
+            hidden: false,
+        });
+    }
+    out
+}
+
+/// 无盘符可列时的兜底根目录
+fn system_root() -> PathBuf {
+    #[cfg(windows)]
+    {
+        std::env::var_os("SystemDrive")
+            .map(|d| PathBuf::from(format!("{}\\", d.to_string_lossy())))
+            .unwrap_or_else(|| PathBuf::from("C:\\"))
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/")
+    }
+}
+
+#[cfg(windows)]
+fn list_roots() -> Vec<DirEntry> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+    // DRIVE_NO_ROOT_DIR；GetLogicalDrives 的位掩码本身不探测网络盘，GetDriveTypeW
+    // 取不到根目录的盘（空读卡器槽等）直接跳过，避免点进去卡死
+    const DRIVE_NO_ROOT_DIR: u32 = 1;
+    let mask = unsafe { GetLogicalDrives() };
+    let mut out = Vec::new();
+    for i in 0..26u32 {
+        if mask & (1 << i) == 0 {
+            continue;
+        }
+        let letter = (b'A' + i as u8) as char;
+        let root = format!("{letter}:\\");
+        let wide: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
+        if unsafe { GetDriveTypeW(wide.as_ptr()) } == DRIVE_NO_ROOT_DIR {
+            continue;
+        }
+        out.push(DirEntry {
+            name: format!("{letter}:"),
+            path: root,
+            kind: Some("root".into()),
+            hidden: false,
+        });
+    }
+    out
+}
+
+#[cfg(not(windows))]
+fn list_roots() -> Vec<DirEntry> {
+    let mut out = vec![DirEntry {
+        name: "/".into(),
+        path: "/".into(),
+        kind: Some("root".into()),
+        hidden: false,
+    }];
+    // macOS 的外接卷挂在 /Volumes 下，也放进根列表（取不到就当只有 /）
+    if cfg!(target_os = "macos") {
+        if let Ok(rd) = fs::read_dir("/Volumes") {
+            for entry in rd.flatten() {
+                if !entry.path().is_dir() {
+                    continue;
+                }
+                out.push(DirEntry {
+                    name: entry.file_name().to_string_lossy().into_owned(),
+                    path: entry.path().to_string_lossy().into_owned(),
+                    kind: Some("root".into()),
+                    hidden: false,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// 「新建工作区」弹窗的默认存放位置：优先文档目录，取不到再退到用户主目录。
+#[tauri::command]
+pub fn default_workspace_parent(app: AppHandle) -> Option<String> {
+    let paths = app.path();
+    paths
+        .document_dir()
+        .or_else(|_| paths.home_dir())
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 #[tauri::command]

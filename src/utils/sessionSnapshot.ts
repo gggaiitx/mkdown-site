@@ -203,9 +203,9 @@ function restoreOneTab(
           typeof st.savedContent === 'string' ? st.savedContent : (raw?.content ?? st.content);
         tab.isDirty = true;
       }
-    } else if (kind === 'md' || kind === 'mh') {
-      // 未命名新建文档（md/mh 同口径恢复，P1-8）：只有草稿语义，无内容则没有恢复价值。
-      // newUntitled 第 4 参 mhContent 承载富文本 HTML 草稿（md 走模板内容、此处为空由下方覆盖）；
+    } else if (kind === 'md' || kind === 'mh' || kind === 'code') {
+      // 未命名新建文档（md/mh/code 同口径恢复，P1-8）：只有草稿语义，无内容则没有恢复价值。
+      // newUntitled 第 4 参 mhContent 承载富文本 HTML 草稿（md/code 走模板内容、此处为空由下方覆盖）；
       // draftPath 经 opts 回填（V7），title 用快照标题（V6：反转产物冠来源名）
       if (!st.isDirty || typeof st.content !== 'string') return null;
       tab = tabs.newUntitled('', (st.mode as DocumentTab['mode']) ?? 'edit', kind, st.content, {

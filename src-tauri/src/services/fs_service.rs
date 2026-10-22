@@ -322,12 +322,7 @@ pub fn is_text_ext(ext: &str) -> bool {
 
 /// 应用内预览支持的图片格式：仅收 WebView/Chromium 原生可解码者，
 /// tiff/heic/emf/wmf/psd 不收（浏览器渲染不了，交系统查看器）。
-/// `preview_kind` 与「打开文件」对话框的图片组共用这一份，避免两处各列一遍。
 pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico"];
-
-/// 本应用的自有文档类型：与 tauri.conf.json 的 fileAssociations「码克文档」一条对齐，
-/// 供「打开文件」对话框做可选的收窄过滤用。能否受理仍以 `is_text_file` 为准（有单测守着）。
-pub const DOC_EXTS: &[&str] = &["md", "markdown", "mdx", "mh"];
 
 /// 判断文件是否可在应用内预览（probe_preview_kind 命令的唯一真相源）。
 ///
@@ -651,17 +646,6 @@ mod tests {
         let p = dir.path().join("x/y/e.md");
         write_atomic(&p, "hi".as_bytes()).unwrap();
         assert_eq!(fs::read_to_string(&p).unwrap(), "hi");
-    }
-
-    /// 对话框敢列出来的类型，后端必须真的受理：漏一个就是 Mac 上「txt 选不中」那类事故
-    #[test]
-    fn dialog_doc_exts_are_accepted_as_text() {
-        for ext in DOC_EXTS {
-            assert!(
-                TEXT_EXTS.contains(ext) && !BINARY_EXTS.contains(ext),
-                "{ext} 在对话框「码克文档」组里，却不在文本白名单里（BINARY_EXTS 优先命中会判非文本）"
-            );
-        }
     }
 
     #[test]

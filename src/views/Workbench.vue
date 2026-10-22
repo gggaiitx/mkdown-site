@@ -18,6 +18,7 @@ import SearchHub from '../components/SearchHub.vue';
 import SettingsDialog from '../components/SettingsDialog.vue';
 import Welcome from '../components/Welcome.vue';
 import AppDialog from '../components/AppDialog.vue';
+import FolderPicker from '../components/FolderPicker.vue';
 import FloatTip from '../components/FloatTip.vue';
 import EditorCtxMenu from '../components/EditorCtxMenu.vue';
 // docx-preview / xlsx 体积大（合计约 1.6MB 未压缩）且仅在点开对应文件时才渲染：
@@ -52,6 +53,7 @@ import { textKindOf, isPreviewKind, useTabsStore } from '../stores/tabsStore';
 import type { TabKind } from '../stores/tabsStore';
 import { extractHtmlOutline, useEditorStore } from '../stores/editorStore';
 import { useSearchStore } from '../stores/searchStore';
+import { useFilePickerStore } from '../stores/filePickerStore';
 import { useExternalChangeGuard } from '../composables/useExternalChangeGuard';
 
 import {
@@ -59,17 +61,16 @@ import {
   openInSystem,
   openUrl,
   openWebWindow,
-  pickOpenFile,
-  pickWorkspaceDir,
   listSiblingFiles,
   probePreviewKind,
   probeTextFile,
   readFile,
-  saveAs as saveAsApi,
+  saveTextAt,
   takePendingOpenArgs,
   writeFileAtomic,
 } from '../api/fileApi';
 import { exportDocx, exportHtml, exportPdf, exportPng } from '../api/exportApi';
+import { createWorkspaceDir, getDefaultWorkspaceParent } from '../api/workspaceApi';
 import type { WordStyleOpts } from '../convert/htmlToDocx';
 import { allowAssetDir } from '../api/imageApi';
 import type { EditorMode, PreviewBarMode, ReadLayout, ThemeKind } from '../api/types';
@@ -84,6 +85,7 @@ import type { BlockFormatKind } from '../utils/mdLineFormat';
 import { findMatchRanges, replaceAll, type ReplaceRequest } from '../utils/mdReplace';
 import { TEMPLATES, type MdTemplate } from '../utils/markdownTemplate';
 import { debounce } from '../utils/common';
+import { isWinStylePath } from '../utils/pathJoin';
 import { useI18n } from '../i18n';
 
 const { t } = useI18n();
@@ -92,6 +94,7 @@ const ws = useWorkspaceStore();
 const tabs = useTabsStore();
 const editor = useEditorStore();
 const search = useSearchStore();
+const filePicker = useFilePickerStore();
 
 /** 外部修改检测（composable 内自带窗口聚焦 + 轮询触发）：脏标签撞车时弹对话框让用户裁决 */
 const {
@@ -144,8 +147,9 @@ function openReleases(url: string) {
 }
 /** 统一搜索面板（SearchHub）模式：'file' 文件内查找 / 'global' 全局搜索 */
 const hubMode = ref<'file' | 'global'>('file');
-/** 左侧工作区显示/隐藏（隐藏后经顶栏「展开侧边栏」恢复） */
-const sidebarVisible = ref(true);
+/** 左侧工作区显示/隐藏（隐藏后经顶栏「展开侧边栏」恢复）。
+ *  出厂/升级后默认收起：启动恢复 lastWorkspace 时也保持隐藏，只有用户主动打开或切换工作区才展开 */
+const sidebarVisible = ref(false);
 /** 工作区侧栏唯一的开合口：工具栏按钮与 Ctrl+Tab 都走这里，别各写一份取反 */
 function toggleSidebar(): void {
   sidebarVisible.value = !sidebarVisible.value;
@@ -345,10 +349,81 @@ function onCodeCursor(pos: { line: number; col: number }) {
 }
 
 // ---------- 打开 / 新建 ----------
-async function openWorkspace() {
+/** 用户主动打开/切换/新建工作区：成功后展开侧栏。启动恢复不走这里（保持默认收起） */
+async function openWorkspaceAt(dir: string) {
+  await ws.openWorkspace(dir);
+  sidebarVisible.value = true;
+}
+
+/** 应用内文件夹选择（打开工作区）：初始落点沿用当前/上次工作区；
+ *  取不到时由后端退回文档 → 主目录。 */
+const folderPicker = ref<{ visible: boolean; initial: string }>({
+  visible: false,
+  initial: '',
+});
+
+function pickerStartDir(): string {
+  return ws.root || settings.settings.lastWorkspace || '';
+}
+
+function openWorkspace() {
+  folderPicker.value = { visible: true, initial: pickerStartDir() };
+}
+
+async function onFolderPicked(dir: string) {
+  folderPicker.value.visible = false;
   try {
-    const dir = await pickWorkspaceDir();
-    if (dir) await ws.openWorkspace(dir);
+    await openWorkspaceAt(dir);
+  } catch (err) {
+    editor.showToast(err instanceof Error ? err.message : String(err), 'error');
+  }
+}
+
+/** 新建工作区：名称与存放位置在同一个选择器界面里填写，
+ *  默认位置沿用当前/上次工作区所在目录 */
+const wsCreate = ref<{ visible: boolean; parent: string; busy: boolean }>({
+  visible: false, parent: '', busy: false,
+});
+
+/** 取父目录；盘符根（C:\）原样返回，取不到返回空串 */
+function parentDirOf(p: string): string {
+  const s = p.replace(/[\\/]+$/, '');
+  const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
+  if (i < 0) return '';
+  if (i === 2 && s[1] === ':') return s.slice(0, 3);
+  return s.slice(0, i);
+}
+
+async function createWorkspace() {
+  let parent = parentDirOf(ws.root || settings.settings.lastWorkspace || '');
+  if (!parent) {
+    try {
+      parent = (await getDefaultWorkspaceParent()) ?? '';
+    } catch {
+      parent = '';
+    }
+  }
+  wsCreate.value = { visible: true, parent, busy: false };
+}
+
+async function doCreateWorkspace(parent: string, name: string) {
+  wsCreate.value.busy = true;
+  let path: string;
+  try {
+    path = await createWorkspaceDir(parent, name);
+  } catch (err) {
+    // 重名/非法名/无权限：留在弹窗里改名字或换位置重试
+    wsCreate.value.busy = false;
+    editor.showToast(
+      t('workbench.toast.wsCreateFailed', { msg: err instanceof Error ? err.message : String(err) }),
+      'error',
+    );
+    return;
+  }
+  wsCreate.value = { visible: false, parent: '', busy: false };
+  try {
+    await openWorkspaceAt(path);
+    editor.showToast(t('workbench.toast.wsCreated', { name }), 'success');
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
   }
@@ -369,7 +444,7 @@ async function switchWorkspace(dir: string) {
 async function doSwitchWorkspace(dir: string) {
   try {
     tabs.closeAll(); // 切换前已经确认过：老工作区的标签全部关闭
-    await ws.openWorkspace(dir);
+    await openWorkspaceAt(dir);
     editor.showToast(t('workbench.toast.wsSwitched', { name: baseName(dir) }), 'success');
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
@@ -512,7 +587,7 @@ watch(
   { immediate: true },
 );
 watch(
-  () => (usesCodeEngine.value ? tabs.activeTab?.path ?? null : null),
+  () => (usesCodeEngine.value ? tabs.activeTab?.path ?? tabs.activeTab?.draftPath ?? tabs.activeTab?.title ?? null : null),
   (p) => {
     if (p !== null) codeEditorPath.value = p;
   },
@@ -599,7 +674,7 @@ const showOutline = computed(
  * 打开类型三分流：'text' 文本类（md/txt/代码/HTML…）由编辑器接管；
  * 'handled' = 已在应用内处理（docx/xlsx/图片/PDF 开预览标签，或已交系统默认程序）；
  * 'rejected' = openSystem=false 且应用内开不了，调用方据此提示/忽略——
- * 目录树单击与拖入因此不会误启外部程序，双击或对话框显式选择才会。
+ * 目录树单击与拖入因此不会误启外部程序，双击或选择器显式选择才会。
  * 两个判定都在 Rust 侧：probe_text_file（扩展名+嗅探）、probe_preview_kind（预览种类），
  * 前端不猜测扩展名。
  */
@@ -674,13 +749,48 @@ async function openFileFromTreeDbl(path: string) {
   await openFilePath(path, mode, true);
 }
 
+/** 打开文件：应用内选择器。初始落点 = 当前文档目录，否则当前/上次工作区。
+ *  选中文件夹即授权（替代系统对话框的授权点），后续探测、读取、预览才能通过白名单。 */
 async function openFileByDialog() {
   try {
-    const p = await pickOpenFile();
-    if (p) await openFilePath(p);
+    const from = activeDocPath.value ? parentDirOf(activeDocPath.value) : pickerStartDir();
+    const p = await filePicker.open({
+      mode: 'file',
+      title: t('workbench.folderPicker.openFileTitle'),
+      initialPath: from,
+    });
+    if (!p) return;
+    await allowAssetDir(parentDirOf(p));
+    await openFilePath(p);
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
   }
+}
+
+/** 另存为 / 导出共用的保存目标选择：取消返回 null */
+function pickSaveTarget(
+  title: string,
+  defaultName: string,
+  ext: string,
+  initialDir = '',
+): Promise<string | null> {
+  return filePicker.open({
+    mode: 'save',
+    title,
+    initialPath: initialDir || pickerStartDir(),
+    defaultName,
+    ext,
+  });
+}
+
+/** 按源文档名推导导出默认文件名（stem + 扩展名） */
+function exportTargetName(docPath: string, ext: string): string {
+  const stem = (docPath.split(/[\\/]/).pop() ?? docPath).replace(/\.[^.]*$/, '');
+  return `${stem || 'export'}.${ext}`;
+}
+
+function exportStartDir(): string {
+  return tabs.activeTab?.path ? parentDirOf(tabs.activeTab.path) : pickerStartDir();
 }
 
 // ---------- 预览区文档互链（[PRD](docs/PRD.md)） ----------
@@ -692,7 +802,9 @@ function resolveJoin(baseDir: string, rel: string): string {
     if (seg === '..') parts.pop();
     else parts.push(seg);
   }
-  return parts.join('\\');
+  // 分隔符跟着 baseDir 的形态走：写死 `\` 在 mac/Linux 上拼出的绝对路径不存在，
+  // 预览区文档互链（[PRD](docs/PRD.md)）会直接「文件不存在」
+  return parts.join(isWinStylePath(baseDir) ? '\\' : '/');
 }
 
 /** 预览区文件路径链接：按当前文档目录解析成绝对路径，走统一打开分流。
@@ -753,6 +865,19 @@ function newFromTemplate(tpl: MdTemplate) {
   editor.showToast(t('workbench.toast.createdFromTpl', { name: tpl.name }), 'success');
 }
 
+/** 文件菜单 md/mh 档：与 txt 同口径的直达新建（空文档），内核已由 Toolbar 同步给后续 Ctrl+N */
+function newKernelFile(kind: 'md' | 'mh') {
+  tabs.newUntitled('', 'edit', kind);
+  editor.setMode('edit');
+}
+
+/** 文件菜单 txt 档：代码文件要先有后缀才能选语言，未命名阶段先落成 .txt 纯文本，
+ *  保存时走「另存为」按新后缀切语言与标签类型 */
+function newCodeFile() {
+  tabs.newUntitled('', 'edit', 'code');
+  editor.setMode('edit');
+}
+
 // ---------- 保存流水线 ----------
 async function saveActive(): Promise<void> {
   const tab = tabs.activeTab;
@@ -795,27 +920,33 @@ async function saveActiveAs(): Promise<string | null> {
   const tab = tabs.activeTab;
   if (!tab) return null;
   try {
-    const res = await saveAsApi(tab.title, tab.content, defaultSaveExt(tab.title, tab.kind));
-    if (res) {
-      const newTitle = res.path.split(/[\\/]/).pop() ?? tab.title;
-      tabs.updateTab(tab.id, {
-        path: res.path,
-        title: newTitle,
-        // 另存成的类型可能与原标签不同（.md 存成 .txt），引擎按新扩展名重算
-        kind: textKindOf(res.path),
-        encoding: 'utf-8',
-        hadBom: false,
-        isUtf8: true,
-      });
-      tabs.markSaved(tab.id, tab.content);
-      ws.expandTo(res.path);
-      rememberRecent(res.path);
-      // 另存到新目录同样补授权，保证粘贴图片在阅读态可见
-      const dir = res.path.replace(/[\\/][^\\/]*$/, '');
-      if (dir) void allowAssetDir(dir).catch(() => undefined);
-      editor.showToast(t('workbench.toast.savedAs', { name: newTitle }), 'success');
-      return res.path;
-    }
+    const ext = defaultSaveExt(tab.title, tab.kind);
+    const p = await pickSaveTarget(
+      t('toolbar.saveAs'),
+      tab.title,
+      ext,
+      tab.path ? parentDirOf(tab.path) : '',
+    );
+    if (!p) return null;
+    const res = await saveTextAt(p, tab.content);
+    const newTitle = res.path.split(/[\\/]/).pop() ?? tab.title;
+    tabs.updateTab(tab.id, {
+      path: res.path,
+      title: newTitle,
+      // 另存成的类型可能与原标签不同（.md 存成 .txt），引擎按新扩展名重算
+      kind: textKindOf(res.path),
+      encoding: 'utf-8',
+      hadBom: false,
+      isUtf8: true,
+    });
+    tabs.markSaved(tab.id, tab.content);
+    ws.expandTo(res.path);
+    rememberRecent(res.path);
+    // 另存到新目录同样补授权，保证粘贴图片在阅读态可见
+    const dir = res.path.replace(/[\\/][^\\/]*$/, '');
+    if (dir) void allowAssetDir(dir).catch(() => undefined);
+    editor.showToast(t('workbench.toast.savedAs', { name: newTitle }), 'success');
+    return res.path;
   } catch (err) {
     editor.showToast(t('workbench.toast.saveAsFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   }
@@ -1126,15 +1257,16 @@ const outlineRailOn = computed(
     (outlineFresh.value && showOutline.value),
 );
 function toggleTheme() {
-  const theme: ThemeKind = settings.isDark ? 'light' : 'dark';
-  void settings.update({ theme });
+  /* 顶栏只切「模式」：跟随系统时按下 → 落到与当前相反的固定模式（配色沿用该模式上次的选择） */
+  const next: ThemeKind = settings.isDark ? 'light' : 'dark';
+  void settings.update({ themeMode: next });
 }
 /** 字号一档 = 0.5px（范围 12~24）。先钳范围、再折到 0.5 网格上：
  *  浮点连加会漂出整半档之外的值（15.1 之类），而设置里的 range 与 --mk-font-size 只认整半档 */
 function changeFont(delta: number) {
   const next = Math.min(FONT_MAX, Math.max(FONT_MIN, settings.settings.fontSize + delta));
   void settings.update({ fontSize: Math.round(next * 2) / 2 });
-}/** Ctrl+0：回到默认字号（值取 DEFAULT_SETTINGS，别在这儿重抄一遍 15） */
+}/** Ctrl+0：回到默认字号（值取 DEFAULT_SETTINGS，别在这儿重抄默认值） */
 function resetFont() {
   void settings.update({ fontSize: DEFAULT_SETTINGS.fontSize });
   editor.showToast(t('toolbar.fontZoomTip', { n: DEFAULT_SETTINGS.fontSize }), 'info');
@@ -1367,8 +1499,15 @@ async function doExportHtml() {
   }
   if (exportingWord.value) return; // 与 Word/PDF 导出共用任务级互斥锁
   exportingWord.value = true;
-  editor.showToast(t('workbench.toast.exporting'), 'info');
   try {
+    const out = await pickSaveTarget(
+      t('toolbar.exportHtml'),
+      exportTargetName(tab.path ?? t('workbench.untitledMd'), 'html'),
+      'html',
+      exportStartDir(),
+    );
+    if (!out) return;
+    editor.showToast(t('workbench.toast.exporting'), 'info');
     let body: string;
     if (isMhTab.value) {
       // D8：mh 导出 HTML——来源 = tab.content（磁盘态，图片已是相对路径，deAssetify 空转）
@@ -1377,8 +1516,8 @@ async function doExportHtml() {
       body = editor.previewHtml || '';
     }
     const html = deAssetify(wrapExportHtml(body), tab.path ?? t('workbench.untitledMd'));
-    const out = await exportHtml(tab.path ?? t('workbench.untitledMd'), html);
-    if (out) editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
+    const written = await exportHtml(html, out);
+    editor.showToast(t('workbench.toast.exported', { path: written }), 'success');
   } catch (err) {
     editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   } finally {
@@ -1391,14 +1530,21 @@ const exportingWord = ref(false);
 
 /** Word 导出（R1/R2；2026-10-13 增社区引擎试点）：
  *  md + wordExportEngine='community' → mdToDocxCommunity 直接吃 md 原文（原生公式/语法高亮）；
- *  其余（md 内置 / mh 全部）→ HTML 快照 → htmlToDocx（docx 包懒加载）→ exportDocx（Rust 对话框 + 原子写） */
+ *  其余（md 内置 / mh 全部）→ HTML 快照 → htmlToDocx（docx 包懒加载）→ exportDocx（写入选择器目标路径） */
 async function doExportWord() {
   const tab = tabs.activeTab;
   if (!tab || tabs.activeIsPreview) return;
   if (exportingWord.value) return;
   exportingWord.value = true;
-  editor.showToast(t('workbench.toast.exporting'), 'info');
   try {
+    const target = await pickSaveTarget(
+      t('toolbar.exportWord'),
+      exportTargetName(tab.path ?? t('workbench.untitledMd'), 'docx'),
+      'docx',
+      exportStartDir(),
+    );
+    if (!target) return;
+    editor.showToast(t('workbench.toast.exporting'), 'info');
     const style: WordStyleOpts = {
       fontZh: settings.settings.wordFontZh,
       fontEn: settings.settings.wordFontEn,
@@ -1416,7 +1562,7 @@ async function doExportWord() {
       const { mdToDocxCommunity } = await import('../convert/mdToDocxCommunity');
       const { blob, warnings } = await mdToDocxCommunity(tab.content, style, baseDir);
       const data = new Uint8Array(await blob.arrayBuffer());
-      const out = await exportDocx(tab.path ?? t('workbench.untitledMd'), data);
+      const out = await exportDocx(data, target);
       if (out) {
         editor.showToast(
           warnings.length
@@ -1441,7 +1587,7 @@ async function doExportWord() {
     const { htmlToDocx } = await import('../convert/htmlToDocx');
     const { blob, degradedFormulas, failedImages } = await htmlToDocx(html, style);
     const data = new Uint8Array(await blob.arrayBuffer());
-    const out = await exportDocx(tab.path ?? t('workbench.untitledMd'), data);
+    const out = await exportDocx(data, target);
     if (out) {
       const extra: string[] = [];
       if (degradedFormulas > 0) extra.push(t('workbench.toast.wordFormulaDegraded', { n: degradedFormulas }));
@@ -1469,10 +1615,16 @@ async function doExportPdf() {
   if (!tab || tabs.activeIsPreview) return;
   if (exportingWord.value) return;
   exportingWord.value = true;
-  // 过渡提示：mermaid 渲染 + 样式/字体内联 + Edge 打印共数秒，先给 toast + 按钮 loading，
-  // Rust 侧随后立即弹保存对话框（见 export_pdf：先取路径再打印），用户感知不到空窗
-  editor.showToast(t('workbench.toast.exporting'), 'info');
   try {
+    const target = await pickSaveTarget(
+      t('toolbar.exportPdf'),
+      exportTargetName(tab.path ?? t('workbench.untitledMd'), 'pdf'),
+      'pdf',
+      exportStartDir(),
+    );
+    if (!target) return;
+    // 过渡提示：mermaid 渲染 + 样式/字体内联 + Edge 打印共数秒，先给 toast + 按钮 loading
+    editor.showToast(t('workbench.toast.exporting'), 'info');
     let html: string;
     if (isMhTab.value) {
       html = wangEngineRef.value?.getDisplayHtml?.() ?? tab.content;
@@ -1486,10 +1638,8 @@ async function doExportPdf() {
     }
     const { buildPrintDocument } = await import('../convert/printDoc');
     const printDoc = await buildPrintDocument(html);
-    const out = await exportPdf(tab.path ?? t('workbench.untitledMd'), printDoc);
-    if (out) {
-      editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
-    }
+    const out = await exportPdf(printDoc, target);
+    editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
   } catch (err) {
     editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   } finally {
@@ -1549,7 +1699,7 @@ function onEditorContext(payload: EditorCtxPayload): void {
  *  工具栏或空白处（编辑区失焦）后即可左右翻文件。 */
 function siblingNavOn(): boolean {
   const tab = tabs.activeTab;
-  if (!tab?.path) return false;
+  if (!tab?.path || !settings.settings.siblingNav) return false;
   if (isPreviewKind(tab.kind)) return true;
   // 'text' 是旧会话快照遗留的 kind（新打开不再产生），按 code 处理
   return (
@@ -1670,8 +1820,8 @@ function onCtxRefresh(): void {
 }
 
 /** 右键「导出为图片」（SVG 预览窗格）：按当前「适应窗口」那一档的画幅栅格化成 PNG，
- *  再交 Rust 弹保存对话框。不给 HTML——那份跑在 opaque origin 沙箱里，父页取不到它的画面。 */
-/** 导出 PNG 中（防重入）：连点会叠两个系统保存对话框，与 doExportWord 的 exportingWord 同策 */
+ *  再选保存位置并写盘。不给 HTML——那份跑在 opaque origin 沙箱里，父页取不到它的画面。 */
+/** 导出 PNG 中（防重入）：连点会叠两个选择器，与 doExportWord 的 exportingWord 同策 */
 const exportingPng = ref(false);
 
 async function onCtxExportPng(): Promise<void> {
@@ -1696,8 +1846,15 @@ async function onCtxExportPng(): Promise<void> {
       editor.showToast(t('workbench.toast.exportNotReady'), 'info');
       return;
     }
-    const out = await exportPng(tab.path ?? tab.title, bytes);
-    if (out) editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
+    const target = await pickSaveTarget(
+      t('workbench.ctx.exportPng'),
+      exportTargetName(tab.path ?? tab.title, 'png'),
+      'png',
+      exportStartDir(),
+    );
+    if (!target) return;
+    const out = await exportPng(bytes, target);
+    editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
   } catch (err) {
     editor.showToast(
       t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }),
@@ -1999,6 +2156,16 @@ function onKeydown(e: KeyboardEvent) {
   }
   const k = e.key.toLowerCase();
   if (handleFormatShortcut(e, k)) return;
+  // Ctrl+Shift+N/O/M/H：新建工作区 / 打开工作区 / Word 转 MD / Word 转 MH。
+  // 这几个都会再开一层弹窗，已有遮罩（选择器/对话框）时不叠加
+  if (e.shiftKey && !e.altKey && (k === 'n' || k === 'o' || k === 'm' || k === 'h')) {
+    if (document.querySelector('.mask')) return;
+    e.preventDefault();
+    if (k === 'n') void createWorkspace();
+    else if (k === 'o') openWorkspace();
+    else openWordConvert(k === 'm' ? 'md' : 'mh');
+    return;
+  }
   if (k === 's') {
     // 编辑器内核已处理编辑态 Ctrl+S；这里兜底（阅读态/焦点在外时）
     if (editor.mode !== 'edit' || !isEditorFocused()) {
@@ -2236,7 +2403,7 @@ watch(() => editor.mode, (m) => {
   <div class="workbench" :class="{ dark: settings.isDark }">
     <Toolbar
       :mode="editor.mode"
-      :theme="settings.settings.theme"
+      :theme="settings.themeMode"
       :has-active="!!tabs.activeTab"
       :search-active="search.visible"
       :sidebar-hidden="!sidebarVisible"
@@ -2249,7 +2416,10 @@ watch(() => editor.mode, (m) => {
       @toggle-sidebar="toggleSidebar"
       @open-file="openFileByDialog"
       @open-workspace="openWorkspace"
+      @new-workspace="createWorkspace"
       @new="newFromTemplate(TEMPLATES[0])"
+      @new-kernel="newKernelFile"
+      @new-code="newCodeFile"
       @save="saveActive"
       @save-as="saveActiveAs"
       @set-mode="setMode"
@@ -2277,6 +2447,7 @@ watch(() => editor.mode, (m) => {
         @hide="sidebarVisible = false"
         @switch-workspace="switchWorkspace"
         @open-workspace="openWorkspace"
+        @create-workspace="createWorkspace"
         @remove-all-workspaces="removeAllWorkspaces"
       />
       <!-- 工作区隐藏后的左缘复原入口：不可见，仅在标签栏行留 4px 命中区，拖动向右展开 -->
@@ -2319,7 +2490,7 @@ watch(() => editor.mode, (m) => {
               v-show="usesCodeEngine"
               ref="codeEngineRef"
               :model-value="codeEditorContent"
-              :theme="settings.settings.theme"
+              :theme="settings.themeMode"
               :focus-mode="settings.settings.focusMode"
               :line-wrap="settings.settings.codeLineWrap"
               :path="codeEditorPath"
@@ -2339,7 +2510,7 @@ watch(() => editor.mode, (m) => {
               :model-value="mdEditorContent"
               :mode="mdEditorMode"
               :active="isMdTab"
-              :theme="settings.settings.theme"
+              :theme="settings.themeMode"
               :preview-theme="settings.settings.previewTheme"
               :read-layout="settings.settings.readLayout"
               :show-toolbar="settings.settings.showToolbar"
@@ -2367,7 +2538,7 @@ watch(() => editor.mode, (m) => {
               ref="wangEngineRef"
               :model-value="mhEditorHtml"
               :mode="editor.mode"
-              :theme="settings.settings.theme"
+              :theme="settings.themeMode"
               :focus-mode="settings.settings.focusMode"
               :doc-path="activeDocPath"
               :language="settings.settings.language"
@@ -2417,6 +2588,7 @@ watch(() => editor.mode, (m) => {
           v-else
           :templates="TEMPLATES"
           @open-workspace="openWorkspace"
+          @create-workspace="createWorkspace"
           @open-file="openFileByDialog"
           @new-template="newFromTemplate"
           @open-recent="openFilePath"
@@ -2474,6 +2646,41 @@ watch(() => editor.mode, (m) => {
       :cancel-text="t('workbench.close.wsSwitchCancel')"
       @confirm="onWsSwitchConfirm"
       @cancel="wsSwitch.visible = false"
+    />
+
+    <!-- 新建工作区：名称 + 存放位置在同一个选择器界面完成，不再分两步 -->
+    <FolderPicker
+      :visible="wsCreate.visible"
+      mode="create"
+      :title="t('workbench.wsCreate.title')"
+      :initial-path="wsCreate.parent"
+      :default-name="t('workbench.wsCreate.defaultName')"
+      :busy="wsCreate.busy"
+      @create="doCreateWorkspace"
+      @cancel="wsCreate.visible = false"
+    />
+
+    <!-- 打开工作区：应用内文件夹选择器，不再调系统资源管理器 -->
+    <FolderPicker
+      :visible="folderPicker.visible"
+      :title="t('workbench.folderPicker.openTitle')"
+      :initial-path="folderPicker.initial"
+      @select="onFolderPicked"
+      @cancel="folderPicker.visible = false"
+    />
+
+    <!-- 打开文件 / 另存为 / 导出：同一套应用内选择器（Workbench 与 Word 反转弹窗共用） -->
+    <FolderPicker
+      :visible="filePicker.visible"
+      :mode="filePicker.request.mode"
+      :title="filePicker.request.title"
+      :initial-path="filePicker.request.initialPath ?? ''"
+      :default-name="filePicker.request.defaultName ?? ''"
+      :ext="filePicker.request.ext ?? ''"
+      :exts="filePicker.request.exts ?? []"
+      @select="filePicker.close($event)"
+      @save="filePicker.close($event)"
+      @cancel="filePicker.close(null)"
     />
 
     <!-- 全部移除工作区确认（含当前，回到欢迎页） -->

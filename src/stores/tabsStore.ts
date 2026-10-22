@@ -152,13 +152,14 @@ export const useTabsStore = defineStore('tabs', {
       return restored;
     },
     /** 新建未保存文档：kind 由调用方按 settings.editorEngine 决定（markdown→md / wangeditor→mh）；
-     *  md 用 templateContent（Markdown 骨架），mh 用 mhContent（HTML 骨架，缺省空白起步）；
+     *  md 用 templateContent（Markdown 骨架），mh 用 mhContent（HTML 骨架，缺省空白起步），
+     *  code 无骨架（未命名.txt 纯文本起步，保存时按后缀再选引擎）；
      *  opts.draftPath = 意向文件路径（§6.5，反转产物「转换后打开」用，文件未创建），
      *  opts.title = 自定义标题（V6：冠来源名，如「xxx.docx → md」） */
     newUntitled(
       templateContent: string,
       mode: EditorMode,
-      kind: 'md' | 'mh' = 'md',
+      kind: 'md' | 'mh' | 'code' = 'md',
       mhContent = '',
       opts?: { draftPath?: string; title?: string },
     ): DocumentTab {
@@ -167,7 +168,7 @@ export const useTabsStore = defineStore('tabs', {
         id: nextId(),
         path: null,
         draftPath: opts?.draftPath ?? null,
-        title: opts?.title ?? (kind === 'mh' ? '未命名.mh' : '未命名.md'),
+        title: opts?.title ?? (kind === 'mh' ? '未命名.mh' : kind === 'code' ? '未命名.txt' : '未命名.md'),
         content,
         savedContent: content,
         isDirty: content.length > 0,

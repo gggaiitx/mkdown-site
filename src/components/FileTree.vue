@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ChevronsDownUp, ChevronsUpDown, ChevronDown, Check, FolderOpen, PanelLeftClose, RefreshCw, Search, Trash2, X } from '@lucide/vue';
+import { ChevronsDownUp, ChevronsUpDown, ChevronDown, Check, FolderOpen, FolderPlus, RefreshCw, Search, Trash2, X } from '@lucide/vue';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useEditorStore } from '../stores/editorStore';
@@ -25,6 +25,8 @@ const emit = defineEmits<{
   /** 切换到历史工作区（Workbench 负责脏标签确认与关标签） */
   (e: 'switch-workspace', dir: string): void;
   (e: 'open-workspace'): void;
+  /** 新建工作区（应用内选择器：名称与存放位置同屏填写） */
+  (e: 'create-workspace'): void;
   /** 全部移除（含当前）：Workbench 负责确认、关标签、回到欢迎页 */
   (e: 'remove-all-workspaces'): void;
 }>();
@@ -39,6 +41,10 @@ function pickWorkspace(dir: string) {
 function pickOther() {
   wsMenuOpen.value = false;
   emit('open-workspace');
+}
+function pickNewWorkspace() {
+  wsMenuOpen.value = false;
+  emit('create-workspace');
 }
 /** 全部移除（含当前工作区）：确认与执行在 Workbench */
 function removeAll() {
@@ -438,13 +444,12 @@ watch(filteredTree, (nodes) => {
         <ChevronDown class="root-caret" :size="12" />
       </button>
       <span class="tools">
-        <button class="tool" :class="{ on: filterVisible }" v-tip="t('filetree.filterTip', { key: shiftHint('F') })" @click="toggleFilter"><Search class="t-icon" /></button>
+        <button class="tool" v-tip="t('filetree.refresh')" @click="onRefresh"><RefreshCw class="t-icon" :class="{ spinning: refreshing }" /></button>
         <button class="tool" v-tip="toggleAllTip" @click="toggleAll">
           <ChevronsDownUp v-if="!allCollapsed" class="t-icon" />
           <ChevronsUpDown v-else class="t-icon" />
         </button>
-        <button class="tool" v-tip="t('filetree.refresh')" @click="onRefresh"><RefreshCw class="t-icon" :class="{ spinning: refreshing }" /></button>
-        <button class="tool" v-tip="t('filetree.hideWorkspace')" @click="emit('hide')"><PanelLeftClose class="t-icon" /></button>
+        <button class="tool" :class="{ on: filterVisible }" v-tip="t('filetree.filterTip', { key: shiftHint('F') })" @click="toggleFilter"><Search class="t-icon" /></button>
       </span>
     </div>
 
@@ -473,6 +478,10 @@ watch(filteredTree, (nodes) => {
       <button class="mk-menu-item ws-item" @click="pickOther">
         <FolderOpen class="ws-ico" :size="14" />
         <span class="ws-item-name">{{ t('filetree.openOther') }}</span>
+      </button>
+      <button class="mk-menu-item ws-item" @click="pickNewWorkspace">
+        <FolderPlus class="ws-ico" :size="14" />
+        <span class="ws-item-name">{{ t('filetree.newWorkspace') }}</span>
       </button>
       <button class="mk-menu-item ws-item ws-remove-all" @click="removeAll">
         <Trash2 class="ws-ico" :size="14" />
@@ -608,14 +617,24 @@ watch(filteredTree, (nodes) => {
   right: 0;
   top: 0;
   bottom: 0;
-  width: 1px;
+  /* 折算成 1 个设备像素（--mk-dpr 由 main.ts 注入）：
+     1px CSS 线在 125% 缩放下按设备像素网格 snap，宽度 %4===2 的档位会画出
+     2 个设备像素，视觉上「某些宽度边线变 2px」；折算后任何宽度都是一条细线 */
+  width: calc(1px / var(--mk-dpr, 1));
   background: var(--mk-border);
   transition: background-color 120ms ease;
 }
-.resizer:hover::after,
+/* hover 点亮边线：宽度取 2 个设备像素（非整数缩放不变形），
+   颜色 = accent 与边线色按 62% 混色 —— 六套配色各有自己的强调色，
+   浅色下是中性墨灰、冷灰配色偏蓝灰、米黄偏暖褐、暗色则是提亮灰，不出现纯黑硬线。
+   active（拖拽中）回到纯 accent 实色，与 hover 区分「正在拖」 */
+.resizer:hover::after {
+  width: calc(2px / var(--mk-dpr, 1));
+  background: color-mix(in srgb, var(--mk-accent) 62%, var(--mk-border));
+}
 .resizer.active::after {
+  width: calc(2px / var(--mk-dpr, 1));
   background: var(--mk-accent);
-  width: 2px;
 }
 /* 拖拽中解除 min-width 保护：拖到最左时宽度真实压缩（「正在收起」视觉反馈） */
 .explorer.dragging {

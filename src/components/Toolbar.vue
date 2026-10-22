@@ -3,18 +3,19 @@
 import { onBeforeUnmount, onMounted, ref, computed, watch, nextTick } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
-  FolderOpen, Folder, FilePlus2, Save, SaveAll,
+  List, FolderOpen, Folder, FolderPlus, FilePlus2, Save, SaveAll,
   Pencil, Columns2, BookOpen,   Search, FileCode2, Printer,
-  Sun, Moon, Settings, Minus, Plus, Type, Download,
-  PanelLeftOpen,
-  SquareArrowOutUpRight, FileText, ArrowRightLeft, FileType, Loader2,
+  Sun, Moon, Settings, Minus, Plus, Download,
+  PanelLeftOpen, PanelLeftClose,
+  FileText, ArrowRightLeft, FileType,
   Minus as WinMin, Square, Copy, X,
 } from '@lucide/vue';
 
 import type { EditorMode, ThemeKind } from '../api/types';
 import { FONT_STEP } from '../api/types';
-import { altHint } from '../utils/keyHint';
+import { altHint, modHint, modShiftHint } from '../utils/keyHint';
 import { useEditorStore } from '../stores/editorStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useI18n } from '../i18n';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { flushSessionSnapshot } from '../utils/sessionSnapshot';
@@ -44,8 +45,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'open-file'): void;
   (e: 'open-workspace'): void;
+  (e: 'new-workspace'): void;
   (e: 'toggle-sidebar'): void;
   (e: 'new'): void;
+  (e: 'new-kernel', kind: 'md' | 'mh'): void;
+  (e: 'new-code'): void;
   (e: 'save'): void;
   (e: 'save-as'): void;
   (e: 'set-mode', m: EditorMode): void;
@@ -65,7 +69,28 @@ const emit = defineEmits<{
 
 // 更新检测：挂载时向 GitHub 查询最新 Release，与本地版本比较；点击后后台下载并提示重启
 const editor = useEditorStore();
+const settings = useSettingsStore();
 const { t } = useI18n();
+
+/** 顶栏自动保存快捷开关：与设置-编辑器同一字段，写入仍走 settingsStore 防抖落盘 */
+const autoSaveOn = computed(() => settings.settings.autoSave);
+function toggleAutoSave() {
+  void settings.update({ autoSave: !settings.settings.autoSave });
+}
+/** 新建文件内核（与设置-编辑器同一字段）：md/mh 档点击即新建，同时把内核留给 Ctrl+N / 整行新建。
+ *  txt 不是可持久化的内核，而是「新建代码文件」入口：代码文件要先有后缀才能选语言，
+ *  未命名阶段先落成 .txt 纯文本，保存时再由「另存为」按新后缀接管。 */
+const kernelIsMh = computed(() => settings.settings.editorEngine === 'wangeditor');
+function newKernel(k: 'md' | 'mh') {
+  const engine = k === 'mh' ? 'wangeditor' : 'markdown';
+  if (settings.settings.editorEngine !== engine) void settings.update({ editorEngine: engine });
+  closeMenu();
+  emit('new-kernel', k);
+}
+function newCodeFile() {
+  closeMenu();
+  emit('new-code');
+}
 const {
   state: updateState,
   latestVersion,
@@ -252,8 +277,9 @@ watch(
 const isMac = /Mac/i.test(navigator.platform) || navigator.userAgent.includes('Macintosh');
 /** 字号按钮提示里的滚轮快捷键（Ctrl+滚轮 / Mac ⌘+滚轮，见 Workbench.onFontWheel） */
 const fontWheelHint = isMac ? '⌘+滚轮' : 'Ctrl+滚轮';
-/** 同一提示里的键盘快捷键（一档 0.5px，与滚轮同向同量；见 Workbench.onKeydown 的 Equal/Minus 分支） */
-const fontKeyHint = isMac ? '⌘= / ⌘-' : 'Ctrl+= / Ctrl+-';
+/** 加/减各自的键盘快捷键（一档 0.5px；见 Workbench.onKeydown 的 Equal/Minus 分支） */
+const fontKeyUp = isMac ? '⌘=' : 'Ctrl+=';
+const fontKeyDown = isMac ? '⌘-' : 'Ctrl+-';
 const win = getCurrentWindow();
 const isMaximized = ref(false);
 let unlistenResized: (() => void) | null = null;
@@ -283,58 +309,48 @@ function closeWindow() {
   void win.close();
 }
 
-// ---- 下拉菜单开合（「输出」；表格编辑已迁到编辑区右键菜单） ----
+// ---- 「文件」下拉菜单开合 ----
 // 交互口径（2026-10-13 定稿）：**点击图标展开/收起**（不再 hover 展开，防误触）；
-// 点击菜单项后收起；点击外部 / Esc 关闭。
-type MenuId = 'output';
-const openMenuId = ref<MenuId | null>(null);
-const outWrapRef = ref<HTMLElement | null>(null);
-/** trigger 按钮（用于量测坐标，菜单脱离 overflow:hidden 容器定位） */
-const outBtnRef = ref<HTMLElement | null>(null);
+// 点击菜单项后收起；点击外部 / Esc 关闭。导出/打印/转换并入本菜单，不再单设「输出」入口。
+const fileWrapRef = ref<HTMLElement | null>(null);
+const fileBtnRef = ref<HTMLElement | null>(null);
 /** teleport 到 body 后的菜单元素（点击外部关闭需把它纳入命中判定） */
-const outMenuRef = ref<HTMLElement | null>(null);
-/** 菜单 fixed 定位内联样式（top/left 由 trigger 实时坐标推导，越界由 adjustMenu 兜底） */
-const outMenuStyle = ref<Record<string, string>>({});
+const fileMenuRef = ref<HTMLElement | null>(null);
+/** 菜单 fixed 定位内联样式（top 由 trigger 实时坐标推导，left 固定贴视口左侧，越界由 adjustMenu 兜底） */
+const fileMenuStyle = ref<Record<string, string>>({});
+const fileOpen = ref(false);
 
-const menuRefs: Record<MenuId, { wrap: typeof outWrapRef; btn: typeof outBtnRef; menu: typeof outMenuRef; style: typeof outMenuStyle }> = {
-  output: { wrap: outWrapRef, btn: outBtnRef, menu: outMenuRef, style: outMenuStyle },
-};
-
-const outOpen = computed(() => openMenuId.value === 'output');
-
-/** 展开菜单：按 trigger 坐标计算 fixed 定位（脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪）。
- *  左缘与 trigger 图标左缘对齐；宽度自适应内容（CSS max-content），越界由 adjustMenu 兜底 */
-function openMenu(id: MenuId) {
-  const m = menuRefs[id];
-  const r = m.btn.value?.getBoundingClientRect();
+/** 展开菜单：按 trigger 底缘算 top（脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪），
+ *  左缘固定 left:1px（不再跟 trigger 对齐）；宽度自适应内容，越界由 adjustMenu 兜底 */
+function openMenu() {
+  const r = fileBtnRef.value?.getBoundingClientRect();
   if (r) {
-    m.style.value = {
+    fileMenuStyle.value = {
       position: 'fixed',
       top: `${Math.round(r.bottom) + 6}px`,
-      left: `${Math.round(r.left)}px`,
+      left: '1px',
     };
   }
-  openMenuId.value = id;
-  void nextTick(() => adjustMenu(id));
+  fileOpen.value = true;
+  void nextTick(adjustMenu);
 }
 
-function toggleMenu(id: MenuId) {
-  if (openMenuId.value === id) closeMenu();
-  else openMenu(id);
+function toggleMenu() {
+  if (fileOpen.value) closeMenu();
+  else openMenu();
 }
 function closeMenu() {
-  openMenuId.value = null;
+  fileOpen.value = false;
 }
 
 /** 越界兜底：右缘超出视口则左移夹紧；下缘放不下翻到 trigger 上方。渲染一帧后量实际尺寸再校正 */
-function adjustMenu(id: MenuId) {
-  const m = menuRefs[id];
-  const menu = m.menu.value;
-  const btn = m.btn.value;
+function adjustMenu() {
+  const menu = fileMenuRef.value;
+  const btn = fileBtnRef.value;
   if (!menu || !btn) return;
   const rect = menu.getBoundingClientRect();
   const b = btn.getBoundingClientRect();
-  const cur = m.style.value;
+  const cur = fileMenuStyle.value;
   const top = parseFloat(cur.top);
   const next: Record<string, string> = { ...cur };
   let left = parseFloat(cur.left);
@@ -349,10 +365,19 @@ function adjustMenu(id: MenuId) {
   ) {
     next.top = `${Math.round(b.top - rect.height - 6)}px`;
   }
-  m.style.value = next;
+  fileMenuStyle.value = next;
 }
-/** 菜单项点击：派发语义事件后统一收起（避免遮挡后续操作） */
-function onOutputItem(e: 'export-html' | 'export-word' | 'export-pdf' | 'print-pdf' | 'word-to-md' | 'word-to-mh') {
+/** 文件菜单项：新建 / 打开，文件与工作区两组同列；点击后统一收起 */
+function onFileItem(e: 'new' | 'open-file' | 'new-workspace' | 'open-workspace') {
+  closeMenu();
+  if (e === 'new') emit('new');
+  else if (e === 'open-file') emit('open-file');
+  else if (e === 'new-workspace') emit('new-workspace');
+  else emit('open-workspace');
+}
+
+/** 导出类菜单项（同属文件菜单）：派发语义事件后统一收起（避免遮挡后续操作） */
+function onExportItem(e: 'export-html' | 'export-word' | 'export-pdf' | 'print-pdf' | 'word-to-md' | 'word-to-mh') {
   closeMenu();
   if (e === 'export-html') emit('export-html');
   else if (e === 'export-word') emit('export-word');
@@ -372,16 +397,14 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onDocKeydown);
 });
 function onDocMouseDown(e: MouseEvent) {
-  if (!openMenuId.value) return;
+  if (!fileOpen.value) return;
   const tgt = e.target as Node;
-  // 命中任一 trigger 区或已 teleport 到 body 的菜单本身都不关闭
-  for (const m of Object.values(menuRefs)) {
-    if (m.wrap.value?.contains(tgt) || m.menu.value?.contains(tgt)) return;
-  }
+  // 命中 trigger 区或已 teleport 到 body 的菜单本身都不关闭
+  if (fileWrapRef.value?.contains(tgt) || fileMenuRef.value?.contains(tgt)) return;
   closeMenu();
 }
 function onDocKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && openMenuId.value) {
+  if (e.key === 'Escape' && fileOpen.value) {
     e.stopPropagation();
     closeMenu();
   }
@@ -394,30 +417,137 @@ function onDocKeydown(e: KeyboardEvent) {
     <div v-if="isMac" class="traffic-pad" data-tauri-drag-region />
     <!-- 左侧功能区：deep 拖动区（子树内空白处可拖动/双击最大化，按钮自动阻断），为右侧窗口控制让位 -->
     <div ref="tbMainRef" class="tb-main" data-tauri-drag-region="deep">
-    <!-- 侧边栏隐藏时提供恢复入口 -->
+    <!-- 侧边栏开关：恒钉在最左，图标随显隐切换（隐藏按钮已从工作区头部移除） -->
     <button
-      v-if="sidebarHidden"
       class="tb-btn tb-btn--icon tb-first"
+      :aria-label="sidebarHidden ? t('toolbar.expandSidebar') : t('toolbar.collapseSidebar')"
       @click="emit('toggle-sidebar')"
-      v-tip="t('toolbar.expandSidebar')"
+      v-tip="sidebarHidden ? t('toolbar.expandSidebar') : t('toolbar.collapseSidebar')"
     >
-      <PanelLeftOpen class="icon" />
+      <PanelLeftOpen v-if="sidebarHidden" class="icon" />
+      <PanelLeftClose v-else class="icon" />
     </button>
-    <button class="tb-btn tb-btn--text tb-first" @click="emit('open-file')" v-tip="t('toolbar.openFileTip')">
-      <FolderOpen class="icon" />
-      <span class="label">{{ t('toolbar.openFile') }}</span>
-    </button>
-    <button class="tb-btn tb-btn--text tb-open-ws" @click="emit('open-workspace')" v-tip="t('toolbar.openWorkspaceTip')">
-      <Folder class="icon" />
-      <span class="label">{{ t('toolbar.openWorkspace') }}</span>
+    <!-- 「文件」下拉：新建/打开文件与新建/打开工作区统一收在这里，点击展开 -->
+    <div ref="fileWrapRef" class="tb-menu-wrap">
+      <button
+        ref="fileBtnRef"
+        class="tb-btn tb-btn--text"
+        :class="{ 'tb-btn--active': fileOpen }"
+        :aria-label="t('toolbar.file')"
+        aria-haspopup="menu"
+        :aria-expanded="fileOpen ? 'true' : 'false'"
+        v-tip="t('toolbar.fileMenuTip')"
+        @click="toggleMenu"
+      >
+        <List class="icon" />
+        <span class="label">{{ t('toolbar.file') }}</span>
+        <span v-if="fileOpen" class="active-dot" />
+      </button>
+      <Teleport to="body">
+        <div v-if="fileOpen" ref="fileMenuRef" class="mk-menu file-menu tb-menu" :style="fileMenuStyle">
+          <!-- 「新建文件」行内嵌三档开关：md/mh/txt 点击都直接新建对应类型（未命名.md / .mh / .txt） -->
+          <div class="kernel-line" @click="onFileItem('new')">
+            <button class="kernel-new" type="button">
+              <FilePlus2 class="mk-menu-ico" />
+              <span>{{ t('toolbar.menuNewFile') }}</span>
+            </button>
+            <div
+              class="kernel-switch"
+              role="group"
+              :aria-label="t('toolbar.newKernel')"
+              v-tip="t('toolbar.kernelTip')"
+            >
+              <button
+                class="ks-opt"
+                type="button"
+                :class="{ on: !kernelIsMh }"
+                :aria-pressed="!kernelIsMh ? 'true' : 'false'"
+                @click.stop="newKernel('md')"
+              >md</button>
+              <button
+                class="ks-opt"
+                type="button"
+                :class="{ on: kernelIsMh }"
+                :aria-pressed="kernelIsMh ? 'true' : 'false'"
+                @click.stop="newKernel('mh')"
+              >mh</button>
+              <button
+                class="ks-opt"
+                type="button"
+                :aria-label="t('toolbar.newCodeFile')"
+                @click.stop="newCodeFile"
+              >txt</button>
+            </div>
+            <kbd class="mk-menu-key">{{ modHint('N') }}</kbd>
+          </div>
+          <button class="mk-menu-item" @click="onFileItem('open-file')">
+            <FolderOpen class="mk-menu-ico" />
+            <span>{{ t('toolbar.menuOpenFile') }}</span>
+            <kbd class="mk-menu-key">{{ modHint('O') }}</kbd>
+          </button>
+          <div class="mk-menu-sep" />
+          <button class="mk-menu-item" @click="onFileItem('new-workspace')">
+            <FolderPlus class="mk-menu-ico" />
+            <span>{{ t('toolbar.menuNewWorkspace') }}</span>
+            <kbd class="mk-menu-key">{{ modShiftHint('N') }}</kbd>
+          </button>
+          <button class="mk-menu-item" @click="onFileItem('open-workspace')">
+            <Folder class="mk-menu-ico" />
+            <span>{{ t('toolbar.menuOpenWorkspace') }}</span>
+            <kbd class="mk-menu-key">{{ modShiftHint('O') }}</kbd>
+          </button>
+
+          <div class="mk-menu-sep" />
+
+          <!-- 导出 / 打印 / 转换：原「输出」下拉整组并入文件菜单，按 kind 置灰 -->
+          <div class="om-group">{{ t('toolbar.groupExport') }}</div>
+          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onExportItem('export-html')">
+            <FileCode2 class="om-ic" />
+            <span class="om-label">{{ t('toolbar.exportHtml') }}</span>
+          </button>
+          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onExportItem('export-word')">
+            <FileText class="om-ic" />
+            <span class="om-label">{{ t('toolbar.exportWord') }}</span>
+          </button>
+          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onExportItem('export-pdf')">
+            <FileType class="om-ic" />
+            <span class="om-label">{{ t('toolbar.exportPdf') }}</span>
+          </button>
+          <div class="om-group">{{ t('toolbar.groupPrint') }}</div>
+          <button class="mk-menu-item om-item" :disabled="!printable" @click="onExportItem('print-pdf')">
+            <Printer class="om-ic" />
+            <span class="om-label">{{ t('toolbar.printPdf') }}</span>
+          </button>
+          <div class="om-group">{{ t('toolbar.groupConvert') }}</div>
+          <button class="mk-menu-item om-item" @click="onExportItem('word-to-md')">
+            <ArrowRightLeft class="om-ic" />
+            <span class="om-label">{{ t('toolbar.wordToMd') }}</span>
+            <kbd class="mk-menu-key">{{ modShiftHint('M') }}</kbd>
+          </button>
+          <button class="mk-menu-item om-item" @click="onExportItem('word-to-mh')">
+            <ArrowRightLeft class="om-ic" />
+            <span class="om-label">{{ t('toolbar.wordToMh') }}</span>
+            <kbd class="mk-menu-key">{{ modShiftHint('H') }}</kbd>
+          </button>
+        </div>
+      </Teleport>
+    </div>
+
+    <!-- 自动保存快捷开关：与设置-编辑器同一字段；窄窗收起文字只留轨道 -->
+    <button
+      class="tb-btn tb-btn--text autosave-btn"
+      role="switch"
+      :aria-checked="autoSaveOn ? 'true' : 'false'"
+      :aria-label="t('toolbar.autoSave')"
+      v-tip="autoSaveOn ? t('toolbar.autoSaveTipOn') : t('toolbar.autoSaveTipOff')"
+      @click="toggleAutoSave"
+    >
+      <span class="label">{{ t('toolbar.autoSave') }}</span>
+      <span class="mini-track" :class="{ on: autoSaveOn }" aria-hidden="true"><span class="mini-knob" /></span>
     </button>
 
     <div class="divider" />
 
-    <button class="tb-btn tb-btn--text" @click="emit('new')" v-tip="t('toolbar.newFileTip')">
-      <FilePlus2 class="icon" />
-      <span class="label">{{ t('toolbar.newFile') }}</span>
-    </button>
     <button class="tb-btn tb-btn--text" :disabled="!hasActive" @click="emit('save')" v-tip="t('toolbar.saveTip')">
       <Save class="icon" />
       <span class="label">{{ t('toolbar.save') }}</span>
@@ -469,72 +599,16 @@ function onDocKeydown(e: KeyboardEvent) {
 
     <!-- 表格编辑入口已迁至编辑区右键菜单（Workbench.vue + MdEditorV3Engine 的 contextmenu 拦截） -->
 
-    <!-- 输出统一下拉（D1）：点击展开/收起；三组呈现（V4）——
-         导出文件（HTML / Word）、打印（PDF）、转换（Word 转 MD / MH）；
-         恒可展开（欢迎页也可）：导出/打印按 kind 置灰（无文档时灰），转换恒可点
-         （弹窗内拖入/选择文件，不依赖激活标签） -->
-    <div ref="outWrapRef" class="output-wrap">
-      <button
-        ref="outBtnRef"
-        class="tb-btn tb-btn--icon"
-        :class="{ 'tb-btn--active': outOpen }"
-        :aria-label="t('toolbar.output')"
-        aria-haspopup="menu"
-        :aria-expanded="outOpen ? 'true' : 'false'"
-        @click="toggleMenu('output')"
-      >
-        <Loader2 v-if="props.exporting" class="icon icon-spin" />
-        <SquareArrowOutUpRight v-else class="icon" />
-        <span v-if="outOpen" class="active-dot" />
-      </button>
-      <Teleport to="body">
-        <div
-          v-if="outOpen"
-          ref="outMenuRef"
-          class="mk-menu output-menu"
-          :style="outMenuStyle"
-        >
-          <div class="om-group">{{ t('toolbar.groupExport') }}</div>
-          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-html')">
-            <FileCode2 class="om-ic" />
-            <span class="om-label">{{ t('toolbar.exportHtml') }}</span>
-          </button>
-          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-word')">
-            <FileText class="om-ic" />
-            <span class="om-label">{{ t('toolbar.exportWord') }}</span>
-          </button>
-          <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onOutputItem('export-pdf')">
-            <FileType class="om-ic" />
-            <span class="om-label">{{ t('toolbar.exportPdf') }}</span>
-          </button>
-          <div class="om-group">{{ t('toolbar.groupPrint') }}</div>
-          <button class="mk-menu-item om-item" :disabled="!printable" @click="onOutputItem('print-pdf')">
-            <Printer class="om-ic" />
-            <span class="om-label">{{ t('toolbar.printPdf') }}</span>
-          </button>
-          <div class="om-group">{{ t('toolbar.groupConvert') }}</div>
-          <button class="mk-menu-item om-item" @click="onOutputItem('word-to-md')">
-            <ArrowRightLeft class="om-ic" />
-            <span class="om-label">{{ t('toolbar.wordToMd') }}</span>
-          </button>
-          <button class="mk-menu-item om-item" @click="onOutputItem('word-to-mh')">
-            <ArrowRightLeft class="om-ic" />
-            <span class="om-label">{{ t('toolbar.wordToMh') }}</span>
-          </button>
-        </div>
-      </Teleport>
-    </div>
-
     <div class="divider" />
 
     <div class="font-seg">
-      <button class="tb-btn tb-btn--icon" @click="emit('font', -FONT_STEP)" v-tip="t('toolbar.fontSmaller', { k: fontWheelHint, s: fontKeyHint })">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', -FONT_STEP)" v-tip="t('toolbar.fontSmaller', { k: fontWheelHint, s: fontKeyDown })">
         <Minus class="icon icon-sm" />
       </button>
       <button class="tb-btn tb-btn--icon tb-font-type" v-tip="t('toolbar.fontSize', { r: isMac ? '⌘0' : 'Ctrl+0' })" disabled>
-        <Type class="icon icon-sm" />
+        <span class="font-aa">Aa</span>
       </button>
-      <button class="tb-btn tb-btn--icon" @click="emit('font', FONT_STEP)" v-tip="t('toolbar.fontLarger', { k: fontWheelHint, s: fontKeyHint })">
+      <button class="tb-btn tb-btn--icon" @click="emit('font', FONT_STEP)" v-tip="t('toolbar.fontLarger', { k: fontWheelHint, s: fontKeyUp })">
         <Plus class="icon icon-sm" />
       </button>
     </div>
@@ -703,12 +777,32 @@ function onDocKeydown(e: KeyboardEvent) {
 .tb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .tb-btn--active { background: var(--mk-hover); color: var(--mk-fg); }
 .icon { width: 15px; height: 15px; color: var(--mk-fg-muted); }
-/* 导出进行中：trigger 图标旋转（配合 :exporting 与 Workbench 导出 toast） */
-.icon-spin { animation: tb-spin 0.8s linear infinite; }
-@keyframes tb-spin { to { transform: rotate(360deg); } }
 .tb-btn:hover:not(:disabled) .icon { color: var(--mk-fg); }
 .tb-btn--active .icon { color: var(--mk-fg); }
 .icon-sm { width: 13px; height: 13px; }
+
+/* 自动保存快捷开关：文字按钮内嵌迷你轨道（配色与设置面板的开关同源） */
+.autosave-btn { gap: 7px; }
+/* 迷你开关轨道：顶栏自动保存与文件菜单「新建内核」共用 */
+.mini-track {
+  position: relative;
+  flex: none;
+  width: 24px; height: 14px;
+  border-radius: 999px;
+  background: var(--mk-border-strong);
+  transition: background-color 150ms ease;
+}
+.mini-knob {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--mk-accent-fg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transition: transform 150ms ease;
+}
+.mini-track.on { background: var(--mk-accent); }
+.mini-track.on .mini-knob { transform: translateX(10px); }
 
 .active-dot {
   position: absolute;
@@ -765,20 +859,22 @@ function onDocKeydown(e: KeyboardEvent) {
 
 .mode-seg { display: inline-flex; gap: 2px; flex: none; }
 
-/* ---- 输出统一下拉（D1） ---- */
-/* 菜单经 Teleport 挂到 body，用 fixed + 内联 top/right（由 trigger 坐标推导）定位，
+/* ---- 顶栏下拉（文件 / 输出） ---- */
+/* 菜单经 Teleport 挂到 body，用 fixed + 内联 top/left（由 trigger 坐标推导）定位，
    彻底脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪（否则向下展开的部分会被整片切掉） */
-.output-wrap { position: relative; display: inline-flex; flex: none; }
-/* 输出下拉：外观走 global.css 的 .mk-menu / .mk-menu-item（与右键菜单同一份规格），
-   这里只留展开动效与分组标题、图标配色三点本地行为 */
-.output-menu {
+.tb-menu-wrap { position: relative; display: inline-flex; flex: none; }
+/* 下拉外观走 global.css 的 .mk-menu / .mk-menu-item（与右键菜单同一份规格），
+   这里只留展开动效与输出菜单的分组标题、图标配色 */
+.tb-menu {
   animation: om-in 130ms ease-out;
 }
 @keyframes om-in {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: none; }
 }
-.output-menu .om-group {
+/* 文件菜单：条目内容宽度撑开，快捷键贴右（.mk-menu-key 自带 margin-left:auto） */
+.file-menu .mk-menu-item { min-width: 210px; }
+.file-menu .om-group {
   /* 左内距与 .mk-menu-item 的 10px 对齐：分组标题与条目文字在同一条竖线上 */
   padding: 6px 10px 2px;
   font-size: 10.5px;
@@ -786,9 +882,68 @@ function onDocKeydown(e: KeyboardEvent) {
   letter-spacing: 0.02em;
   user-select: none;
 }
-.output-menu .om-ic { width: 14px; height: 14px; color: var(--mk-fg-muted); flex: none; }
-.output-menu .mk-menu-item:hover:not(:disabled) .om-ic { color: var(--mk-fg); }
-.output-menu .om-label { flex: 1; }
+.file-menu .om-ic { width: 14px; height: 14px; color: var(--mk-fg-muted); flex: none; }
+.file-menu .mk-menu-item:hover:not(:disabled) .om-ic { color: var(--mk-fg); }
+.file-menu .om-label { flex: 1; }
+/* 「新建文件」行：md/mh 开关嵌在文字后面，整行仍按条目样式悬停、点击即新建 */
+.file-menu .kernel-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 210px;
+  padding: 6px 10px;
+  border-radius: var(--mk-radius-sm);
+  color: var(--mk-fg);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.file-menu .kernel-line:hover { background: var(--mk-hover); }
+.kernel-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.kernel-new:focus-visible { outline: var(--mk-focus-ring); outline-offset: 2px; border-radius: 3px; }
+/* 内核开关：md / mh / txt 嵌在轨道内，当前态用 accent 实底；点击不触发整行新建 */
+.kernel-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  height: 16px;
+  padding: 1px;
+  border-radius: 999px;
+  background: var(--mk-active);
+}
+.ks-opt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--mk-fg-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.ks-opt:hover:not(.on) { color: var(--mk-fg); }
+.ks-opt:focus-visible { outline: var(--mk-focus-ring); outline-offset: 1px; }
+.ks-opt.on { background: var(--mk-accent); color: var(--mk-accent-fg); }
 /* 模式位置=居中（设置-外观「模式位置」，默认）：三按钮组脱离左侧功能流，
    绝对定位于顶栏水平中心（tb-main 与 toolbar 垂直同心，top 50% 即垂直居中）。
    按钮自身阻断拖拽，原空位由 flex-spacer 的拖拽区承接 */
@@ -799,7 +954,11 @@ function onDocKeydown(e: KeyboardEvent) {
   transform: translate(-50%, -50%);
   z-index: 1;
 }
-.font-seg { display: inline-flex; gap: 2px; flex: none; }
+.font-seg { display: inline-flex; gap: 1px; flex: none; }
+/* 字号组整体收窄：加减按钮 24px，中间 Aa 占位 20px（原 28/28 太占顶栏） */
+.font-seg > .tb-btn { min-width: 24px; width: 24px; }
+.font-seg > .tb-font-type { min-width: 20px; width: 20px; }
+.font-aa { font-size: 10px; font-weight: 600; letter-spacing: -0.1px; line-height: 1; }
 
 /* 窗口控制：方角、宽热区，关闭悬停红（Windows 惯例）
    flex:none 锚定右端，任何窗宽下不允许隐藏或压缩 */
@@ -815,7 +974,7 @@ function onDocKeydown(e: KeyboardEvent) {
 /* ---- 窄窗分级收纳（按 .toolbar 实际宽度，侧边栏占位自动计入）----
    T1 ≤980px：文字按钮收成纯图标
    T2 ≤720px：隐藏 GitHub、字号占位图标；分隔线收窄
-   T3 ≤600px：隐藏「打开工作区」「另存为」；间距进一步压缩
+   T3 ≤600px：隐藏「另存为」；间距进一步压缩
    T4 ≤520px：隐藏字号调节组
    窗口控制三键全程不参与收纳 */
 @container (max-width: 980px) {
@@ -832,7 +991,7 @@ function onDocKeydown(e: KeyboardEvent) {
 @container (max-width: 600px) {
   .toolbar, .tb-main { gap: 1px; }
   .divider { margin: 0 2px; height: 14px; }
-  .tb-open-ws, .tb-save-as { display: none; }
+  .tb-save-as { display: none; }
   .win-btn { width: 32px; }
 }
 @container (max-width: 520px) {

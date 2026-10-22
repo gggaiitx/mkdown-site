@@ -153,12 +153,22 @@ onBeforeUnmount(() => {
   left: 2.5px;
   top: 0;
   bottom: 0;
-  width: 1px;
+  /* 1 设备像素细线（--mk-dpr 见 main.ts）：避免非整数缩放下被 snap 成 2px */
+  width: calc(1px / var(--mk-dpr, 1));
   background: transparent;
   transition: background-color 120ms ease;
 }
+/* hover/拖拽点亮：与目录树右缘同一套口径（2 设备像素 + accent 混色），
+   宽度按 --mk-dpr 折算，避免非整数缩放下变粗发虚 */
 .resizer:hover::after,
-.resizer.active::after {
+.resizer.active::after,
+.edge:hover::after,
+.edge.active::after {
+  width: calc(2px / var(--mk-dpr, 1));
+  background: color-mix(in srgb, var(--mk-accent) 62%, var(--mk-border));
+}
+.resizer.active::after,
+.edge.active::after {
   background: var(--mk-accent);
 }
 /* 隐藏态的复原手柄：跨在编辑区右缘的窄条 + 常显 1px 边线 */
@@ -177,13 +187,10 @@ onBeforeUnmount(() => {
   left: 3.5px;
   top: 0;
   bottom: 0;
-  width: 1px;
+  /* 同上：常显边线折算成 1 设备像素 */
+  width: calc(1px / var(--mk-dpr, 1));
   background: var(--mk-border);
   transition: background-color 120ms ease;
-}
-.edge:hover::after,
-.edge.active::after {
-  background: var(--mk-accent);
 }
 .outline-inner {
   display: flex;

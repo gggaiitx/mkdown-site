@@ -158,9 +158,9 @@ pub fn run() -> tauri::Result<()> {
             // 文件
             commands::file_cmd::read_file,
             commands::file_cmd::write_file_atomic,
-            commands::file_cmd::save_as,
-            commands::file_cmd::pick_open_file,
-            commands::file_cmd::pick_workspace_dir,
+            commands::file_cmd::save_text_at,
+            commands::file_cmd::browse_dirs,
+            commands::file_cmd::default_workspace_parent,
             commands::file_cmd::get_file_meta,
             commands::file_cmd::probe_text_file,
             commands::file_cmd::probe_preview_kind,
@@ -172,6 +172,7 @@ pub fn run() -> tauri::Result<()> {
             commands::file_cmd::take_pending_open_args,
             // 工作区
             commands::workspace_cmd::list_workspace_tree,
+            commands::workspace_cmd::create_workspace,
             commands::workspace_cmd::create_entry,
             commands::workspace_cmd::rename_entry,
             commands::workspace_cmd::delete_entry,
