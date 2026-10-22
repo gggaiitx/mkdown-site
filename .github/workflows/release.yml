@@ -57,6 +57,14 @@ jobs:
           # %(contents:body) 只返回第一段之后的正文；本仓库发布说明首段为「## 新特性」+其条目
           # （标题与列表间无空行），会被 Git 整体当作 subject 吞掉，导致新特性在 Release 正文丢失。
           git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > rel-notes.md
+          # 兜底（v0.7.0 实测踩到）：标签对象一旦被解析成轻量引用，%(contents) 会退化成
+          # **提交信息**，Release 描述整个变成 chore(release) 的 commit body（标题与分节全丢）。
+          # 发版说明恒以「# 码克 vX.Y.Z」开头，首行不符就读 tag 树里的 docs/release-*.md ——
+          # 那份文件本来就是 tag 正文的源，内容等价且不受引用解析方式影响。
+          if ! head -1 rel-notes.md | LC_ALL=C grep -q '^# 码克'; then
+            echo "::warning::标签说明首行非「# 码克」，回退到 docs/release-${GITHUB_REF_NAME}.md"
+            git show "${GITHUB_REF_NAME}:docs/release-${GITHUB_REF_NAME}.md" > rel-notes.md
+          fi
           gh release create "${GITHUB_REF_NAME}" --title "码克 MkDown ${GITHUB_REF_NAME}" --notes-file rel-notes.md
 
   build-windows:
