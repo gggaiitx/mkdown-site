@@ -34,3 +34,20 @@ export function joinRelPath(dir: string, rel: string): string {
   const leaf = isWinStylePath(dir) ? rel.replaceAll('/', '\\') : rel;
   return joinPath(dir, leaf);
 }
+
+/**
+ * `path` 是否在目录 `dir` 内（含 dir 自身）。
+ *
+ * 不直接 `startsWith`：Windows 上 dir 与 path 可能一个用 `\` 一个用 `/`
+ * （后端回来的路径与用户选择器给的路径分隔符并不保证一致），
+ * 且必须挡住「D:\work 匹配到 D:\workshop」这种前缀相同但不同目录的误判。
+ */
+export function isPathInside(dir: string, path: string): boolean {
+  if (!dir || !path) return false;
+  const win = isWinStylePath(dir);
+  const norm = (s: string): string => (win ? s.replaceAll('/', '\\') : s.replaceAll('\\', '/'));
+  const base = norm(dir).replace(/[\\/]+$/, '');
+  const target = norm(path);
+  if (target === base) return true;
+  return target.startsWith(win ? `${base}\\` : `${base}/`);
+}

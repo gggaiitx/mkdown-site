@@ -26,3 +26,6 @@ export const shiftHint = (key: string): string => (isMac ? `⇧${key}` : `Shift+
 
 /** 主修饰键+Shift+键名提示：Mac=⌘⇧C，其他=Ctrl+Shift+C */
 export const modShiftHint = (key: string): string => (isMac ? `⌘⇧${key}` : `Ctrl+Shift+${key}`);
+
+/** 主修饰键+Alt+键名提示：Mac=⌘⌥C，其他=Ctrl+Alt+C（目录树「复制相对路径」用） */
+export const modAltHint = (key: string): string => (isMac ? `⌘⌥${key}` : `Ctrl+Alt+${key}`);

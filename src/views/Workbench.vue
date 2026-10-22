@@ -85,7 +85,7 @@ import type { BlockFormatKind } from '../utils/mdLineFormat';
 import { findMatchRanges, replaceAll, type ReplaceRequest } from '../utils/mdReplace';
 import { TEMPLATES, type MdTemplate } from '../utils/markdownTemplate';
 import { debounce } from '../utils/common';
-import { isWinStylePath } from '../utils/pathJoin';
+import { isPathInside, isWinStylePath } from '../utils/pathJoin';
 import { useI18n } from '../i18n';
 
 const { t } = useI18n();
@@ -916,6 +916,12 @@ function defaultSaveExt(title: string, kind: TabKind): string {
   return kind === 'md' ? 'md' : 'txt';
 }
 
+/** 路径是否落在当前工作区内（决定「写完盘要不要回读目录树」）。
+ *  分隔符归一与前缀边界（D:\work 不能匹配 D:\workshop）由 utils/pathJoin 统一处理 */
+function isInWorkspace(path: string): boolean {
+  return isPathInside(ws.root ?? '', path);
+}
+
 async function saveActiveAs(): Promise<string | null> {
   const tab = tabs.activeTab;
   if (!tab) return null;
@@ -940,6 +946,11 @@ async function saveActiveAs(): Promise<string | null> {
       isUtf8: true,
     });
     tabs.markSaved(tab.id, tab.content);
+    // 另存进当前工作区：目录树是打开工作区时的快照，不回读就看不到刚写下的新文件
+    //（expandTo 只改展开态，不会凭空长出节点）。刷新失败不该盖掉「已保存」的事实，静默忽略
+    if (isInWorkspace(res.path)) {
+      await ws.refresh().catch(() => undefined);
+    }
     ws.expandTo(res.path);
     rememberRecent(res.path);
     // 另存到新目录同样补授权，保证粘贴图片在阅读态可见
@@ -2124,8 +2135,10 @@ function onKeydown(e: KeyboardEvent) {
       return;
     }
     if (e.key === 'F2') {
-      // 重命名当前文档（与标签右键菜单同一对话框；无路径的新文档由 TabBar 忽略）
+      // 重命名就近派发：最近交互在目录树且选中了非根节点 → 重命名树节点（与树右键同一对话框）；
+      // 其余情况重命名当前标签（无路径的新文档由 TabBar 忽略）。一句 F2 只作用于看得见的那一层
       e.preventDefault();
+      if (fileTreeRef.value?.renameSelected?.()) return;
       tabBarRef.value?.renameActive();
       return;
     }

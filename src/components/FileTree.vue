@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ChevronsDownUp, ChevronsUpDown, ChevronDown, Check, FolderOpen, FolderPlus, RefreshCw, Search, Trash2, X } from '@lucide/vue';
+import {
+  Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Copy,
+  ExternalLink, FileCode2, FilePlus2, FileText, FolderOpen, FolderPlus,
+  Link2, PenLine, RefreshCw, Search, Trash2, X,
+} from '@lucide/vue';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useEditorStore } from '../stores/editorStore';
-import { revealInExplorer } from '../api/fileApi';
+import { useTabsStore } from '../stores/tabsStore';
+import { revealInExplorer, openInSystem } from '../api/fileApi';
 import { useCtxMenu } from '../composables/useCtxMenu';
-import { shiftHint } from '../utils/keyHint';
+import { shiftHint, modHint, modShiftHint, modAltHint } from '../utils/keyHint';
+import { fileKind } from '../utils/fileKind';
+import { newFileNameForTab } from '../utils/newFileName';
 import type { NodeKind, WorkspaceNode } from '../api/types';
 import FileTreeNode from './FileTreeNode.vue';
 import AppDialog from './AppDialog.vue';
@@ -120,17 +127,71 @@ const targetDir = computed(() => {
   if (!n) return ws.root ?? '';
   return n.kind === 'dir' ? n.path : n.path.replace(/[\\/][^\\/]*$/, '');
 });
+/** 菜单目标分流：blank = 面板留白 / 空目录提示（无节点），dir / file = 具体节点。
+ *  三套条目互不重叠——旧菜单把「新建」摆给文件、把「重命名」摆给空白区，
+ *  都是点了没作用或作用对象不符的哑操作 */
+const ctxTarget = computed<'blank' | 'dir' | 'file'>(() => {
+  const n = ctxNode.value;
+  if (!n) return 'blank';
+  return n.kind === 'dir' ? 'dir' : 'file';
+});
+/** 工作区根节点：可新建 / 刷新 / 定位，但重命名与删除必须摘掉（会毁掉当前工作区） */
+const ctxIsRoot = computed(() => !!ctxNode.value && ctxNode.value.path === ws.root);
+/** 目标目录当前是否展开（「展开 / 折叠」文案与图标跟随） */
+const ctxExpanded = computed(() => !!ctxNode.value && ws.expanded.has(ctxNode.value.path));
+/** 文件能否进编辑内核：与 fileKind 同一口径（md / .mh / 文本 / 代码），
+ *  其余类型只有应用内预览或交系统默认程序，给「在编辑器中打开」等于挖坑 */
+const ctxCanEdit = computed(() => {
+  const n = ctxNode.value;
+  if (!n || n.kind !== 'file') return false;
+  const k = fileKind(n.name);
+  return k === 'md' || k === 'text' || k === 'code';
+});
 
 function onContextMenu(e: MouseEvent, node: WorkspaceNode | null) {
+  // 未开工作区：没有任何可作用的对象（新建落点、打开位置全都无处可去），
+  // 旧行为仍会弹出一张点了没反应的菜单——直接不弹
+  if (!ws.root) return;
   e.preventDefault();
   ctxNode.value = node;
   openCtxMenu(e.clientX, e.clientY);
+}
+/**
+ * 空白区右键（根容器的兜底绑定）：空目录只有 .empty 提示、没有行可点，
+ * 新建工作区后正是这种状态——不兜底就完全弹不出菜单（P：新工作区右键功能丢失）。
+ * 节点行自身已 preventDefault（见 FileTreeNode 的 @contextmenu），故先让它跑完：
+ *  - e.defaultPrevented → 行内菜单已开，不覆盖；
+ *  - 菜单自身 / 头部按钮 → 不重开；
+ *  - 其余（.tree 内空白、.empty 提示、面板留白）→ node = null，按工作区根处理
+ *    （新建落点 = ws.root，重命名/删除因 ctxNode 为空自动置灰）。
+ */
+function onBlankContextMenu(e: MouseEvent) {
+  if (e.defaultPrevented) return;
+  const el = e.target as HTMLElement | null;
+  if (el?.closest('[data-path], .mk-menu, .ws-menu')) return;
+  onContextMenu(e, null);
 }
 function closeMenu() {
   ctxNode.value = null;
   closeCtxMenu();
   wsMenuOpen.value = false;
 }
+
+/** 右键菜单里的快捷键提示：全部与 FileTree.onTreeKeydown / Workbench.onKeydown 的真实绑定一一对应，
+ *  不做"看起来有"的假提示（Mac 走 ⌘/⌥/⇧ 符号，见 utils/keyHint） */
+const KEY = {
+  open: 'Enter',
+  /** 目录行的 Enter = 展开/折叠（见 onTreeKeydown），与「打开」共用同一个键、按目标分派 */
+  expand: 'Enter',
+  openInEditor: modHint('Enter'),
+  openWithSystem: shiftHint('Enter'),
+  reveal: modShiftHint('R'),
+  copyPath: modHint('C'),
+  copyRelPath: modAltHint('C'),
+  rename: 'F2',
+  remove: 'Delete',
+  refresh: modHint('R'),
+};
 // ---- 键盘导航：↑/↓ 在可见行（目录 + 文件）间移动选中（过滤模式=在过滤结果里移动），
 //      Enter：目录 = 展开/折叠，文件 = 打开（查看）----
 // 树行是普通 div 不持焦点，监听挂 window；生效前提 = 最近一次鼠标按下在目录树内
@@ -163,26 +224,54 @@ function scrollSelVisible(path: string): void {
   document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 
+/** 树键盘上下文（↑/↓ 导航与全部树内快捷键的共用门卫）：
+ *  最近一次鼠标按下在树内、已开工作区、无菜单/对话框/搜索浮层、焦点不在编辑器与输入框 */
+function treeKeyActive(e?: KeyboardEvent): boolean {
+  if (!clickInTree.value || !ws.root) return false;
+  if (menu.value || wsMenuOpen.value || createDialog.value.visible
+    || renameDialog.value.visible || deleteDialog.value.visible) return false;
+  if (document.querySelector('.mask, .hub')) return false;
+  if (document.querySelector('.cm-editor.cm-focused')) return false; // 双保险：点编辑器已置 clickInTree=false
+  const tgt = (e?.target as HTMLElement | null) ?? null;
+  if (tgt?.closest('button, [role="button"]')) return false; // 树内按钮焦点：Enter 激活按钮是原生行为
+  if (tgt && tgt !== filterIpt.value && tgt.closest('input, textarea, [contenteditable="true"]')) return false;
+  return true;
+}
+
+/** 键盘动作的作用对象：树上当前选中行（过滤态取过滤结果里的那一行） */
+function selectedNode(): WorkspaceNode | null {
+  const p = ws.selectedPath;
+  if (!p) return null;
+  return visibleRows.value.find((r) => r.path === p) ?? null;
+}
+
 function onTreeKeydown(e: KeyboardEvent): void {
+  if (!treeKeyActive(e) || e.isComposing) return;
+  const mod = e.ctrlKey || e.metaKey;
+  const k = e.key.toLowerCase();
+  // ---- 菜单里标了 kbd 的快捷键：与菜单项同一份实现，这里只负责认键 + 拦默认 ----
+  if (mod) {
+    if (e.key === 'Enter' && !e.altKey && !e.shiftKey) { e.preventDefault(); openNodeInEditor(selectedNode()); return; }
+    if (k === 'c' && !e.altKey && !e.shiftKey) { e.preventDefault(); void copyNodePath(selectedNode()); return; }
+    if (k === 'c' && e.altKey && !e.shiftKey) { e.preventDefault(); void copyNodeRelPath(selectedNode()); return; }
+    if (k === 'r' && !e.altKey && !e.shiftKey) { e.preventDefault(); void refreshTree(); return; }
+    if (k === 'r' && e.shiftKey && !e.altKey) { e.preventDefault(); void revealNode(selectedNode()); return; }
+    return;
+  }
+  if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); void openNodeSystem(selectedNode()); return; }
+  if (e.key === 'Delete') { e.preventDefault(); requestDelete(selectedNode()); return; }
+  // ---- 以下为 ↑/↓ 导航与 Enter（打开 / 展开折叠） ----
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
-  if (menu.value || wsMenuOpen.value || createDialog.value.visible || renameDialog.value.visible || deleteDialog.value.visible) return;
-  if (document.querySelector('.mask, .hub')) return;
-  // 主门卫：最近一次鼠标按下不在目录树内 → 放行（上下键/回车交给当前区域的自然行为）
-  if (!clickInTree.value) return;
-  const tgt = e.target as HTMLElement | null;
-  if (document.querySelector('.cm-editor.cm-focused')) return; // 双保险：点编辑器已置 clickInTree=false
-  if (tgt?.closest('button, [role="button"]')) return; // 树内按钮焦点：Enter 激活按钮是原生行为
-  if (tgt && tgt !== filterIpt.value && tgt.closest('input, textarea, [contenteditable="true"]')) return;
   const rows = visibleRows.value;
   if (!rows.length) return;
   const cur = ws.selectedPath ? rows.findIndex((r) => r.path === ws.selectedPath) : -1;
   if (e.key === 'Enter') {
-    // 目录 → 展开/折叠；文件 → 打开查看（与单击同一 emit 链路，Workbench.routeByType 统一分流）
+    // 目录 → 展开/折叠；文件 → 打开（与菜单「打开」同一条链路：routeByType 统一分流）
     const node = cur >= 0 ? rows[cur] : null;
     if (node) {
       e.preventDefault();
       if (node.kind === 'dir') ws.toggleExpand(node.path);
-      else emit('open-file', node.path);
+      else openNode(node);
     }
     return;
   }
@@ -194,6 +283,16 @@ function onTreeKeydown(e: KeyboardEvent): void {
   if (next === cur) return; // 已在边界
   ws.select(rows[next].path);
   void nextTick(() => scrollSelVisible(rows[next].path));
+}
+
+/** F2 就近重命名（Workbench 派发）：树是当前交互区且选中非根节点 → 树接管并返回 true；
+ *  否则返回 false，让 Workbench 回落到「重命名当前标签」 —— 一句 F2 只作用于看得见的那一层 */
+function renameSelected(): boolean {
+  if (!treeKeyActive()) return false;
+  const n = selectedNode();
+  if (!n?.path || n.path === ws.root) return false;
+  requestRename(n);
+  return true;
 }
 
 onMounted(() => {
@@ -209,24 +308,80 @@ onBeforeUnmount(() => {
 
 function menuNewFile() { openCreate('file', targetDir.value); }
 function menuNewDir() { openCreate('dir', targetDir.value); }
+/** 动作的统一错误出口：菜单与快捷键都是"发完不管"的链路，没有 await 方兜异常 */
+function toastErr(err: unknown) {
+  useEditorStore().showToast(err instanceof Error ? err.message : String(err), 'error');
+}
+/* ---- 节点动作（菜单与快捷键共用同一份实现；n 传 ctxNode = 右键目标，传 selectedNode() = 键盘目标） ---- */
+
+/** 打开文件：复用「双击」分流（routeByType：文本进内核 / 可预览进预览页 /
+ *  其余交系统默认程序）。单击那条链路对「非文本非预览」是刻意 no-op（防误触外部程序），
+ *  而菜单点击、回车都属明确意图，不该点了没反应 */
+function openNode(n: WorkspaceNode | null) {
+  if (n?.kind === 'file' && n.path) emit('open-file-dbl', n.path);
+}
+/** 在编辑器中打开：只对文本类给出（见 ctxCanEdit） */
+function openNodeInEditor(n: WorkspaceNode | null) {
+  if (n?.kind === 'file' && n.path) emit('open-file-edit', n.path);
+}
+/** 用系统默认程序打开：Office / PDF / 图片 / 压缩包等非文本、非预览类型；
+ *  目录也会落到文件管理器（与「打开所在位置」等价，故目录菜单不重复给） */
+async function openNodeSystem(n: WorkspaceNode | null) {
+  if (!n?.path) return;
+  try {
+    await openInSystem(n.path);
+  } catch (err) {
+    toastErr(err);
+  }
+}
+/** 复制路径 / 复制相对路径：文档互链与图片引用最常用的两串文本 */
+async function copyNodePath(n: WorkspaceNode | null) {
+  const p = n?.path || ws.root;
+  if (p) await copyToClipboard(p, 'filetree.ctxCopiedPath');
+}
+async function copyNodeRelPath(n: WorkspaceNode | null) {
+  const p = n?.path;
+  const root = ws.root;
+  if (!p || !root || p === root) return;
+  const sep = p.includes('\\') ? '\\' : '/';
+  const rel = p.startsWith(root + sep) ? p.slice(root.length + 1) : p;
+  await copyToClipboard(rel, 'filetree.ctxCopiedRelPath');
+}
+async function copyToClipboard(text: string, okKey: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    useEditorStore().showToast(t(okKey), 'success');
+  } catch {
+    // WebView 剪贴板权限缺失 / 非安全上下文：如实报错，不假装成功
+    useEditorStore().showToast(t('filetree.ctxCopyFailed'), 'error');
+  }
+}
+/** 目录展开 / 折叠（菜单项文案与图标随当前态切换） */
+function toggleNode(n: WorkspaceNode | null) {
+  if (n?.kind === 'dir') ws.toggleExpand(n.path);
+}
+/** 树内刷新：与头部刷新按钮同一份实现（含图标旋转 + 整树淡入动效）——
+ *  刷新这件事不分入口，三个入口（按钮 / 右键 / Ctrl+R）看到的是同一个反馈 */
+function refreshTree(): Promise<void> {
+  return onRefresh();
+}
 /** 打开所在位置：文件/目录在资源管理器中定位选中；空白处右键 = 打开工作区根目录 */
-async function menuReveal() {
-  const p = ctxNode.value?.path || ws.root;
+async function revealNode(n: WorkspaceNode | null) {
+  const p = n?.path || ws.root;
   if (!p) return;
   try {
     await revealInExplorer(p);
   } catch (err) {
-    useEditorStore().showToast(err instanceof Error ? err.message : String(err), 'error');
+    toastErr(err);
   }
 }
-function menuRename() {
-  const n = ctxNode.value;
-  if (!n || !n.path || n.path === ws.root) return;
+/** 重命名 / 删除：根节点与空目标一律不动作（菜单里这些项是 disabled，键盘路径要自己守） */
+function requestRename(n: WorkspaceNode | null) {
+  if (!n?.path || n.path === ws.root) return;
   renameDialog.value = { visible: true, value: n.name, path: n.path };
 }
-function menuDelete() {
-  const n = ctxNode.value;
-  if (!n || !n.path || n.path === ws.root) return;
+function requestDelete(n: WorkspaceNode | null) {
+  if (!n?.path || n.path === ws.root) return;
   deleteDialog.value = { visible: true, node: n };
 }
 
@@ -238,9 +393,17 @@ const createDialog = ref<{ visible: boolean; kind: NodeKind; value: string }>({
 });
 /** 新建目标目录：必须在菜单项点击瞬间快照——对话框确认时右键菜单早已被 document click 关闭清空 */
 const createTarget = ref('');
+/** 新建文件的默认名：后缀跟随「当前内核」——规则与理由见 utils/newFileName.ts（纯函数，可单测） */
+function defaultNewFileName(): string {
+  return newFileNameForTab(useTabsStore().activeTab, t('filetree.newFileStem'));
+}
 function openCreate(kind: NodeKind, dir?: string) {
   createTarget.value = dir || ws.root || '';
-  createDialog.value = { visible: true, kind, value: kind === 'file' ? t('filetree.defaultFileName') : t('filetree.defaultDirName') };
+  createDialog.value = {
+    visible: true,
+    kind,
+    value: kind === 'file' ? defaultNewFileName() : t('filetree.defaultDirName'),
+  };
 }
 async function doCreate() {
   const { kind, value } = createDialog.value;
@@ -378,7 +541,7 @@ function openFilter(): void {
   filterVisible.value = true;
   void nextTick(() => filterIpt.value?.focus());
 }
-defineExpose({ openFilter });
+defineExpose({ openFilter, renameSelected });
 
 function closeFilter(): void {
   filterVisible.value = false;
@@ -426,7 +589,13 @@ watch(filteredTree, (nodes) => {
 </script>
 
 <template>
-  <aside ref="rootEl" class="explorer" :class="{ dragging, 'tree-fx': treeFx }" :style="{ width: `${width}px` }">
+  <aside
+    ref="rootEl"
+    class="explorer"
+    :class="{ dragging, 'tree-fx': treeFx }"
+    :style="{ width: `${width}px` }"
+    @contextmenu="onBlankContextMenu"
+  >
     <!-- 右缘拖拽手柄（拖到最左可隐藏）；原生 title 提示（全高细条会让 data-tip 气泡垂直定位跑飞，见 v0.3.1 反馈） -->
     <div
       class="resizer"
@@ -532,14 +701,89 @@ watch(filteredTree, (nodes) => {
     <div v-else-if="ws.tree" class="empty">{{ t('filetree.emptyDir1') }}<br>{{ t('filetree.emptyDir2') }}</div>
     <div v-else class="empty">{{ t('filetree.noFolder1') }}<br>{{ t('filetree.noFolder2') }}</div>
 
-    <!-- 右键菜单 -->
-    <div v-if="menu" :ref="setMenuRef" class="mk-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
-      <button class="mk-menu-item" @click="menuNewFile">{{ t('filetree.newFile') }}</button>
-      <button class="mk-menu-item" @click="menuNewDir">{{ t('filetree.newDir') }}</button>
-      <button class="mk-menu-item" @click="menuReveal">{{ t('filetree.ctxReveal') }}</button>
-      <div class="mk-menu-sep" />
-      <button class="mk-menu-item" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuRename">{{ t('filetree.ctxRename') }}</button>
-      <button class="mk-menu-item danger" :disabled="!ctxNode || ctxNode.path === ws.root" @click="menuDelete">{{ t('filetree.ctxDelete') }}</button>
+    <!-- 右键菜单：按目标分流（文件 / 目录 / 面板留白），条目图标与标签页、编辑区菜单同一规格 -->
+    <div v-if="menu" :ref="setMenuRef" class="mk-menu tree-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
+      <template v-if="ctxTarget === 'file'">
+        <button class="mk-menu-item" @click="openNode(ctxNode)">
+          <FileText class="mk-menu-ico" /><span>{{ t('filetree.ctxOpen') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.open }}</kbd>
+        </button>
+        <button v-if="ctxCanEdit" class="mk-menu-item" @click="openNodeInEditor(ctxNode)">
+          <FileCode2 class="mk-menu-ico" /><span>{{ t('filetree.ctxOpenInEditor') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.openInEditor }}</kbd>
+        </button>
+        <button class="mk-menu-item" @click="openNodeSystem(ctxNode)">
+          <ExternalLink class="mk-menu-ico" /><span>{{ t('filetree.ctxOpenWithSystem') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.openWithSystem }}</kbd>
+        </button>
+        <div class="mk-menu-sep" />
+        <button class="mk-menu-item" @click="revealNode(ctxNode)">
+          <FolderOpen class="mk-menu-ico" /><span>{{ t('filetree.ctxReveal') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.reveal }}</kbd>
+        </button>
+        <div class="mk-menu-sep" />
+        <button class="mk-menu-item" @click="copyNodePath(ctxNode)">
+          <Copy class="mk-menu-ico" /><span>{{ t('filetree.ctxCopyPath') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.copyPath }}</kbd>
+        </button>
+        <button class="mk-menu-item" @click="copyNodeRelPath(ctxNode)">
+          <Link2 class="mk-menu-ico" /><span>{{ t('filetree.ctxCopyRelPath') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.copyRelPath }}</kbd>
+        </button>
+        <div class="mk-menu-sep" />
+        <button class="mk-menu-item" @click="requestRename(ctxNode)">
+          <PenLine class="mk-menu-ico" /><span>{{ t('filetree.ctxRename') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.rename }}</kbd>
+        </button>
+        <button class="mk-menu-item danger" @click="requestDelete(ctxNode)">
+          <Trash2 class="mk-menu-ico" /><span>{{ t('filetree.ctxDelete') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.remove }}</kbd>
+        </button>
+      </template>
+      <template v-else>
+        <button class="mk-menu-item" @click="menuNewFile">
+          <FilePlus2 class="mk-menu-ico" /><span>{{ t('filetree.newFile') }}</span>
+        </button>
+        <button class="mk-menu-item" @click="menuNewDir">
+          <FolderPlus class="mk-menu-ico" /><span>{{ t('filetree.newDir') }}</span>
+        </button>
+        <div class="mk-menu-sep" />
+        <!-- 展开/折叠：绑定在具体目录上，根节点恒展开故不给。
+             不标 ←/→ —— 那两个键是「同目录同族切换文件」，让位给它 -->
+        <button v-if="ctxTarget === 'dir' && !ctxIsRoot" class="mk-menu-item" @click="toggleNode(ctxNode)">
+          <component :is="ctxExpanded ? ChevronsDownUp : ChevronRight" class="mk-menu-ico" />
+          <span>{{ t(ctxExpanded ? 'filetree.ctxCollapse' : 'filetree.ctxExpand') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.expand }}</kbd>
+        </button>
+        <button class="mk-menu-item" @click="refreshTree()">
+          <RefreshCw class="mk-menu-ico" /><span>{{ t('filetree.refresh') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.refresh }}</kbd>
+        </button>
+        <button class="mk-menu-item" @click="revealNode(ctxNode)">
+          <FolderOpen class="mk-menu-ico" /><span>{{ t('filetree.ctxReveal') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.reveal }}</kbd>
+        </button>
+        <div class="mk-menu-sep" />
+        <button class="mk-menu-item" @click="copyNodePath(ctxNode)">
+          <Copy class="mk-menu-ico" /><span>{{ t('filetree.ctxCopyPath') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.copyPath }}</kbd>
+        </button>
+        <button v-if="ctxNode && !ctxIsRoot" class="mk-menu-item" @click="copyNodeRelPath(ctxNode)">
+          <Link2 class="mk-menu-ico" /><span>{{ t('filetree.ctxCopyRelPath') }}</span>
+          <kbd class="mk-menu-key">{{ KEY.copyRelPath }}</kbd>
+        </button>
+        <template v-if="ctxTarget === 'dir'">
+          <div class="mk-menu-sep" />
+          <button class="mk-menu-item" :disabled="ctxIsRoot" @click="requestRename(ctxNode)">
+            <PenLine class="mk-menu-ico" /><span>{{ t('filetree.ctxRename') }}</span>
+            <kbd class="mk-menu-key">{{ KEY.rename }}</kbd>
+          </button>
+          <button class="mk-menu-item danger" :disabled="ctxIsRoot" @click="requestDelete(ctxNode)">
+            <Trash2 class="mk-menu-ico" /><span>{{ t('filetree.ctxDelete') }}</span>
+            <kbd class="mk-menu-key">{{ KEY.remove }}</kbd>
+          </button>
+        </template>
+      </template>
     </div>
 
     <!-- 新建对话框 -->
@@ -787,6 +1031,10 @@ watch(filteredTree, (nodes) => {
   text-align: center;
 }
 /* 右键菜单外观统一走 global.css 的 .mk-menu / .mk-menu-item（与 TabBar / 编辑区同一份规格） */
+/* 右键菜单：条目带 13px 图标 + 中文长文案（「用系统默认程序打开」），
+   固定最小宽度让文件 / 目录 / 空白三套菜单切换时宽度不跳动 */
+.tree-menu { min-width: 200px; }
+.tree-menu .mk-menu-item { min-width: 0; }
 .target-hint {
   font-size: 11.5px;
   color: var(--mk-fg-muted);

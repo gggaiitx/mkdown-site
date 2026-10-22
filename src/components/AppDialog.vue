@@ -54,6 +54,15 @@ watch(
       document.addEventListener('keydown', onKey, true);
       await nextTick();
       const first = dialogRef.value?.querySelector<HTMLElement>('.ipt');
+      if (first instanceof HTMLInputElement) {
+        // 打开即选中「主名」、把扩展名留在选区外：新建拿到的是「新建文档.md」，
+        // 重命名拿到的是原名 —— 直接敲字就换掉名字且不丢后缀（与资源管理器同一手感）
+        first.focus();
+        const dot = first.value.lastIndexOf('.');
+        if (dot > 0) first.setSelectionRange(0, dot);
+        else first.select();
+        return;
+      }
       (first ?? dialogRef.value)?.focus();
     } else {
       document.removeEventListener('keydown', onKey, true);
