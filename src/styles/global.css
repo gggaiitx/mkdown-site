@@ -3,6 +3,10 @@
 
 :root {
   --mk-font-size: 13px;
+  /* 全局字体（设置-外观「字体」）：JS 启动后会按用户选择覆写。
+     各区域默认仍沿用自己原有的字体栈；--mk-text-font-family 只在用户选了字体时存在，
+     编辑窗格/win 预览等地方用它做 var(..., 原有栈) 的覆盖开关 */
+  --mk-font-family: 'Geist Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
   /* 编辑态（CodeMirror 窗格）正文：亮色与预览 default 主题一致（#3f4a54），
      暗色在 #999（过暗）与 rgb(232,233,238)（过亮）之间取中档 */
   --mk-editor-fg: rgb(63 74 84);
@@ -33,6 +37,8 @@
   --mk-tip-fg: rgb(240 240 240);
   --mk-radius: 6px;
   --mk-radius-sm: 4px;
+  /* 设置行右侧控件统一宽度：下拉与滑条左右缘对齐 */
+  --mk-control-w: 200px;
 
   /* 次级提示文字（预览浮层/占位/说明）：与 --mk-fg-muted 同源，
      曾经只以 var(--mk-fg-soft, #666) 的兜底形式存在，暗色下退化成 #666（对比 3.2:1 不达标） */
@@ -288,7 +294,7 @@ body,
 }
 
 body {
-  font-family: 'Geist Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--mk-font-family);
   /* chrome 基准字号固定（顶栏/标签栏/状态栏/目录树/对话框等 UI 不随「字号」设置缩放）；
      设置的字号 --mk-font-size 仅由编辑区/预览正文消费（见 md 引擎与代码引擎样式覆盖） */
   font-size: 15px;
@@ -628,6 +634,62 @@ button:focus-visible {
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* ---- 下拉选择：设置面板与字体选择器共用一套外观 ----
+   触发钮 200px；弹层 teleport 到 body、fixed 定位（设置面板层级之上）；
+   选中项右侧打勾，鼠标掠过与键盘移动共用 .active 高亮。
+   字体选择器在此基础上加自己的搜索框与字体预览，其余类不再另写。 */
+.mk-select-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 6px;
+  width: var(--mk-control-w); max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--mk-border); border-radius: 6px;
+  background: var(--mk-bg); color: var(--mk-fg);
+  font-size: 13px; line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+.mk-select-trigger:hover { border-color: var(--mk-border-strong); }
+.mk-select-trigger:focus-visible { outline: 2px solid var(--mk-fg-muted); outline-offset: 1px; }
+.mk-select-trigger-label {
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mk-select-chev { flex: none; color: var(--mk-fg-muted); }
+
+.mk-select-panel {
+  position: fixed;
+  z-index: calc(var(--mk-z-settings) + 5);
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px;
+  background: var(--mk-panel); color: var(--mk-fg);
+  border: 1px solid var(--mk-border-strong); border-radius: 8px;
+  box-shadow: var(--mk-shadow-dialog);
+  visibility: hidden;
+}
+.mk-select-panel.ready { visibility: visible; }
+.mk-select-list {
+  margin: 0; padding: 0;
+  max-height: 236px;
+  overflow-y: auto;
+  list-style: none;
+  outline: none;
+}
+.mk-select-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 30px; padding: 0 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.mk-select-opt.active { background: var(--mk-hover); }
+.mk-select-opt-label {
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mk-select-check { flex: none; color: var(--mk-accent); }
+.mk-select-divider { height: 1px; margin: 5px 4px; background: var(--mk-border); }
+.mk-select-state { padding: 8px; font-size: 12px; color: var(--mk-fg-muted); }
 
 /* ---- 动效兜底：系统「减少动态效果」下关掉过渡与位移，保留淡入淡出以外的可读反馈 ----
    此前全项目只有 FileTree 一处 reduce 兜底，toast 位移、刷新闪白、下拉下滑全裸 */

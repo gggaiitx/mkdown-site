@@ -20,9 +20,16 @@ pub struct AppState {
     /// 最近一轮搜索的取消令牌；新一轮开始时置停上一轮
     /// （ADR-03 不建索引，靠提前退出避免连打搜索时多轮全库扫描叠加）
     search_cancel: RwLock<Option<Arc<AtomicBool>>>,
-    /// 「打开方式」启动参数带来的待打开文件：setup 存入，
-    /// 前端挂载后经 take_pending_open_args 命令取走（事件先于监听器注册的竞态规避）
-    pending_open: RwLock<Vec<String>>,
+    /// 「打开方式」带来的待打开文件：前端取件前入队，
+    /// 取件之后（监听器必然已注册）直接走 open-file-args 事件。
+    /// 入队与取件共用同一把锁，保证同一条路径只被消费一次（见 stage_open_files）
+    pending_open: RwLock<PendingOpen>,
+}
+
+#[derive(Default)]
+struct PendingOpen {
+    files: Vec<String>,
+    frontend_ready: bool,
 }
 
 impl AppState {
@@ -83,16 +90,35 @@ impl AppState {
     /// 存入启动参数解析出的待打开文件（覆盖式：启动时只解析一次）
     pub fn set_pending_open(&self, files: Vec<String>) {
         if let Ok(mut slot) = self.pending_open.write() {
-            *slot = files;
+            slot.files = files;
         }
     }
 
-    /// 取走待打开文件（取后即清）；前端挂载完成时调用一次
+    /// 收到「打开方式」递交的文件：前端已就绪返回 true（调用方发事件），
+    /// 未就绪则入队并返回 false。锁中毒时退回事件派发，至少不吞掉这次打开。
+    pub fn stage_open_files(&self, files: Vec<String>) -> bool {
+        match self.pending_open.write() {
+            Ok(mut slot) => {
+                if slot.frontend_ready {
+                    return true;
+                }
+                slot.files.extend(files);
+                false
+            }
+            Err(_) => true,
+        }
+    }
+
+    /// 取走待打开文件（取后即清）并标记前端已就绪；前端挂载完成时调用一次。
+    /// 就绪标记与取件在同一把锁内完成：此后到达的文件只会走事件，不会重复入队。
     pub fn take_pending_open(&self) -> Vec<String> {
-        self.pending_open
-            .write()
-            .map(|mut slot| std::mem::take(&mut *slot))
-            .unwrap_or_default()
+        match self.pending_open.write() {
+            Ok(mut slot) => {
+                slot.frontend_ready = true;
+                std::mem::take(&mut slot.files)
+            }
+            Err(_) => Vec::new(),
+        }
     }
 }
 
@@ -145,6 +171,20 @@ mod tests {
         state.grant_root(dir.path());
         // 文件尚不存在（另存为场景）：退化为父目录判定
         assert!(state.is_allowed(&dir.path().join("还没落盘.md")));
+    }
+
+    #[test]
+    fn open_files_queue_until_frontend_ready() {
+        let state = AppState::default();
+        assert!(!state.stage_open_files(vec!["a.py".into()]), "前端未就绪应入队");
+        assert!(!state.stage_open_files(vec!["b.md".into()]));
+        assert_eq!(
+            state.take_pending_open(),
+            vec!["a.py".to_string(), "b.md".to_string()],
+            "取件应按到达顺序返回全部文件"
+        );
+        assert!(state.stage_open_files(vec!["c.txt".into()]), "就绪后应走事件派发");
+        assert!(state.take_pending_open().is_empty(), "就绪后到达的文件不得再入队");
     }
 
     #[test]

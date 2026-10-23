@@ -12,6 +12,8 @@ import { altKey, modKey, shiftKey } from '../utils/keyHint';
 import type { AppSettings } from '../api/types';
 import { FONT_MAX, FONT_MIN } from '../api/types';
 import SettingsHintIcon from './SettingsHintIcon.vue';
+import FontFamilyPicker from './FontFamilyPicker.vue';
+import SettingsSelect from './SettingsSelect.vue';
 
 const settings = useSettingsStore();
 const { t } = useI18n();
@@ -39,6 +41,11 @@ function openGithub() {
 const SITE_URL = 'https://mkdown.shenco.wang';
 function openSite() {
   void openUrl(SITE_URL).catch(() => undefined);
+}
+/** 更新日志：GitHub Releases */
+const CHANGELOG_URL = 'https://github.com/gggaiitx/mkdown-site/releases';
+function openChangelog() {
+  void openUrl(CHANGELOG_URL).catch(() => undefined);
 }
 
 // ---- 更新检测（与顶栏更新按钮共用同一 composable；状态为模块级单例，
@@ -202,6 +209,63 @@ const previewThemes: Array<{ value: string; label: string }> = [
   { value: 'win', label: 'settings.ptWin' },
 ];
 
+// ---- 下拉选项：label 存 i18n key，渲染时经 tr() 现取当前语言（面板内切语言立即生效） ----
+type SelectItem = { value: string; label: string };
+const tr = (items: SelectItem[]): SelectItem[] =>
+  items.map((it) => ({ value: it.value, label: t(it.label) }));
+
+const THEME_MODES: SelectItem[] = [
+  { value: 'system', label: 'settings.themeSystem' },
+  { value: 'light', label: 'settings.themeLight' },
+  { value: 'dark', label: 'settings.themeDark' },
+];
+const MODE_BAR_POSITIONS: SelectItem[] = [
+  { value: 'center', label: 'settings.posCenter' },
+  { value: 'left', label: 'settings.posLeft' },
+];
+const READ_LAYOUTS: SelectItem[] = [
+  { value: 'narrow', label: 'settings.layoutNarrow' },
+  { value: 'medium', label: 'settings.layoutMedium' },
+  { value: 'wide', label: 'settings.layoutWide' },
+  { value: 'full', label: 'settings.layoutFull' },
+];
+const OUTLINE_STYLES: SelectItem[] = [
+  { value: 'classic', label: 'settings.outlineClassic' },
+  { value: 'fresh', label: 'settings.outlineFresh' },
+];
+const LANGUAGES: SelectItem[] = [
+  { value: 'zh-CN', label: 'settings.langZh' },
+  { value: 'en-US', label: 'settings.langEn' },
+];
+const EDITOR_ENGINES: SelectItem[] = [
+  { value: 'markdown', label: 'settings.engineMarkdown' },
+  { value: 'wangeditor', label: 'settings.engineWangeditor' },
+];
+const WORD_FONTS_ZH: SelectItem[] = [
+  { value: '等线', label: 'settings.fontDengxian' },
+  { value: '宋体', label: 'settings.fontSimSun' },
+  { value: '微软雅黑', label: 'settings.fontMsYaHei' },
+];
+/** 西文字体名不翻译，直接按字面展示 */
+const WORD_FONTS_EN: SelectItem[] = [
+  { value: 'Calibri', label: 'Calibri' },
+  { value: 'Times New Roman', label: 'Times New Roman' },
+  { value: 'Arial', label: 'Arial' },
+  { value: 'Consolas', label: 'Consolas' },
+];
+const WORD_EXPORT_ENGINES: SelectItem[] = [
+  { value: 'builtin', label: 'settings.wordEngineBuiltin' },
+  { value: 'community', label: 'settings.wordEngineCommunity' },
+];
+const WORD_IMPORT_FIDELITIES: SelectItem[] = [
+  { value: 'semantic', label: 'settings.wordImportSemantic' },
+  { value: 'fidelity', label: 'settings.wordImportFidelityOpt' },
+];
+const BACK_TOP_MODES: SelectItem[] = [
+  { value: 'auto', label: 'settings.backTopAuto' },
+  { value: 'always', label: 'settings.backTopAlways' },
+];
+
 // ---- 左右分栏分类导航（对齐 WorkBuddy 设置面板形态） ----
 type SectionId = 'appearance' | 'editor' | 'actions' | 'export' | 'about';
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
@@ -217,7 +281,9 @@ const active = ref<SectionId>('appearance');
 type HintKey =
   | 'switch' | 'dialog' | 'shortcuts' | 'back-top'
   | 'engine' | 'auto-save' | 'scroll-sync' | 'toolbar' | 'focus' | 'line-numbers'
-  | 'export-font' | 'export-image';
+  | 'font-family' | 'font-size' | 'export-font' | 'export-image'
+  | 'theme-palette' | 'preview-theme' | 'read-layout' | 'outline'
+  | 'word-engine' | 'word-import';
 const openHint = ref<HintKey | null>(null);
 function toggleHint(key: HintKey) {
   openHint.value = openHint.value === key ? null : key;
@@ -290,70 +356,111 @@ onBeforeUnmount(onDragEnd);
           </button>
         </nav>
         <!-- 右侧内容区 -->
-        <div class="body">
+        <div class="body" :class="{ 'body-editor': active === 'editor' }">
           <!-- 外观 -->
           <template v-if="active === 'appearance'">
             <div class="sec-title">{{ t('settings.sectionAppearance') }}</div>
             <div class="row">
               <label>{{ t('settings.themeMode') }}</label>
-              <select :value="settings.settings.themeMode" @change="patch({ themeMode: ($event.target as HTMLSelectElement).value as AppSettings['themeMode'] })">
-                <option value="system">{{ t('settings.themeSystem') }}</option>
-                <option value="light">{{ t('settings.themeLight') }}</option>
-                <option value="dark">{{ t('settings.themeDark') }}</option>
-              </select>
+              <SettingsSelect
+                :model-value="settings.settings.themeMode"
+                :options="tr(THEME_MODES)"
+                :aria-label="t('settings.themeMode')"
+                @update:model-value="patch({ themeMode: $event as AppSettings['themeMode'] })"
+              />
             </div>
             <div class="row">
-              <label>{{ t('settings.themePalette') }}</label>
-              <select :value="settings.palette" @change="patchPalette(($event.target as HTMLSelectElement).value)">
-                <option v-for="p in paletteOptions" :key="p.value" :value="p.value">{{ t(p.label) }}</option>
-              </select>
+              <span class="row-label">
+                {{ t('settings.themePalette') }}
+                <SettingsHintIcon target="theme-palette" :open="openHint === 'theme-palette'" @toggle="toggleHint('theme-palette')" />
+              </span>
+              <SettingsSelect
+                :model-value="settings.palette"
+                :options="tr(paletteOptions)"
+                :aria-label="t('settings.themePalette')"
+                @update:model-value="patchPalette"
+              />
             </div>
+            <div v-if="openHint === 'theme-palette'" id="hint-theme-palette" class="sec-note">{{ t('settings.themePaletteHint') }}</div>
             <div class="row">
-              <label>{{ t('settings.previewTheme') }}</label>
-              <select :value="settings.settings.previewTheme" @change="patch({ previewTheme: ($event.target as HTMLSelectElement).value })">
-                <option v-for="pt in previewThemes" :key="pt.value" :value="pt.value">{{ t(pt.label) }}</option>
-              </select>
+              <span class="row-label">
+                {{ t('settings.previewTheme') }}
+                <SettingsHintIcon target="preview-theme" :open="openHint === 'preview-theme'" @toggle="toggleHint('preview-theme')" />
+              </span>
+              <SettingsSelect
+                :model-value="settings.settings.previewTheme"
+                :options="tr(previewThemes)"
+                :aria-label="t('settings.previewTheme')"
+                @update:model-value="patch({ previewTheme: $event })"
+              />
             </div>
+            <div v-if="openHint === 'preview-theme'" id="hint-preview-theme" class="sec-note">{{ t('settings.previewThemeHint') }}</div>
             <div class="row">
               <label>{{ t('settings.modeBarPos') }}</label>
-              <select :value="settings.settings.modeBarPosition" @change="patch({ modeBarPosition: ($event.target as HTMLSelectElement).value as AppSettings['modeBarPosition'] })">
-                <option value="center">{{ t('settings.posCenter') }}</option>
-                <option value="left">{{ t('settings.posLeft') }}</option>
-              </select>
+              <SettingsSelect
+                :model-value="settings.settings.modeBarPosition"
+                :options="tr(MODE_BAR_POSITIONS)"
+                :aria-label="t('settings.modeBarPos')"
+                @update:model-value="patch({ modeBarPosition: $event as AppSettings['modeBarPosition'] })"
+              />
             </div>
             <div class="row">
-              <label>{{ t('settings.layout') }}</label>
-              <select :value="settings.settings.readLayout" @change="patch({ readLayout: ($event.target as HTMLSelectElement).value as AppSettings['readLayout'] })">
-                <option value="narrow">{{ t('settings.layoutNarrow') }}</option>
-                <option value="medium">{{ t('settings.layoutMedium') }}</option>
-                <option value="wide">{{ t('settings.layoutWide') }}</option>
-                <option value="full">{{ t('settings.layoutFull') }}</option>
-              </select>
+              <span class="row-label">
+                {{ t('settings.layout') }}
+                <SettingsHintIcon target="read-layout" :open="openHint === 'read-layout'" @toggle="toggleHint('read-layout')" />
+              </span>
+              <SettingsSelect
+                :model-value="settings.settings.readLayout"
+                :options="tr(READ_LAYOUTS)"
+                :aria-label="t('settings.layout')"
+                @update:model-value="patch({ readLayout: $event as AppSettings['readLayout'] })"
+              />
             </div>
+            <div v-if="openHint === 'read-layout'" id="hint-read-layout" class="sec-note">{{ t('settings.readLayoutHint') }}</div>
             <div class="row">
-              <label>{{ t('settings.fontSize', { n: settings.settings.fontSize }) }}</label>
+              <span class="row-label">
+                {{ t('settings.fontFamily') }}
+                <SettingsHintIcon target="font-family" :open="openHint === 'font-family'" @toggle="toggleHint('font-family')" />
+              </span>
+              <FontFamilyPicker
+                :model-value="settings.settings.fontFamily"
+                @update:model-value="patch({ fontFamily: $event })"
+              />
+            </div>
+            <div v-if="openHint === 'font-family'" id="hint-font-family" class="sec-note">{{ t('settings.fontFamilyHint') }}</div>
+            <div class="row">
+              <span class="row-label">
+                {{ t('settings.fontSize', { n: settings.settings.fontSize }) }}
+                <SettingsHintIcon target="font-size" :open="openHint === 'font-size'" @toggle="toggleHint('font-size')" />
+              </span>
               <input
                 type="range" :min="FONT_MIN" :max="FONT_MAX" step="0.5"
                 :value="settings.settings.fontSize"
                 @change="patch({ fontSize: Number(($event.target as HTMLInputElement).value) })"
               />
             </div>
+            <div v-if="openHint === 'font-size'" id="hint-font-size" class="sec-note">{{ t('settings.fontSizeHint') }}</div>
             <div class="row">
-              <label>{{ t('settings.outlineStyle') }}</label>
-              <select
-                :value="settings.settings.outlineStyle"
-                @change="patch({ outlineStyle: ($event.target as HTMLSelectElement).value as AppSettings['outlineStyle'] })"
-              >
-                <option value="classic">{{ t('settings.outlineClassic') }}</option>
-                <option value="fresh">{{ t('settings.outlineFresh') }}</option>
-              </select>
+              <span class="row-label">
+                {{ t('settings.outlineStyle') }}
+                <SettingsHintIcon target="outline" :open="openHint === 'outline'" @toggle="toggleHint('outline')" />
+              </span>
+              <SettingsSelect
+                :model-value="settings.settings.outlineStyle"
+                :options="tr(OUTLINE_STYLES)"
+                :aria-label="t('settings.outlineStyle')"
+                @update:model-value="patch({ outlineStyle: $event as AppSettings['outlineStyle'] })"
+              />
             </div>
+            <div v-if="openHint === 'outline'" id="hint-outline" class="sec-note">{{ t('settings.outlineStyleHint') }}</div>
             <div class="row">
               <label>{{ t('settings.language') }}</label>
-              <select :value="settings.settings.language" @change="patch({ language: ($event.target as HTMLSelectElement).value })">
-                <option value="zh-CN">{{ t('settings.langZh') }}</option>
-                <option value="en-US">{{ t('settings.langEn') }}</option>
-              </select>
+              <SettingsSelect
+                :model-value="settings.settings.language"
+                :options="tr(LANGUAGES)"
+                :aria-label="t('settings.language')"
+                @update:model-value="patch({ language: $event })"
+              />
             </div>
           </template>
 
@@ -365,13 +472,12 @@ onBeforeUnmount(onDragEnd);
                 {{ t('settings.editorEngine') }}
                 <SettingsHintIcon target="engine" :open="openHint === 'engine'" @toggle="toggleHint('engine')" />
               </span>
-              <select
-                :value="settings.settings.editorEngine"
-                @change="patch({ editorEngine: ($event.target as HTMLSelectElement).value as AppSettings['editorEngine'] })"
-              >
-                <option value="markdown">{{ t('settings.engineMarkdown') }}</option>
-                <option value="wangeditor">{{ t('settings.engineWangeditor') }}</option>
-              </select>
+              <SettingsSelect
+                :model-value="settings.settings.editorEngine"
+                :options="tr(EDITOR_ENGINES)"
+                :aria-label="t('settings.editorEngine')"
+                @update:model-value="patch({ editorEngine: $event as AppSettings['editorEngine'] })"
+              />
             </div>
             <div v-if="openHint === 'engine'" id="hint-engine" class="sec-note">{{ t('settings.editorEngineHint') }}</div>
             <div class="row">
@@ -468,20 +574,21 @@ onBeforeUnmount(onDragEnd);
             <div v-if="openHint === 'export-font'" id="hint-export-font" class="sec-note">{{ t('settings.exportFontHint') }}</div>
             <div class="row">
               <label>{{ t('settings.wordFontZh') }}</label>
-              <select :value="settings.settings.wordFontZh" @change="patch({ wordFontZh: ($event.target as HTMLSelectElement).value })">
-                <option value="等线">{{ t('settings.fontDengxian') }}</option>
-                <option value="宋体">{{ t('settings.fontSimSun') }}</option>
-                <option value="微软雅黑">{{ t('settings.fontMsYaHei') }}</option>
-              </select>
+              <SettingsSelect
+                :model-value="settings.settings.wordFontZh"
+                :options="tr(WORD_FONTS_ZH)"
+                :aria-label="t('settings.wordFontZh')"
+                @update:model-value="patch({ wordFontZh: $event })"
+              />
             </div>
             <div class="row">
               <label>{{ t('settings.wordFontEn') }}</label>
-              <select :value="settings.settings.wordFontEn" @change="patch({ wordFontEn: ($event.target as HTMLSelectElement).value })">
-                <option value="Calibri">Calibri</option>
-                <option value="Times New Roman">Times New Roman</option>
-                <option value="Arial">Arial</option>
-                <option value="Consolas">Consolas</option>
-              </select>
+              <SettingsSelect
+                :model-value="settings.settings.wordFontEn"
+                :options="WORD_FONTS_EN"
+                :aria-label="t('settings.wordFontEn')"
+                @update:model-value="patch({ wordFontEn: $event })"
+              />
             </div>
             <div class="row">
               <label>{{ t('settings.wordFontSize', { n: settings.settings.wordFontSize }) }}</label>
@@ -492,25 +599,31 @@ onBeforeUnmount(onDragEnd);
               />
             </div>
             <div class="row">
-              <label>{{ t('settings.wordExportEngine') }}</label>
-              <select
-                :value="settings.settings.wordExportEngine"
-                @change="patch({ wordExportEngine: ($event.target as HTMLSelectElement).value as 'builtin' | 'community' })"
-              >
-                <option value="builtin">{{ t('settings.wordEngineBuiltin') }}</option>
-                <option value="community">{{ t('settings.wordEngineCommunity') }}</option>
-              </select>
+              <span class="row-label">
+                {{ t('settings.wordExportEngine') }}
+                <SettingsHintIcon target="word-engine" :open="openHint === 'word-engine'" @toggle="toggleHint('word-engine')" />
+              </span>
+              <SettingsSelect
+                :model-value="settings.settings.wordExportEngine"
+                :options="tr(WORD_EXPORT_ENGINES)"
+                :aria-label="t('settings.wordExportEngine')"
+                @update:model-value="patch({ wordExportEngine: $event as 'builtin' | 'community' })"
+              />
             </div>
+            <div v-if="openHint === 'word-engine'" id="hint-word-engine" class="sec-note">{{ t('settings.wordExportEngineHint') }}</div>
             <div class="row">
-              <label>{{ t('settings.wordImportFidelity') }}</label>
-              <select
-                :value="settings.settings.wordImportFidelity"
-                @change="patch({ wordImportFidelity: ($event.target as HTMLSelectElement).value as 'semantic' | 'fidelity' })"
-              >
-                <option value="semantic">{{ t('settings.wordImportSemantic') }}</option>
-                <option value="fidelity">{{ t('settings.wordImportFidelityOpt') }}</option>
-              </select>
+              <span class="row-label">
+                {{ t('settings.wordImportFidelity') }}
+                <SettingsHintIcon target="word-import" :open="openHint === 'word-import'" @toggle="toggleHint('word-import')" />
+              </span>
+              <SettingsSelect
+                :model-value="settings.settings.wordImportFidelity"
+                :options="tr(WORD_IMPORT_FIDELITIES)"
+                :aria-label="t('settings.wordImportFidelity')"
+                @update:model-value="patch({ wordImportFidelity: $event as 'semantic' | 'fidelity' })"
+              />
             </div>
+            <div v-if="openHint === 'word-import'" id="hint-word-import" class="sec-note">{{ t('settings.wordImportFidelityHint') }}</div>
             <!-- 图片导出与 Word 导出指向不是一回事（一个管文档字体基线，一个管预览栅格化），
                  所以这里另起一栏，别混在上面那组下面 -->
             <div class="sec-sub">
@@ -585,13 +698,12 @@ onBeforeUnmount(onDragEnd);
             <div v-if="openHint === 'back-top'" id="hint-back-top" class="sec-note">{{ t('settings.backTopHint') }}</div>
             <div class="row" v-if="settings.settings.backTopEnabled">
               <label>{{ t('settings.backTopMode') }}</label>
-              <select
-                :value="settings.settings.backTopMode"
-                @change="patch({ backTopMode: ($event.target as HTMLSelectElement).value as AppSettings['backTopMode'] })"
-              >
-                <option value="auto">{{ t('settings.backTopAuto') }}</option>
-                <option value="always">{{ t('settings.backTopAlways') }}</option>
-              </select>
+              <SettingsSelect
+                :model-value="settings.settings.backTopMode"
+                :options="tr(BACK_TOP_MODES)"
+                :aria-label="t('settings.backTopMode')"
+                @update:model-value="patch({ backTopMode: $event as AppSettings['backTopMode'] })"
+              />
             </div>
 
             <div class="sec-sub">
@@ -638,6 +750,13 @@ onBeforeUnmount(onDragEnd);
                 <span class="grow-label">{{ t('settings.githubRepo') }}</span>
                 <button class="link-btn" :title="t('settings.openInBrowser')" @click="openGithub">
                   <span>github.com/gggaiitx/mkdown-site</span>
+                  <ExternalLink :size="12" class="ext" />
+                </button>
+              </div>
+              <div class="grow">
+                <span class="grow-label">{{ t('settings.changelog') }}</span>
+                <button class="link-btn" :title="t('settings.openInBrowser')" @click="openChangelog">
+                  <span>github.com/gggaiitx/mkdown-site/releases</span>
                   <ExternalLink :size="12" class="ext" />
                 </button>
               </div>
@@ -776,15 +895,16 @@ onBeforeUnmount(onDragEnd);
   margin-top: 2px; padding-top: 0;
   border-top: none;
 }
+/* 编辑器页多为开关行（仅 20px 高），按首行下拉的 42px 统一行距，避免上疏下密 */
+.body-editor .row { min-height: 42px; }
 .row {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 13px; padding: 7px 0; gap: 12px;
 }
 .row label { color: var(--mk-fg); }
-.row select, .row input[type='range'] { accent-color: var(--mk-accent); }
-.row select {
-  border: 1px solid var(--mk-border); border-radius: 6px;
-  background: var(--mk-bg); color: var(--mk-fg); padding: 4px 8px;
+.row input[type='range'] {
+  width: var(--mk-control-w); margin: 0;
+  accent-color: var(--mk-accent);
 }
 
 /* ---- 开关（替代 checkbox）：滑块式，选中走 accent 色 ---- */

@@ -130,6 +130,9 @@ export interface AppSettings {
   themePaletteDark: DarkPalette;
   /** 全局字号（px）：0.5px 一档，见 FONT_STEP */
   fontSize: number;
+  /** 全局字体（CSS font-family 值，空字符串 = 应用默认 Geist 栈）。
+   *  作用于界面与正文；代码编辑/代码块固定等宽，不跟随 */
+  fontFamily: string;
   editorMode: EditorMode;
   autoSave: boolean;
   autoSaveDelayMs: number;
@@ -209,6 +212,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   themePaletteLight: 'paper',
   themePaletteDark: 'graphite',
   fontSize: 13,
+  fontFamily: '',
   editorMode: 'split',
   autoSave: false,
   autoSaveDelayMs: 800,

@@ -1947,7 +1947,8 @@ onBeforeUnmount(() => {
   --md-color: var(--mk-editor-fg);
 }
 .engine-root :deep(.cm-content) {
-  font-family: Consolas, 'Cascadia Mono', 'Microsoft YaHei', monospace;
+  /* 默认仍是等宽；用户在外观里选了字体才改用全局正文字体（--mk-text-font-family 仅在有选择时存在） */
+  font-family: var(--mk-text-font-family, Consolas, 'Cascadia Mono', 'Microsoft YaHei', monospace);
 }
 /* ---- 编辑态标题行：以 # 开头的整行字号固定 19px ----
    行类由 cmHeadingLine.ts 的 Decoration.line 挂载（token 类名混淆，CSS 无法定位）；

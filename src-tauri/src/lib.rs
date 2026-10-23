@@ -25,6 +25,18 @@ fn collect_file_args(argv: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// 把「用…打开」递交的 URL 转成本地文件路径。
+/// macOS 经 Apple Event（RunEvent::Opened）给的是 file:// URL；
+/// 非本地文件 URL 一律忽略，不存在的路径也丢弃（与命令行参数口径一致）。
+#[cfg(any(target_os = "macos", test))]
+fn file_urls_to_paths(urls: &[tauri::Url]) -> Vec<String> {
+    urls.iter()
+        .filter_map(|url| url.to_file_path().ok())
+        .filter(|path| path.is_file())
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect()
+}
+
 /// 把文件所在目录加入授权白名单（点击关联文件 = 用户显式意图，ADR-01 授权点之一）
 fn grant_for_files(app: &tauri::AppHandle, files: &[String]) {
     let st = app.state::<state::AppState>();
@@ -32,6 +44,29 @@ fn grant_for_files(app: &tauri::AppHandle, files: &[String]) {
         if let Some(dir) = Path::new(f).parent() {
             st.grant_root(dir);
         }
+    }
+}
+
+/// 「打开方式」文件的统一派发：Windows 的命令行 / 单实例转发、macOS 的 Apple Event
+/// 共用这一条。前端监听器还没注册时先入队（挂载后经 take_pending_open_args 取走），
+/// 否则启动瞬间到达的文件会被事件循环静默丢弃。
+fn dispatch_open_files(app: &tauri::AppHandle, files: Vec<String>) {
+    if files.is_empty() {
+        return;
+    }
+    grant_for_files(app, &files);
+    if app.state::<state::AppState>().stage_open_files(files.clone()) {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.emit("open-file-args", files);
+        }
+    }
+}
+
+fn focus_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
     }
 }
 
@@ -73,22 +108,13 @@ fn theme_background(theme: &str) -> Color {
 }
 
 pub fn run() -> tauri::Result<()> {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(state::AppState::default())
         // 单实例：应用已运行时再次点击关联文件，不再拉起第二个空窗口，
         // 而是把文件路径转发给主窗口并聚焦。
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let files = collect_file_args(&argv);
-            grant_for_files(app, &files);
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.show();
-                let _ = win.unminimize();
-                let _ = win.set_focus();
-                if !files.is_empty() {
-                    // 主窗口前端早已挂载、监听已注册，事件直达
-                    let _ = win.emit("open-file-args", files);
-                }
-            }
+            focus_main_window(app);
+            dispatch_open_files(app, collect_file_args(&argv));
         }))
         // 拖放 = 用户在操作系统层面的显式意图（ADR-01 授权点之一）：
         // 把拖入文件所在目录 / 拖入目录本身加入运行时白名单。
@@ -197,9 +223,52 @@ pub fn run() -> tauri::Result<()> {
             // 设置
             commands::settings_cmd::get_settings,
             commands::settings_cmd::set_settings,
+            // 系统字体（设置-外观「字体」下拉）
+            commands::system_fonts::list_system_fonts,
             // 会话快照（标签页 + 未保存草稿，更新重启/崩溃恢复）
             commands::session_cmd::get_session,
             commands::session_cmd::set_session,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())?;
+
+    app.run(|app, event| {
+        // macOS「用…打开」/ 双击关联文件走 Apple Event，文件以 file:// URL 递交。
+        // 默认的 Builder::run 用空回调把它丢掉——窗口照开、文件不开，正是这个 bug。
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = event {
+            focus_main_window(app);
+            dispatch_open_files(app, file_urls_to_paths(&urls));
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
+    });
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_urls_become_local_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("demo.py");
+        std::fs::write(&file, "print(1)").unwrap();
+
+        let url = tauri::Url::from_file_path(&file).unwrap();
+        assert_eq!(
+            file_urls_to_paths(&[url]),
+            vec![file.to_string_lossy().into_owned()]
+        );
+    }
+
+    #[test]
+    fn non_file_urls_and_missing_paths_are_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let urls = [
+            tauri::Url::parse("https://example.com/a.py").unwrap(),
+            tauri::Url::from_file_path(dir.path().join("gone.py")).unwrap(),
+        ];
+        assert!(file_urls_to_paths(&urls).is_empty());
+    }
 }

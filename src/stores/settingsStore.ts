@@ -8,6 +8,7 @@ import {
   type ThemePalette,
 } from '../api/types';
 import { useI18n } from '../i18n';
+import { resolveFontFamily } from '../utils/fontFamily';
 import { useEditorStore } from './editorStore';
 
 const persist = debounce((s: AppSettings) => {
@@ -82,7 +83,7 @@ export const useSettingsStore = defineStore('settings', {
         'themeMode' in patch ||
         'themePaletteLight' in patch ||
         'themePaletteDark' in patch;
-      if (themePatch || 'fontSize' in patch) this.applyTheme();
+      if (themePatch || 'fontSize' in patch || 'fontFamily' in patch) this.applyTheme();
       persist(this.settings);
     },
     /** 监听系统亮暗：仅在 system 模式下属「真变更」，需要重刷 <html> */
@@ -111,6 +112,13 @@ export const useSettingsStore = defineStore('settings', {
       root.dataset.theme = this.themeMode;
       root.dataset.palette = this.palette;
       root.style.setProperty('--mk-font-size', `${this.settings.fontSize}px`);
+      /* 全局字体：--mk-font-family 给界面与预览；--mk-text-font-family 只在用户真正选了
+         字体时写入，编辑区/win 预览这些自带字体栈的地方用它做「有则覆盖、无则保持原样」
+         —— 默认值因此仍是各区域升级前的字体，不会因为加了这项设置就整片换脸 */
+      const font = resolveFontFamily(this.settings.fontFamily);
+      root.style.setProperty('--mk-font-family', font.css);
+      if (font.custom) root.style.setProperty('--mk-text-font-family', font.css);
+      else root.style.removeProperty('--mk-text-font-family');
       /* 旧字段跟随解析结果回写：回滚到旧版本时仍能读到一个正确的 light/dark */
       if (this.settings.theme !== this.themeMode) this.settings.theme = this.themeMode;
     },

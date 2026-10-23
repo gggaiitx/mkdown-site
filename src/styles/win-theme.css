@@ -102,11 +102,13 @@
   --md-theme-radius-s: 4px;
   --md-theme-radius-m: 8px;
 
-  /* Fluent 字体栈 */
-  font-family:
+  /* Fluent 字体栈；设置-外观选了全局字体时改用用户字体（代码块仍走下方等宽规则） */
+  font-family: var(
+    --mk-text-font-family,
     'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system,
     'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC',
-    sans-serif;
+    sans-serif
+  );
   line-height: 1.75;
   color: var(--md-theme-color);
   word-break: break-word;

@@ -13,6 +13,8 @@ import { tags as tg } from '@lezer/highlight';
 import type { Extension } from '@codemirror/state';
 
 const MONO = "Consolas, 'Cascadia Mono', 'Microsoft YaHei', monospace";
+/** 正文字体：默认等宽；用户在外观里选了字体才改用全局字体（--mk-text-font-family 仅在有选择时存在） */
+const CONTENT_FONT = `var(--mk-text-font-family, ${MONO})`;
 
 /** 亮/暗共用的布局主题：颜色经 CSS 变量跟随应用主题，无需运行时重建 */
 const layoutTheme = EditorView.theme({
@@ -23,7 +25,7 @@ const layoutTheme = EditorView.theme({
     backgroundColor: 'var(--mk-bg)',
   },
   '.cm-scroller': {
-    fontFamily: MONO,
+    fontFamily: CONTENT_FONT,
     lineHeight: '1.65',
     overflow: 'auto',
   },

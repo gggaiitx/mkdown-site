@@ -224,6 +224,10 @@ pub struct AppSettings {
     /// 全局字号（px）：前端以 0.5px 为一档增减，故必须是浮点不是 u32
     /// （存成整数会让 15.5 这种值在 `set_settings` 反序列化时直接报错，整个设置写不进去）
     pub font_size: f64,
+    /// 全局字体（CSS font-family 值，空字符串 = 应用默认 Geist 栈）。
+    /// 作用于界面与正文；代码编辑/代码块固定等宽，不跟随
+    #[serde(default)]
+    pub font_family: String,
     /// "edit" | "split" | "read"
     pub editor_mode: String,
     pub auto_save: bool,
@@ -306,6 +310,7 @@ impl Default for AppSettings {
             theme_palette_light: default_theme_palette_light(),
             theme_palette_dark: default_theme_palette_dark(),
             font_size: 13.0,
+            font_family: String::new(),
             editor_mode: "split".into(),
             auto_save: false,
             auto_save_delay_ms: 800,

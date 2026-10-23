@@ -133,7 +133,7 @@ watch(() => props.path, load);
 .sheet-scroll :deep(table) {
   border-collapse: collapse;
   font-size: 13px;
-  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  font-family: var(--mk-text-font-family, 'Microsoft YaHei', 'PingFang SC', sans-serif);
 }
 .sheet-scroll :deep(td) {
   border: 1px solid var(--mk-border);

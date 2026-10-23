@@ -7,3 +7,4 @@ pub mod settings_cmd;
 pub mod workspace_cmd;
 pub mod session_cmd;
 pub mod preview_cmd;
+pub mod system_fonts;
