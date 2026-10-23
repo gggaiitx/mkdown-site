@@ -16,7 +16,7 @@ import OutlineRail from '../components/OutlineRail.vue';
 import FileTree from '../components/FileTree.vue';
 import SearchHub from '../components/SearchHub.vue';
 import SettingsDialog from '../components/SettingsDialog.vue';
-import Welcome from '../components/Welcome.vue';
+import WelcomeHost from '../components/WelcomeHost.vue';
 import AppDialog from '../components/AppDialog.vue';
 import FolderPicker from '../components/FolderPicker.vue';
 import FloatTip from '../components/FloatTip.vue';
@@ -150,6 +150,11 @@ const hubMode = ref<'file' | 'global'>('file');
 /** 左侧工作区显示/隐藏（隐藏后经顶栏「展开侧边栏」恢复）。
  *  出厂/升级后默认收起：启动恢复 lastWorkspace 时也保持隐藏，只有用户主动打开或切换工作区才展开 */
 const sidebarVisible = ref(false);
+/** 书桌版欢迎页是否自带左侧目录栏（WelcomeHost 上报）。
+ *  为 true 时全局侧栏让位——书桌页里的目录栏与它是同一份数据，同时出现会重复 */
+const deskRail = ref(false);
+/** 真正生效的判据：欢迎页还在（无活动标签）且它上报了目录栏 */
+const deskRailActive = computed(() => deskRail.value && !tabs.activeTab);
 /** 工作区侧栏唯一的开合口：工具栏按钮与 Ctrl+Tab 都走这里，别各写一份取反 */
 function toggleSidebar(): void {
   sidebarVisible.value = !sidebarVisible.value;
@@ -865,6 +870,13 @@ function newFromTemplate(tpl: MdTemplate) {
   editor.showToast(t('workbench.toast.createdFromTpl', { name: tpl.name }), 'success');
 }
 
+/** 欢迎页「预览」：先切全局视图到阅读态再打开——openFilePath 只设标签模式，
+ *  不设 editor.mode，视图会停在原模式里，看起来就跟「继续写作」没区别 */
+async function onWelcomePreview(path: string) {
+  editor.setMode('read');
+  await openFilePath(path, 'read');
+}
+
 /** 文件菜单 md/mh 档：与 txt 同口径的直达新建（空文档），内核已由 Toolbar 同步给后续 Ctrl+N */
 function newKernelFile(kind: 'md' | 'mh') {
   tabs.newUntitled('', 'edit', kind);
@@ -876,6 +888,12 @@ function newKernelFile(kind: 'md' | 'mh') {
 function newCodeFile() {
   tabs.newUntitled('', 'edit', 'code');
   editor.setMode('edit');
+}
+
+/** 欢迎页（书桌版）的新建磁贴：与文件菜单同一链路，不另开一套建文档逻辑 */
+function onWelcomeNewKernel(kind: 'md' | 'mh' | 'code') {
+  if (kind === 'code') newCodeFile();
+  else newKernelFile(kind);
 }
 
 // ---------- 保存流水线 ----------
@@ -2420,6 +2438,7 @@ watch(() => editor.mode, (m) => {
       :has-active="!!tabs.activeTab"
       :search-active="search.visible"
       :sidebar-hidden="!sidebarVisible"
+      :sidebar-toggle-hidden="deskRailActive"
       :code-tab="isCodeTab"
       :no-split="isMhTab"
       :exportable="canExportHtml"
@@ -2451,8 +2470,10 @@ watch(() => editor.mode, (m) => {
     />
 
     <div class="main">
+      <!-- 书桌版欢迎页自带目录栏时，全局侧栏让位（否则同一棵树会出现两次）。
+           进入编辑器（有活动标签）或宽度不够时 deskRail 自动为 false，侧栏照常回来 -->
       <FileTree
-        v-if="sidebarVisible"
+        v-if="sidebarVisible && !deskRailActive"
         ref="fileTreeRef"
         @open-file="openFileFromTree"
         @open-file-dbl="openFileFromTreeDbl"
@@ -2465,7 +2486,7 @@ watch(() => editor.mode, (m) => {
       />
       <!-- 工作区隐藏后的左缘复原入口：不可见，仅在标签栏行留 4px 命中区，拖动向右展开 -->
       <div
-        v-else
+        v-else-if="!deskRailActive"
         class="ws-restore"
         :title="t('workbench.dragToRestore')"
         @mousedown="onWsRestoreStart"
@@ -2597,14 +2618,21 @@ watch(() => editor.mode, (m) => {
             ></div>
           </div>
         </div>
-        <Welcome
+        <!-- 欢迎页：两版共用同一套动作（书桌版多出「新建内核 / 全局搜索」两个入口） -->
+        <WelcomeHost
           v-else
           :templates="TEMPLATES"
           @open-workspace="openWorkspace"
           @create-workspace="createWorkspace"
           @open-file="openFileByDialog"
           @new-template="newFromTemplate"
+          @new-kernel="onWelcomeNewKernel"
           @open-recent="openFilePath"
+          @open-recent-preview="onWelcomePreview"
+          @switch-workspace="switchWorkspace"
+          @remove-all-workspaces="removeAllWorkspaces"
+          @update:rail="deskRail = $event"
+          @search="search.open()"
         />
       </div>
       <OutlinePanel v-if="showOutline && !outlineFresh" @goto="gotoOutline" />

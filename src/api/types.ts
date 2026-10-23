@@ -108,6 +108,10 @@ export type ReadLayout = 'narrow' | 'medium' | 'wide' | 'full';
 /** 编辑内核（语义=新建文件默认格式）：markdown→.md / wangeditor→.mh（唯一定义处） */
 export type EditorKernel = 'markdown' | 'wangeditor';
 
+/** 欢迎页版式：auto = 宽窗用书桌、窄窗用经典（出厂默认）| desk = 书桌（Bento）
+ *  | classic = 经典（品牌居中 + 左右两列）。两版数据同源，只是信息密度不同 */
+export type WelcomeLayout = 'auto' | 'desk' | 'classic';
+
 /** 预览浮块工具条的显隐档（图片 / HTML / SVG 三个面板共用同一份，不是各面板一份）：
  *  auto = 鼠标进面板或 Tab 到条上才浮出（出厂默认）| shown = 常驻 | hidden = 彻底不出现。
  *  hidden 下条子不可聚焦也不可拖，只能从预览窗格右键调回——所以图片面板也接了同一套菜单 */
@@ -170,6 +174,8 @@ export interface AppSettings {
   outlineStyle: 'classic' | 'fresh';
   /** 新建文件默认格式：markdown→.md（默认）/ wangeditor→.mh；不影响已打开文件 */
   editorEngine: EditorKernel;
+  /** 欢迎页版式（见 WelcomeLayout）：出厂 auto，按欢迎区实际可用尺寸自适应 */
+  welcomeLayout: WelcomeLayout;
   /** 导出 Word 正文字体基线（D2）：中文字体 */
   wordFontZh: string;
   /** 导出 Word 正文字体基线（D2）：西文字体 */
@@ -233,6 +239,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dialogCloseOnMask: false,
   outlineStyle: 'fresh',
   editorEngine: 'markdown',
+  welcomeLayout: 'auto',
   wordFontZh: '等线',
   wordFontEn: 'Calibri',
   wordFontSize: 11,

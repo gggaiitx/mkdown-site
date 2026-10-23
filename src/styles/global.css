@@ -67,6 +67,10 @@
   /* 焦点环：所有可聚焦控件共用一份规格（此前 5 个文件各写各的 1px/2px/muted 色） */
   --mk-focus-ring: 2px solid var(--mk-accent);
 
+  /* 品牌蓝：欢迎页「书桌」版与书桌态下的目录树共用一份，避免两处各写一套色值 */
+  --desk-brand: #2f7fd0;
+  --desk-brand-deep: #0c447c;
+
   /* 层级带。内核「页面全屏」层是 z-index 10000 的 fixed 铺满层（md 内核）/ 9600（.mh 自绘），
      凡需要浮在编辑器之上的应用浮层，必须进 10100+ 这一段，别再手写裸数字 */
   --mk-z-toolbar: 9500;                 /* 顶栏：盖住下方侧栏/标签栏/编辑器 */
@@ -99,6 +103,7 @@
 
 :root[data-theme='dark'] {
   --mk-bg: rgb(19 20 22);
+  --desk-brand: #4c9be8;
   --mk-panel: rgb(25 25 28);            /* chrome 还原：飞总诉求是调亮字体，不动背景 */
   --mk-panel-muted: rgb(27 27 30);
   --mk-fg: rgb(232 233 238);            /* 字体提亮：飞总诉求调亮字体，背景不动 */

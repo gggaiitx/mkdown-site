@@ -134,6 +134,11 @@ fn default_editor_engine() -> String {
     "markdown".into()
 }
 
+/// 欢迎页版式："auto"（默认，按欢迎区可用尺寸自适应）| "desk"（书桌 Bento）| "classic"（经典）
+fn default_welcome_layout() -> String {
+    "auto".into()
+}
+
 /// 大纲呈现方式："classic" = 右侧面板 | "fresh" = 右缘短横线浮标（出厂默认）
 fn default_outline_style() -> String {
     "fresh".into()
@@ -267,6 +272,10 @@ pub struct AppSettings {
     /// 新建文件默认格式："markdown"（默认）| "wangeditor"（新建 .mh）
     #[serde(default = "default_editor_engine")]
     pub editor_engine: String,
+    /// 欢迎页版式："auto"（默认）| "desk" | "classic"。
+    /// **必须与前端 welcomeLayout 同名同步**，否则设置改了不持久化
+    #[serde(default = "default_welcome_layout")]
+    pub welcome_layout: String,
     /// 导出 Word 正文字体基线（D2）：中文字体（2026-10-13 补：此前缺失导致设置不持久化）
     #[serde(default = "default_word_font_zh")]
     pub word_font_zh: String,
@@ -331,6 +340,7 @@ impl Default for AppSettings {
             dialog_close_on_mask: false,
             outline_style: default_outline_style(),
             editor_engine: default_editor_engine(),
+            welcome_layout: default_welcome_layout(),
             word_font_zh: default_word_font_zh(),
             word_font_en: default_word_font_en(),
             word_font_size: default_word_font_size(),

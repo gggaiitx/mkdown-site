@@ -233,6 +233,12 @@ const OUTLINE_STYLES: SelectItem[] = [
   { value: 'classic', label: 'settings.outlineClassic' },
   { value: 'fresh', label: 'settings.outlineFresh' },
 ];
+/** 欢迎页版式：auto=自适应 / desk=书桌 / classic=经典 */
+const WELCOME_LAYOUTS: SelectItem[] = [
+  { value: 'auto', label: 'settings.welcomeAuto' },
+  { value: 'desk', label: 'settings.welcomeDesk' },
+  { value: 'classic', label: 'settings.welcomeClassic' },
+];
 const LANGUAGES: SelectItem[] = [
   { value: 'zh-CN', label: 'settings.langZh' },
   { value: 'en-US', label: 'settings.langEn' },
@@ -282,7 +288,7 @@ type HintKey =
   | 'switch' | 'dialog' | 'shortcuts' | 'back-top'
   | 'engine' | 'auto-save' | 'scroll-sync' | 'toolbar' | 'focus' | 'line-numbers'
   | 'font-family' | 'font-size' | 'export-font' | 'export-image'
-  | 'theme-palette' | 'preview-theme' | 'read-layout' | 'outline'
+  | 'theme-palette' | 'preview-theme' | 'read-layout' | 'outline' | 'welcome'
   | 'word-engine' | 'word-import';
 const openHint = ref<HintKey | null>(null);
 function toggleHint(key: HintKey) {
@@ -453,6 +459,19 @@ onBeforeUnmount(onDragEnd);
               />
             </div>
             <div v-if="openHint === 'outline'" id="hint-outline" class="sec-note">{{ t('settings.outlineStyleHint') }}</div>
+            <div class="row">
+              <span class="row-label">
+                {{ t('settings.welcomeLayout') }}
+                <SettingsHintIcon target="welcome" :open="openHint === 'welcome'" @toggle="toggleHint('welcome')" />
+              </span>
+              <SettingsSelect
+                :model-value="settings.settings.welcomeLayout"
+                :options="tr(WELCOME_LAYOUTS)"
+                :aria-label="t('settings.welcomeLayout')"
+                @update:model-value="patch({ welcomeLayout: $event as AppSettings['welcomeLayout'] })"
+              />
+            </div>
+            <div v-if="openHint === 'welcome'" id="hint-welcome" class="sec-note">{{ t('settings.welcomeLayoutHint') }}</div>
             <div class="row">
               <label>{{ t('settings.language') }}</label>
               <SettingsSelect
@@ -825,15 +844,16 @@ onBeforeUnmount(onDragEnd);
   box-shadow: var(--mk-shadow-dialog);
   overflow: hidden;
 }
+/* 标题栏压薄一档：12px 上下内距在 14px 字号下会撑出约 48px，比正文行高一倍还多 */
 .head {
   flex: none;
   display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 16px; font-size: 14px; font-weight: 600;
+  padding: 10px 14px; font-size: 13.5px; font-weight: 600; line-height: 1.25;
   border-bottom: 1px solid var(--mk-border);
   cursor: grab; user-select: none; touch-action: none;
 }
 .head:active { cursor: grabbing; }
-.close { border: none; background: transparent; color: var(--mk-fg-muted); font-size: 18px; cursor: pointer; }
+.close { border: none; background: transparent; color: var(--mk-fg-muted); font-size: 17px; line-height: 1; cursor: pointer; }
 
 /* ---- 左右分栏：左分类导航 + 右内容区（WorkBuddy 设置面板形态） ---- */
 .layout {

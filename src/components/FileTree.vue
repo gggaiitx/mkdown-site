@@ -40,6 +40,62 @@ const emit = defineEmits<{
 
 // ---- 工作区切换菜单（点击根目录名弹出） ----
 const wsMenuOpen = ref(false);
+/**
+ * 菜单用 fixed 定位，靠按钮的实时矩形算位置。
+ * 为什么不是 absolute：`.explorer` 与书桌左栏 `.rail` 都带 `overflow: hidden`，
+ * absolute 的菜单会被这两层裁掉右边与底部（书桌左栏只有 208px 宽，220px 的菜单直接切掉 20px，
+ * 删除按钮和勾选标记都被吃掉）。fixed 不参与祖先 overflow 裁剪，宽度也不再被面板宽度限制。
+ */
+const wsBtnRef = ref<HTMLElement | null>(null);
+const wsMenuRef = ref<HTMLElement | null>(null);
+const wsMenuPos = ref({ top: 0, left: 0, width: 0 });
+const WS_MENU_GAP = 4;
+const WS_MENU_EDGE = 8;
+
+/** 打开/关闭：先开再量（关着时量不到宽高），否则首帧会贴在左上角闪一下 */
+async function toggleWsMenu() {
+  if (wsMenuOpen.value) {
+    wsMenuOpen.value = false;
+    return;
+  }
+  wsMenuOpen.value = true;
+  await nextTick();
+  placeWsMenu();
+}
+
+/** 贴着按钮下缘展开；宽度跟目录面板内宽走（不越出树的右边线），下方放不下就翻到按钮上方 */
+function placeWsMenu() {
+  const btn = wsBtnRef.value;
+  const menu = wsMenuRef.value;
+  if (!btn) return;
+  const r = btn.getBoundingClientRect();
+  // 宽度基准是目录面板本身，不是按钮：这样书桌左栏（208）里菜单也落在树的内框之内，
+  // 不会像首版那样 232px 探到右侧卡片上盖住内容
+  const box = rootEl.value?.getBoundingClientRect() ?? null;
+  const width = Math.min(
+    Math.round(box ? box.width - WS_MENU_EDGE * 2 : 232),
+    window.innerWidth - WS_MENU_EDGE * 2,
+  );
+  const left = Math.round(box ? box.left + WS_MENU_EDGE : r.left);
+  const mh = menu?.offsetHeight ?? 0; // 条目 nowrap，高度与宽度无关，先量后定宽不会算错
+  let top = r.bottom + WS_MENU_GAP;
+  if (mh > 0 && top + mh > window.innerHeight - WS_MENU_EDGE) {
+    top = Math.max(WS_MENU_EDGE, r.top - mh - WS_MENU_GAP);
+  }
+  wsMenuPos.value = {
+    top: Math.round(top),
+    left: Math.max(WS_MENU_EDGE, left),
+    width: Math.max(176, width),
+  };
+}
+
+/** fixed 菜单不会跟着锚点走：滚动关掉、缩放重新定位（比追着跑省事，也不会飘在半空） */
+function onWinScroll() {
+  if (wsMenuOpen.value) wsMenuOpen.value = false;
+}
+function onWinResize() {
+  if (wsMenuOpen.value) placeWsMenu();
+}
 const recentWorkspaces = computed(() => useSettingsStore().settings.recentWorkspaces);
 function pickWorkspace(dir: string) {
   wsMenuOpen.value = false;
@@ -67,11 +123,13 @@ function removeWorkspace(dir: string) {
 }
 
 // ---- 拖拽调宽（右缘手柄，200–440px）；拖到最左可隐藏，交互与大纲面板一致 ----
+/** 固定宽度档：欢迎页「书桌版」把它嵌进左栏时用——不给拖宽手柄，宽度由外层指定 */
+const props = defineProps<{ fixedWidth?: number }>();
 const MIN_W = 200;
 const MAX_W = 440;
 /** 向左拖到低于该宽度 → 松手隐藏（emit('hide')，与顶栏「隐藏工作区」同一状态链路） */
 const HIDE_AT = 120;
-const width = ref(230);
+const width = ref(props.fixedWidth ?? 230);
 const dragging = ref(false);
 let startX = 0;
 let startW = 0;
@@ -299,11 +357,15 @@ onMounted(() => {
   document.addEventListener('click', closeMenu);
   document.addEventListener('pointerdown', onDocPointerDown, true); // capture：先于任何 stopPropagation 记录
   window.addEventListener('keydown', onTreeKeydown);
+  window.addEventListener('scroll', onWinScroll, true);
+  window.addEventListener('resize', onWinResize);
 });
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenu);
   document.removeEventListener('pointerdown', onDocPointerDown, true);
   window.removeEventListener('keydown', onTreeKeydown);
+  window.removeEventListener('scroll', onWinScroll, true);
+  window.removeEventListener('resize', onWinResize);
 });
 
 function menuNewFile() { openCreate('file', targetDir.value); }
@@ -598,16 +660,20 @@ watch(filteredTree, (nodes) => {
   >
     <!-- 右缘拖拽手柄（拖到最左可隐藏）；原生 title 提示（全高细条会让 data-tip 气泡垂直定位跑飞，见 v0.3.1 反馈） -->
     <div
+      v-if="!props.fixedWidth"
       class="resizer"
       :class="{ active: dragging }"
       @mousedown="onResizeStart"
       :title="t('filetree.resizerTitle')"
     />
     <div class="panel-head">
+      <!-- 菜单展开期间不给气泡：气泡正好落在菜单上方（450ms 后重现），会把菜单标题糊住 -->
       <button
-      class="root-name"
-      v-tip="ws.root ?? ''"
-        @click.stop="wsMenuOpen = !wsMenuOpen"
+        ref="wsBtnRef"
+        class="root-name"
+        v-tip="wsMenuOpen ? '' : (ws.root ?? '')"
+        :aria-expanded="wsMenuOpen"
+        @click.stop="toggleWsMenu"
       >
         <span class="root-name-text">{{ ws.rootName || t('filetree.explorer') }}</span>
         <ChevronDown class="root-caret" :size="12" />
@@ -623,7 +689,13 @@ watch(filteredTree, (nodes) => {
     </div>
 
     <!-- 工作区切换菜单（点击根目录名弹出） -->
-    <div class="mk-menu ws-menu" v-if="wsMenuOpen" @click.stop>
+    <div
+      v-if="wsMenuOpen"
+      ref="wsMenuRef"
+      class="mk-menu ws-menu"
+      :style="{ top: `${wsMenuPos.top}px`, left: `${wsMenuPos.left}px`, width: `${wsMenuPos.width}px` }"
+      @click.stop
+    >
       <div class="ws-menu-title">{{ t('filetree.switchTitle') }}</div>
       <button
         v-for="d in recentWorkspaces"
@@ -911,11 +983,19 @@ watch(filteredTree, (nodes) => {
 .root-caret { flex: none; opacity: 0.7; }
 .tools { display: inline-flex; gap: 3px; flex: none; }
 /* 工作区切换菜单：外观走 global.css 的 .mk-menu / .mk-menu-item，
-   这里只留"锚在面板头部下方、宽度跟着面板走"的定位差异 */
+   这里只留定位差异 —— fixed + 内联 top/left（由 placeWsMenu 按按钮矩形算），
+   不再被 .explorer / 书桌左栏的 overflow:hidden 裁剪，宽度也不受面板宽度限制 */
 .ws-menu {
-  position: absolute;
-  top: 36px; left: 8px;
-  min-width: 220px; max-width: calc(100% - 16px);
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* 宽度由 placeWsMenu 按目录面板内宽内联写入（面板 208 → 菜单 192）：
+     这里不设 min-width，否则窄栏下会顶出树的右边线 */
+  min-width: 0;
+  max-width: 320px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .ws-menu-title {
   padding: 4px 8px;

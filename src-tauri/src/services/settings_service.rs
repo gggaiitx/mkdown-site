@@ -50,6 +50,10 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> AppResult<()> {
     if settings.word_import_fidelity != "semantic" && settings.word_import_fidelity != "fidelity" {
         settings.word_import_fidelity = "semantic".into();
     }
+    // 欢迎页版式只认三档：手改配置写成别的值会落回「自适应」
+    if !matches!(settings.welcome_layout.as_str(), "auto" | "desk" | "classic") {
+        settings.welcome_layout = "auto".into();
+    }
     // 导出留白夹进滑块同区间（0~40px）：手改 settings.json 塞个几千会把导出的图撑成一圈空白
     settings.export_padding = settings.export_padding.min(40);
     // 预览浮块工具条：档位只认三档，其余退回默认「auto」（和上面几组枚举同一个口径）。

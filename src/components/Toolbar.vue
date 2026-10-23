@@ -28,6 +28,8 @@ const props = defineProps<{
   searchActive: boolean;
   /** 左侧工作区已隐藏：顶栏前部显示「展开侧边栏」 */
   sidebarHidden: boolean;
+  /** 书桌版自带目录栏时（全局侧栏本来就不渲染）不再给开关，避免点了没反应 */
+  sidebarToggleHidden?: boolean;
   /** 激活标签为代码类：分栏/阅读模式按钮禁用（代码引擎只有编辑态） */
   codeTab?: boolean;
   /** 激活标签为富文本（.mh）：仅分栏按钮禁用（双形态 edit/read，阅读态带大纲） */
@@ -316,21 +318,21 @@ const fileWrapRef = ref<HTMLElement | null>(null);
 const fileBtnRef = ref<HTMLElement | null>(null);
 /** teleport 到 body 后的菜单元素（点击外部关闭需把它纳入命中判定） */
 const fileMenuRef = ref<HTMLElement | null>(null);
-/** 菜单 fixed 定位内联样式（top 由 trigger 实时坐标推导，left 固定贴视口左侧，越界由 adjustMenu 兜底） */
+/** 菜单 fixed 定位内联样式（top 固定贴顶栏下缘，left 固定贴视口左侧，越界由 adjustMenu 兜底） */
 const fileMenuStyle = ref<Record<string, string>>({});
 const fileOpen = ref(false);
+/** 文件菜单距窗口顶部的固定距离：顶栏 40 + 下边框 1 + 间隙 1。
+ *  不跟 trigger 底缘算——按钮有内边距、顶栏高度也可能随平台变，菜单会跟着忽高忽低 */
+const FILE_MENU_TOP = 42;
 
-/** 展开菜单：按 trigger 底缘算 top（脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪），
- *  左缘固定 left:1px（不再跟 trigger 对齐）；宽度自适应内容，越界由 adjustMenu 兜底 */
+/** 展开菜单：top 固定 42px（脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪），
+ *  左缘固定 left:1px（不跟 trigger 对齐）；宽度自适应内容，越界由 adjustMenu 兜底 */
 function openMenu() {
-  const r = fileBtnRef.value?.getBoundingClientRect();
-  if (r) {
-    fileMenuStyle.value = {
-      position: 'fixed',
-      top: `${Math.round(r.bottom) + 6}px`,
-      left: '1px',
-    };
-  }
+  fileMenuStyle.value = {
+    position: 'fixed',
+    top: `${FILE_MENU_TOP}px`,
+    left: '1px',
+  };
   fileOpen.value = true;
   void nextTick(adjustMenu);
 }
@@ -358,12 +360,11 @@ function adjustMenu() {
     left = Math.max(8, window.innerWidth - rect.width - 8);
   }
   if (Number.isFinite(left)) next.left = `${Math.round(left)}px`;
-  if (
-    Number.isFinite(top) &&
-    top + rect.height > window.innerHeight - 8 &&
-    b.top - rect.height - 6 >= 8
-  ) {
-    next.top = `${Math.round(b.top - rect.height - 6)}px`;
+  if (Number.isFinite(top) && top + rect.height > window.innerHeight - 8) {
+    // 优先翻到按钮上方；上方也塞不下（top 恒为 42，菜单比窗口还高时就是这种情况）则贴底，
+    // 否则会按「按钮上方」算出负坐标，菜单直接飞到屏幕外
+    const above = Math.round(b.top - rect.height - 6);
+    next.top = above >= 8 ? `${above}px` : `${Math.max(8, Math.round(window.innerHeight - rect.height - 8))}px`;
   }
   fileMenuStyle.value = next;
 }
@@ -417,8 +418,9 @@ function onDocKeydown(e: KeyboardEvent) {
     <div v-if="isMac" class="traffic-pad" data-tauri-drag-region />
     <!-- 左侧功能区：deep 拖动区（子树内空白处可拖动/双击最大化，按钮自动阻断），为右侧窗口控制让位 -->
     <div ref="tbMainRef" class="tb-main" data-tauri-drag-region="deep">
-    <!-- 侧边栏开关：恒钉在最左，图标随显隐切换（隐藏按钮已从工作区头部移除） -->
+    <!-- 侧边栏开关：恒钉在最左，图标随显隐切换（书桌版自带目录栏时整颗隐藏） -->
     <button
+      v-if="!sidebarToggleHidden"
       class="tb-btn tb-btn--icon tb-first"
       :aria-label="sidebarHidden ? t('toolbar.expandSidebar') : t('toolbar.collapseSidebar')"
       @click="emit('toggle-sidebar')"

@@ -596,9 +596,11 @@ const switchKey = computed(() => `${modKey()} + ${props.mode === 'file' ? 'P' : 
   /* 10100+ 层级带：编辑器「页面全屏」层（内核 z-index 10000 的 fixed 铺满层）
      会盖住旧的 80，全屏状态下 Ctrl+F 面板将完全看不见 */
   z-index: var(--mk-z-panel);
-  width: 560px;
+  /* 尺寸：480×360 —— 比首版的 560×420 收一档，正文区还能放下 8~9 条结果，
+     同时不挡编辑器上下文（飞总 2026-10-23：长宽都小一点） */
+  width: 480px;
   max-width: calc(100vw - 24px);
-  height: 420px;
+  height: 360px;
   max-height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
