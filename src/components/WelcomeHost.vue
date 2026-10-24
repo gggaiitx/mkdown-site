@@ -26,6 +26,10 @@ const emit = defineEmits<{
   (e: 'new-kernel', kind: 'md' | 'mh' | 'code'): void;
   (e: 'open-recent', path: string): void;
   (e: 'open-recent-preview', path: string): void;
+  /** 书桌左栏目录树的单击 / 双击 / 新建后打开：与全局侧栏同一套动作，不跟「最近打开」共用 */
+  (e: 'open-tree-file', path: string): void;
+  (e: 'open-tree-file-dbl', path: string): void;
+  (e: 'open-tree-file-edit', path: string): void;
   (e: 'switch-workspace', dir: string): void;
   (e: 'remove-all-workspaces'): void;
   (e: 'search'): void;
@@ -63,23 +67,54 @@ onBeforeUnmount(() => {
   ro = null;
 });
 
+/* auto 档进入与回落的阈值分开（回差）：只用一个阈值时，把窗口拖在边界上会反复挂载/卸载书桌，
+   每次重挂都会重建内嵌目录树、并重新 read_file 取「继续写作」摘要（IPC 抖动 + 视觉跳变） */
+const DESK_ENTER_W = 1000;
+const DESK_ENTER_H = 520;
+const DESK_EXIT_W = 960;
+const DESK_EXIT_H = 480;
+
+const deskOn = ref(false);
+watch([boxW, boxH], ([w, h]) => {
+  if (w === 0 || h === 0) return; // 尚未量到真实尺寸：保持首帧的经典版
+  if (deskOn.value) {
+    if (w < DESK_EXIT_W || h < DESK_EXIT_H) deskOn.value = false;
+  } else if (w >= DESK_ENTER_W && h >= DESK_ENTER_H) {
+    deskOn.value = true;
+  }
+});
+
 const useDesk = computed(() => {
   const mode = settings.settings.welcomeLayout;
   if (mode === 'desk') return true;
   if (mode === 'classic') return false;
-  return boxW.value >= 1000 && boxH.value >= 520;
+  return deskOn.value;
 });
 
 /* 书桌版自带目录栏的判定：看**窗口宽度**而不是宿主宽度——栏出现时全局侧栏会让位，
    宿主会立刻变宽，用宿主宽度判会自锁（全局树在时永远到不了阈值）。
-   1240 = 目录栏 210 + 间距 16 + 内容带 ~960 + 左右内距；比首版的 1300 下调，因为栏本身收窄了。 */
+   1240 = 目录栏 210 + 间距 16 + 内容带 ~960 + 左右内距；1200 是收起阈值（回差同上）。 */
 const RAIL_MIN_WIN = 1240;
+const RAIL_KEEP_WIN = 1200;
+/* 高度门槛与书桌 xl 档（boxH ≥ 640）对齐：矮窗下 .desk-cols 会转成纵向，
+   左栏拿不到行高，整棵目录树会按内容高度把五张卡顶下去 */
+const RAIL_MIN_H = 640;
 const winW = ref(0);
 function onWinResize() {
   winW.value = window.innerWidth;
 }
 const ws = useWorkspaceStore();
-const showRail = computed(() => useDesk.value && !!ws.root && winW.value >= RAIL_MIN_WIN);
+const railOn = ref(false);
+watch([useDesk, winW, () => ws.root], () => {
+  if (!useDesk.value || !ws.root) {
+    railOn.value = false;
+    return;
+  }
+  railOn.value = railOn.value ? winW.value >= RAIL_KEEP_WIN : winW.value >= RAIL_MIN_WIN;
+}, { immediate: true });
+const showRail = computed(
+  () => useDesk.value && !!ws.root && railOn.value && boxH.value >= RAIL_MIN_H,
+);
 watch(showRail, (v) => emit('update:rail', v), { immediate: true });
 </script>
 
@@ -96,6 +131,9 @@ watch(showRail, (v) => emit('update:rail', v), { immediate: true });
       @new-kernel="(k: 'md' | 'mh' | 'code') => emit('new-kernel', k)"
       @open-recent="(p: string) => emit('open-recent', p)"
       @open-recent-preview="(p: string) => emit('open-recent-preview', p)"
+      @open-tree-file="(p: string) => emit('open-tree-file', p)"
+      @open-tree-file-dbl="(p: string) => emit('open-tree-file-dbl', p)"
+      @open-tree-file-edit="(p: string) => emit('open-tree-file-edit', p)"
       @switch-workspace="(d: string) => emit('switch-workspace', d)"
       @remove-all-workspaces="emit('remove-all-workspaces')"
       @search="emit('search')"

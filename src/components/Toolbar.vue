@@ -446,6 +446,15 @@ function onDocKeydown(e: KeyboardEvent) {
         <span v-if="fileOpen" class="active-dot" />
       </button>
       <Teleport to="body">
+        <!-- 文件菜单的内容区遮罩：只盖顶栏以下（top 41 = 40px 顶栏 + 1px 下边框），
+             菜单自身在上一层级；点遮罩即收起，且拦在 mousedown 上避免误触背后的内容 -->
+        <div
+          v-if="fileOpen"
+          class="file-scrim"
+          aria-hidden="true"
+          @mousedown.prevent.stop
+          @click.stop="closeMenu"
+        />
         <div v-if="fileOpen" ref="fileMenuRef" class="mk-menu file-menu tb-menu" :style="fileMenuStyle">
           <!-- 「新建文件」行内嵌三档开关：md/mh/txt 点击都直接新建对应类型（未命名.md / .mh / .txt） -->
           <div class="kernel-line" @click="onFileItem('new')">
@@ -865,6 +874,24 @@ function onDocKeydown(e: KeyboardEvent) {
 /* 菜单经 Teleport 挂到 body，用 fixed + 内联 top/left（由 trigger 坐标推导）定位，
    彻底脱离 .toolbar/.tb-main 的 overflow:hidden 裁剪（否则向下展开的部分会被整片切掉） */
 .tb-menu-wrap { position: relative; display: inline-flex; flex: none; }
+/* 文件菜单展开时的内容区遮罩：层级取菜单带下一档，既能压过编辑器全屏层
+   （10000）又不会盖住菜单（--mk-z-menu）；顶栏在遮罩上缘之外，保持原有亮度 */
+.file-scrim {
+  position: fixed;
+  top: 41px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: calc(var(--mk-z-menu) - 1);
+  background: var(--mk-scrim-menu);
+  animation: file-scrim-in 140ms ease-out;
+}
+@keyframes file-scrim-in {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-scrim { animation: none; }
+}
 /* 下拉外观走 global.css 的 .mk-menu / .mk-menu-item（与右键菜单同一份规格），
    这里只留展开动效与输出菜单的分组标题、图标配色 */
 .tb-menu {

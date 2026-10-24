@@ -877,6 +877,21 @@ async function onWelcomePreview(path: string) {
   await openFilePath(path, 'read');
 }
 
+/** 书桌左栏目录树：单击/双击/新建后打开都与全局侧栏同一套动作（不是「最近打开」那条链路）。
+ *  同时把全局侧栏接上——用户正在用树，进入编辑器后树不该凭空消失 */
+async function openFileFromDeskTree(path: string) {
+  sidebarVisible.value = true;
+  await openFileFromTree(path);
+}
+async function openFileFromDeskTreeDbl(path: string) {
+  sidebarVisible.value = true;
+  await openFileFromTreeDbl(path);
+}
+async function openFileFromDeskTreeEdit(path: string) {
+  sidebarVisible.value = true;
+  await openFileInEditMode(path);
+}
+
 /** 文件菜单 md/mh 档：与 txt 同口径的直达新建（空文档），内核已由 Toolbar 同步给后续 Ctrl+N */
 function newKernelFile(kind: 'md' | 'mh') {
   tabs.newUntitled('', 'edit', kind);
@@ -2632,7 +2647,10 @@ watch(() => editor.mode, (m) => {
           @switch-workspace="switchWorkspace"
           @remove-all-workspaces="removeAllWorkspaces"
           @update:rail="deskRail = $event"
-          @search="search.open()"
+          @search="openGlobalSearch"
+          @open-tree-file="openFileFromDeskTree"
+          @open-tree-file-dbl="openFileFromDeskTreeDbl"
+          @open-tree-file-edit="openFileFromDeskTreeEdit"
         />
       </div>
       <OutlinePanel v-if="showOutline && !outlineFresh" @goto="gotoOutline" />

@@ -171,7 +171,7 @@ function patch(p: Partial<AppSettings>) {
 }
 
 /**
- * 配色可选项：只列当前解析模式（明/暗）下的三套。
+ * 配色可选项：只列当前解析模式（明/暗）下的四套。
  * 明暗各存一个字段（themePaletteLight / themePaletteDark），所以「跟随系统」时
  * 白天与夜里各自保留上一次选中的配色，不会来回被覆盖。
  */
@@ -181,11 +181,13 @@ const paletteOptions = computed<Array<{ value: string; label: string }>>(() =>
         { value: 'graphite', label: 'settings.palGraphite' },
         { value: 'midnight', label: 'settings.palMidnight' },
         { value: 'ember', label: 'settings.palEmber' },
+        { value: 'nebula', label: 'settings.palNebula' },
       ]
     : [
         { value: 'paper', label: 'settings.palPaper' },
         { value: 'fog', label: 'settings.palFog' },
         { value: 'sepia', label: 'settings.palSepia' },
+        { value: 'azure', label: 'settings.palAzure' },
       ],
 );
 

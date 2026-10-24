@@ -1855,8 +1855,10 @@ onBeforeUnmount(() => {
    paper / graphite 不在此列：默认两套保持预览主题原貌，升级零视觉变化 */
 :root[data-palette='fog'] .engine-root :deep(.md-editor .md-editor-preview),
 :root[data-palette='sepia'] .engine-root :deep(.md-editor .md-editor-preview),
+:root[data-palette='azure'] .engine-root :deep(.md-editor .md-editor-preview),
 :root[data-palette='midnight'] .engine-root :deep(.md-editor .md-editor-preview),
-:root[data-palette='ember'] .engine-root :deep(.md-editor .md-editor-preview) {
+:root[data-palette='ember'] .engine-root :deep(.md-editor .md-editor-preview),
+:root[data-palette='nebula'] .engine-root :deep(.md-editor .md-editor-preview) {
   --md-theme-bg-color: var(--mk-bg);
   --md-theme-bg-color-inset: var(--mk-panel-muted);
   --md-theme-border-color: var(--mk-border);

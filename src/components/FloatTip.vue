@@ -65,7 +65,10 @@ async function positionBubble(): Promise<void> {
   const bw = bubble.offsetWidth;
   const bh = bubble.offsetHeight;
   const rightAlign = !!currentEl.closest('.win-btn');
-  const leftAlign = !!currentEl.closest('.tb-first');
+  /** 内侧带 [data-tip-anchor]（如欢迎页最近打开文件前的类型图标）时，
+   *  气泡贴宿主左缘、箭头对准该图标中心，而不是整行居中 */
+  const leadRect = currentEl.querySelector<HTMLElement>('[data-tip-anchor]')?.getBoundingClientRect() ?? null;
+  const leftAlign = !!currentEl.closest('.tb-first') || !!leadRect;
   // 树行/标签：气泡跟随光标右下角（这些元素横向较宽，锚元素会盖住邻近项、看起来像别人的提示）；
   // 但宿主本身就是按钮时（如标签内关闭按钮、树行内操作按钮）退回居中锚定——
   // 小控件跟随光标会让气泡压到相邻区域，看起来像别的控件的提示（v0.3.1 用户反馈）
@@ -86,7 +89,7 @@ async function positionBubble(): Promise<void> {
   const anchorY = followCursor ? my : r.top + r.height / 2;
   st.arrow = by + bh / 2 >= anchorY ? 'top' : 'bottom';
   // 箭头水平位置：跟随宿主中心（光标模式跟随光标），钳制在气泡内并避开两端圆角缺口
-  const anchorX = followCursor ? mx : rightAlign ? r.right - 12 : r.left + r.width / 2;
+  const anchorX = followCursor ? mx : rightAlign ? r.right - 12 : leadRect ? leadRect.left + leadRect.width / 2 : r.left + r.width / 2;
   const clamped = clampArrowX(anchorX - bx, bw);
   st.ax = clamped ?? bw / 2;
   st.x = bx;
@@ -186,7 +189,9 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: var(--mk-z-tip);
   width: max-content;
-  max-width: 380px;
+  /* 单行显示：极长文案（多为完整路径）最多铺到视口宽，再长则末尾省略，绝不折行 */
+  max-width: calc(100vw - 16px);
+  white-space: nowrap;
   padding: 6px 10px;
   background: var(--mk-tip-bg);
   color: var(--mk-tip-fg);
@@ -215,5 +220,5 @@ onBeforeUnmount(() => {
   bottom: -5px;
   clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
-.ft-text { display: block; }
+.ft-text { display: block; overflow: hidden; text-overflow: ellipsis; }
 </style>

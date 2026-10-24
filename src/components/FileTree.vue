@@ -28,7 +28,8 @@ const emit = defineEmits<{
   (e: 'open-file-dbl', path: string): void;
   /** 新建文件成功后以其父视图默认打开并进入编辑模式 */
   (e: 'open-file-edit', path: string): void;
-  (e: 'hide'): void;
+  /** 向左拖过阈值松手：请求隐藏，并带上拖拽前的宽度（外层恢复时据此还原） */
+  (e: 'hide', width: number): void;
   /** 切换到历史工作区（Workbench 负责脏标签确认与关标签） */
   (e: 'switch-workspace', dir: string): void;
   (e: 'open-workspace'): void;
@@ -36,6 +37,8 @@ const emit = defineEmits<{
   (e: 'create-workspace'): void;
   /** 全部移除（含当前）：Workbench 负责确认、关标签、回到欢迎页 */
   (e: 'remove-all-workspaces'): void;
+  /** 拖宽过程中与松手时的实际宽度（书桌版左栏据此同步外层栏宽与栅格判据） */
+  (e: 'resize', width: number): void;
 }>();
 
 // ---- 工作区切换菜单（点击根目录名弹出） ----
@@ -52,12 +55,30 @@ const wsMenuPos = ref({ top: 0, left: 0, width: 0 });
 const WS_MENU_GAP = 4;
 const WS_MENU_EDGE = 8;
 
-/** 打开/关闭：先开再量（关着时量不到宽高），否则首帧会贴在左上角闪一下 */
+/** 菜单宽度与内容无关（只看目录面板内框），开启前就能算好：避免首帧以 width:0 渲染成窄条 */
+function wsMenuBox() {
+  const box = rootEl.value?.getBoundingClientRect() ?? null;
+  const width = Math.min(
+    Math.round(box ? box.width - WS_MENU_EDGE * 2 : 232),
+    window.innerWidth - WS_MENU_EDGE * 2,
+  );
+  const left = box
+    ? Math.round(box.left + WS_MENU_EDGE)
+    : Math.round(wsBtnRef.value?.getBoundingClientRect().left ?? WS_MENU_EDGE);
+  return { left: Math.max(WS_MENU_EDGE, left), width: Math.max(176, width) };
+}
+
+/** 打开/关闭：先按按钮下缘落位再开（高度要等挂载后才量得到），下一帧再校正是否翻到上方 */
 async function toggleWsMenu() {
   if (wsMenuOpen.value) {
     wsMenuOpen.value = false;
     return;
   }
+  const btn = wsBtnRef.value;
+  wsMenuPos.value = {
+    top: Math.round((btn?.getBoundingClientRect().bottom ?? 0) + WS_MENU_GAP),
+    ...wsMenuBox(),
+  };
   wsMenuOpen.value = true;
   await nextTick();
   placeWsMenu();
@@ -69,24 +90,12 @@ function placeWsMenu() {
   const menu = wsMenuRef.value;
   if (!btn) return;
   const r = btn.getBoundingClientRect();
-  // 宽度基准是目录面板本身，不是按钮：这样书桌左栏（208）里菜单也落在树的内框之内，
-  // 不会像首版那样 232px 探到右侧卡片上盖住内容
-  const box = rootEl.value?.getBoundingClientRect() ?? null;
-  const width = Math.min(
-    Math.round(box ? box.width - WS_MENU_EDGE * 2 : 232),
-    window.innerWidth - WS_MENU_EDGE * 2,
-  );
-  const left = Math.round(box ? box.left + WS_MENU_EDGE : r.left);
-  const mh = menu?.offsetHeight ?? 0; // 条目 nowrap，高度与宽度无关，先量后定宽不会算错
+  const mh = menu?.offsetHeight ?? 0; // 标题与条目都 nowrap，高度与宽度无关，先量后定宽不会算错
   let top = r.bottom + WS_MENU_GAP;
   if (mh > 0 && top + mh > window.innerHeight - WS_MENU_EDGE) {
     top = Math.max(WS_MENU_EDGE, r.top - mh - WS_MENU_GAP);
   }
-  wsMenuPos.value = {
-    top: Math.round(top),
-    left: Math.max(WS_MENU_EDGE, left),
-    width: Math.max(176, width),
-  };
+  wsMenuPos.value = { top: Math.round(top), ...wsMenuBox() };
 }
 
 /** fixed 菜单不会跟着锚点走：滚动关掉、缩放重新定位（比追着跑省事，也不会飘在半空） */
@@ -122,11 +131,20 @@ function removeWorkspace(dir: string) {
   });
 }
 
-// ---- 拖拽调宽（右缘手柄，200–440px）；拖到最左可隐藏，交互与大纲面板一致 ----
-/** 固定宽度档：欢迎页「书桌版」把它嵌进左栏时用——不给拖宽手柄，宽度由外层指定 */
-const props = defineProps<{ fixedWidth?: number }>();
+// ---- 拖拽调宽（右缘手柄，默认 200–440px）；拖到最左可隐藏，交互与大纲面板一致 ----
+/** fixedWidth：宽度由外层指定（欢迎页书桌版用），默认不给拖宽手柄；
+ *  resizable：在指定宽度档里也开放手柄；minWidth/maxWidth：外层按布局算出的边界 */
+const props = defineProps<{
+  fixedWidth?: number;
+  resizable?: boolean;
+  minWidth?: number;
+  maxWidth?: number;
+}>();
 const MIN_W = 200;
 const MAX_W = 440;
+const canResize = computed(() => props.resizable === true || props.fixedWidth === undefined);
+const minW = computed(() => props.minWidth ?? MIN_W);
+const maxW = computed(() => props.maxWidth ?? MAX_W);
 /** 向左拖到低于该宽度 → 松手隐藏（emit('hide')，与顶栏「隐藏工作区」同一状态链路） */
 const HIDE_AT = 120;
 const width = ref(props.fixedWidth ?? 230);
@@ -153,15 +171,17 @@ function onResizeMove(e: MouseEvent) {
   willHide = raw < HIDE_AT;
   // 取整：小数宽度会让右缘 1px 边线（.resizer::after）落在亚像素边界上，
   // 渲染成 2px 模糊线（「某些宽度下竖边线宽度异常」的根因）
-  width.value = Math.round(Math.min(MAX_W, Math.max(0, raw)));
+  width.value = Math.round(Math.min(maxW.value, Math.max(0, raw)));
+  emit('resize', width.value);
 }
 function onResizeEnd() {
   if (!dragging.value) return;
   dragging.value = false;
   if (willHide) {
-    emit('hide');
+    emit('hide', startW);
   } else {
-    width.value = Math.min(MAX_W, Math.max(MIN_W, width.value));
+    width.value = Math.min(maxW.value, Math.max(minW.value, width.value));
+    emit('resize', width.value);
   }
   willHide = false;
   document.body.style.cursor = '';
@@ -170,6 +190,21 @@ function onResizeEnd() {
   window.removeEventListener('mousemove', onResizeMove);
   window.removeEventListener('mouseup', onResizeEnd);
 }
+/* 宽度来源只有外层（书桌版）：固定宽变化时同步内部值；拖拽中跳过，免得和手柄互抢 */
+watch(
+  () => props.fixedWidth,
+  (v) => {
+    if (dragging.value || typeof v !== 'number') return;
+    const next = Math.round(Math.min(maxW.value, Math.max(minW.value, v)));
+    if (next !== width.value) width.value = next;
+  },
+);
+/* 窗口变窄后上限会往下收：非拖拽状态立刻夹回边界内 */
+watch([minW, maxW], () => {
+  if (dragging.value) return;
+  const next = Math.round(Math.min(maxW.value, Math.max(minW.value, width.value)));
+  if (next !== width.value) width.value = next;
+});
 onBeforeUnmount(() => {
   window.removeEventListener('mousemove', onResizeMove);
   window.removeEventListener('mouseup', onResizeEnd);
@@ -660,7 +695,7 @@ watch(filteredTree, (nodes) => {
   >
     <!-- 右缘拖拽手柄（拖到最左可隐藏）；原生 title 提示（全高细条会让 data-tip 气泡垂直定位跑飞，见 v0.3.1 反馈） -->
     <div
-      v-if="!props.fixedWidth"
+      v-if="canResize"
       class="resizer"
       :class="{ active: dragging }"
       @mousedown="onResizeStart"
@@ -740,7 +775,7 @@ watch(filteredTree, (nodes) => {
         spellcheck="false"
         @keydown.esc.prevent="closeFilter"
       />
-      <button class="f-clear" v-if="filterText" :title="t('filetree.clear')" @click="filterText = ''; filterIpt?.focus()"><X class="f-clear-ico" /></button>
+      <button class="f-clear" v-if="filterText" v-tip="t('filetree.clear')" @click="filterText = ''; filterIpt?.focus()"><X class="f-clear-ico" /></button>
     </div>
 
     <div class="tree" v-if="ws.tree && ws.tree.children && ws.tree.children.length > 0">
@@ -868,7 +903,7 @@ watch(filteredTree, (nodes) => {
       @confirm="createDialog.value = $event; doCreate()"
       @cancel="createDialog.visible = false; createError = ''"
     >
-      <p class="target-hint" :title="createTarget">{{ t('filetree.location', { path: createTarget }) }}</p>
+      <p class="target-hint" v-tip="createTarget">{{ t('filetree.location', { path: createTarget }) }}</p>
       <p class="err" v-if="createError">{{ createError }}</p>
     </AppDialog>
 
@@ -941,7 +976,7 @@ watch(filteredTree, (nodes) => {
   transition: background-color 120ms ease;
 }
 /* hover 点亮边线：宽度取 2 个设备像素（非整数缩放不变形），
-   颜色 = accent 与边线色按 62% 混色 —— 六套配色各有自己的强调色，
+   颜色 = accent 与边线色按 62% 混色 —— 八套配色各有自己的强调色，
    浅色下是中性墨灰、冷灰配色偏蓝灰、米黄偏暖褐、暗色则是提亮灰，不出现纯黑硬线。
    active（拖拽中）回到纯 accent 实色，与 hover 区分「正在拖」 */
 .resizer:hover::after {
@@ -1001,6 +1036,7 @@ watch(filteredTree, (nodes) => {
   padding: 4px 8px;
   font-size: 10.5px; font-weight: 600; letter-spacing: 1px;
   color: var(--mk-fg-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .mk-menu .ws-item {
   width: 100%;

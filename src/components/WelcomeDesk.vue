@@ -3,7 +3,7 @@
  * 欢迎页「书桌」版（Bento 布局）—— 参考 repro/welcome-desk-premium.html 落码。
  *
  * 设计约束（与参考稿的差异，均为有意为之）：
- * 1. 配色只用应用 token（--mk-*）+ 局部 --desk-*，因此亮/暗与六套配色自动跟随；
+ * 1. 配色只用应用 token（--mk-*）+ 局部 --desk-*，因此亮/暗与八套配色自动跟随；
  * 2. 去掉了参考稿的极光漂移动画与 SVG 噪点：常驻动画会让 WebView 一直做合成，
  *    欢迎页长时间停留时不值得；静态径向渐变保留氛围；
  * 3. 五张卡片的数据全部来自真实后端能力，无记录/无工作区时走空态，不留假数字：
@@ -14,12 +14,12 @@
  * 4. 尺寸自适应由 ResizeObserver 量自身盒子（不是媒体查询）：欢迎区的可用宽度会被
  *    侧栏与窗口共同决定，媒体查询的 viewport 宽度在这里不准。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
-  ExternalLink, FileCode2, FilePlus2, FileText, FolderOpen, FolderPlus, PenLine, Search,
+  ExternalLink, FileCode2, FilePlus2, FileText, FolderOpen, FolderPlus, PanelLeftOpen, PenLine, Search,
 } from '@lucide/vue';
 import pkg from '../../package.json';
-import { getFileMeta, readFile, revealInExplorer } from '../api/fileApi';
+import { getFileMeta, openUrl, readFile, revealInExplorer } from '../api/fileApi';
 import type { WorkspaceNode } from '../api/types';
 import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { useI18n } from '../i18n';
@@ -28,7 +28,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { BRAND_NAME } from '../utils/brand';
 import FileTree from './FileTree.vue';
 import { fileKind, type FileKind } from '../utils/fileKind';
-import { modKey } from '../utils/keyHint';
+import { isMac, modKey } from '../utils/keyHint';
 import type { MdTemplate } from '../utils/markdownTemplate';
 
 const props = defineProps<{
@@ -48,6 +48,9 @@ const emit = defineEmits<{
   (e: 'switch-workspace', dir: string): void;
   (e: 'remove-all-workspaces'): void;
   (e: 'search'): void;
+  (e: 'open-tree-file', path: string): void;
+  (e: 'open-tree-file-dbl', path: string): void;
+  (e: 'open-tree-file-edit', path: string): void;
 }>();
 
 const { t } = useI18n();
@@ -90,12 +93,94 @@ const sizeClass = computed(() => {
 /** 矮窗口：压缩内距、隐藏次要信息（参考稿 max-height:700 那档的等价物） */
 const compact = computed(() => boxH.value < 660);
 const wide = computed(() => sizeClass.value === 'size-xl');
+
+/* 书桌版左侧目录栏：是否显示由 WelcomeHost 传入（它同时负责让全局侧栏让位），这里只做渲染 */
+const RAIL_W = 208;
+/** 用户把栏拖到最左隐藏后置 true；恢复按钮把它放回来（仅本次会话） */
+const railClosed = ref(false);
+/** 隐藏前记住的宽度：拖隐过程中 railW 会一路缩到 0，恢复时不能用它 */
+const railLastW = ref(RAIL_W);
+const showRail = computed(() => props.rail === true && !!ws.root && !railClosed.value);
+/** 只有「外层允许显示 + 有工作区 + 是用户自己收起」时才给恢复入口 */
+const canRestoreRail = computed(() => props.rail === true && !!ws.root && railClosed.value);
+/* 目录栏可拖宽（书桌版 2026-10-24）：宽度跟着栅格一起算边界。
+   下限沿用目录树自己的 200；上限按「栅格不低于 918px」反推——
+   918 是现网左栏最小态（窗口回差阈值 1200 − 左右内距 56 − 间隙 16 − 栏宽 210），
+   再给栏宽封顶 360；超宽屏的内容带被 .desk-cols 封在 1440，算边界前先夹进去。
+   窗口变窄时上限跟着收，已有宽度立即夹回（不逆向恢复，避免和用户意图打架） */
+const RAIL_MIN = 200;
+const RAIL_MAX = 360;
+const BENTO_FLOOR = 918;
+const railW = ref(RAIL_W);
+const railMax = computed(() => {
+  const band = Math.min(boxW.value - 56, 1440);
+  return Math.max(RAIL_MIN, Math.min(RAIL_MAX, Math.round(band - 16 - BENTO_FLOOR - 2)));
+});
+watch(railMax, (m) => {
+  if (railW.value > m) railW.value = m;
+});
 /** 偏窄的 xl（侧栏展开时常见）：继续写作卡里「纸卡 + 三个按钮 + 保存状态」排不下一行，
- *  这一档把纸卡收窄、隐藏保存状态，避免按钮折行（飞总 2026-10-23 第 4 条） */
-const tight = computed(() => boxW.value < 1240);
+ *  这一档把纸卡收窄、隐藏保存状态，避免按钮折行（飞总 2026-10-23 第 4 条）。
+ *  有左栏时内容带被吃掉约 146px，同一判据要换算到窗口宽：实测 1283 起折行，取 1300 留余量。
+ *  栏可拖宽后按实际宽度平移同一判据（栏每宽 1px，折行点就右移 1px） */
+const tight = computed(() =>
+  boxW.value < (showRail.value ? 1300 + (Math.max(railW.value, RAIL_MIN) - RAIL_W) : 1240),
+);
+
+function onRailHide(w: number) {
+  railLastW.value = Math.max(RAIL_MIN, Math.min(RAIL_MAX, Math.round(w)));
+  railClosed.value = true;
+}
+function restoreRail() {
+  railW.value = Math.max(RAIL_MIN, Math.min(railMax.value, railLastW.value));
+  railClosed.value = false;
+}
+
+/* 目录栏入场：横排档由 CSS 过渡宽度（把五张卡推开），竖排档里栏在栅格上方、宽度推不动卡位，
+   只能用高度把下面的卡让下来——高度是内容撑出来的，交给过渡钩子量一次再补间 */
+const RAIL_ANIM = 'height 0.3s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.3s ease';
+function railAnimTarget(el: Element): HTMLElement | null {
+  if (sizeClass.value === 'size-xl') return null;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return null;
+  return el as HTMLElement;
+}
+function railEnter(el: Element) {
+  const h = railAnimTarget(el);
+  if (!h) return;
+  h.style.transition = '';
+  h.style.height = '';
+  h.style.overflow = 'hidden';
+  const target = h.getBoundingClientRect().height;
+  h.style.transition = RAIL_ANIM;
+  h.style.height = '0px';
+  void h.offsetHeight; // 先落到 0 并强制回流，再写目标高才有补间
+  h.style.height = `${target}px`;
+}
+function railLeave(el: Element) {
+  const h = railAnimTarget(el);
+  if (!h) return;
+  h.style.transition = RAIL_ANIM;
+  h.style.height = `${h.getBoundingClientRect().height}px`;
+  void h.offsetHeight;
+  h.style.height = '0px';
+}
+function railSettled(el: Element) {
+  const h = el as HTMLElement;
+  h.style.transition = '';
+  h.style.height = '';
+  h.style.overflow = '';
+}
+/* 入场途中若整块从竖排切到横排（全局侧栏让位后窗口够宽），内联高度会卡住 stretch，及时清掉 */
+watch(sizeClass, (v) => {
+  if (v !== 'size-xl') return;
+  const el = rootRef.value?.querySelector<HTMLElement>('.rail');
+  if (el) railSettled(el);
+});
 
 // ---------------- 文案与格式化 ----------------
 const isEn = computed(() => settings.settings.language === 'en-US');
+/** macOS 的系统措辞是「访达」，Windows/Linux 才叫「文件夹」 */
+const revealLabel = computed(() => t(isMac ? 'welcome.desk.revealMac' : 'welcome.desk.reveal'));
 
 /** 一分钟一跳的时钟：日期与问候都从它取，跨零点/跨时段不用重开窗口 */
 const nowTick = ref(Date.now());
@@ -137,6 +222,14 @@ const startOfDay = (ms: number) => {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 };
+/** 按日历日平移，而不是 ±86_400_000：夏令时切换那天只有 23/25 小时，
+ *  固定毫秒数会让「昨天」「6 天前」落到前天或明天 */
+const shiftDays = (ms: number, days: number) => {
+  const d = new Date(ms);
+  d.setDate(d.getDate() + days);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
 const hm = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
 /** 相对时间：刚刚 / N 分钟前 / N 小时前 / 昨天 HH:mm / MM-DD / YYYY-MM-DD */
@@ -149,7 +242,7 @@ function relTime(ms: number): string {
   const day = startOfDay(ms);
   const today = startOfDay(now);
   if (day === today) return t('welcome.desk.tHours', { n: Math.floor(diff / 3_600_000) });
-  if (day === today - 86_400_000) return t('welcome.desk.tYesterday', { t: hm(d) });
+  if (day === shiftDays(today, -1)) return t('welcome.desk.tYesterday', { t: hm(d) });
   if (d.getFullYear() === new Date(now).getFullYear()) {
     return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   }
@@ -249,6 +342,8 @@ const recentRows = computed(() =>
 const continueItem = computed(() => recent.value[0] ?? null);
 /** 拆成标量 computed：模板里就不必对 continueItem 做非空收窄 */
 const continuePath = computed(() => continueItem.value?.path ?? '');
+/** 路径只有文件名时面包屑为空，此时连分隔圆点一起省掉 */
+const continueCrumb = computed(() => (continuePath.value ? crumbOf(continuePath.value) : ''));
 const continueOpenedMs = computed(() => continueItem.value?.openedAtMs ?? 0);
 const continueName = computed(() => (continueItem.value ? baseName(continueItem.value.path) : ''));
 const continueStem = computed(() => {
@@ -268,6 +363,13 @@ const continueKindLabel = computed(() => {
   const n = continueName.value;
   if (!n) return '';
   return extOf(n) === 'mh' ? t('welcome.desk.kindMh') : kindLabel(fileKind(n));
+});
+/** 按钮动作跟文件类型走：md/.mh/纯文本=写作，代码=编码，其余（图片/文档/PDF…）=查阅 */
+const continueActionLabel = computed(() => {
+  const kind = fileKind(continueName.value);
+  if (kind === 'code') return t('welcome.desk.continueBtnCode');
+  if (kind === 'md' || kind === 'text') return t('welcome.desk.continueBtn');
+  return t('welcome.desk.continueBtnRead');
 });
 
 const excerpt = ref('');
@@ -307,7 +409,8 @@ watch(
       const file = await readFile(path);
       if (seq !== excerptSeq) return;
       const plain = toPlain(file.content);
-      excerpt.value = plain.slice(0, 160);
+      // 纸卡要放足够多的真实正文给打字机滚动（左侧摘要仍由 CSS 钳到四行）
+      excerpt.value = plain.slice(0, PAPER_CHARS);
       docHeading.value = headingOf(file.content);
       charCount.value = plain.replace(/\s/g, '').length;
       wordCount.value = plain.split(/\s+/).filter(Boolean).length;
@@ -324,20 +427,155 @@ watch(
 const readUnits = computed(() => (isEn.value ? wordCount.value : charCount.value));
 const readMinutes = computed(() => Math.max(1, Math.round(readUnits.value / 400)));
 
-/** 缩略卡里只放一小段：整段塞进去会糊成一片，切在最近的句读处 */
+/** 纸卡正文素材上限：再多不会多显示信息，只会把一次循环拖得过长（1600 字约 29 秒） */
+const PAPER_CHARS = 1600;
+
+/** 缩略卡里只放正文：留足素材给打字机滚动，超长文档在句读处收尾 */
 const paperText = computed(() => {
   const s = excerpt.value;
-  if (s.length <= 90) return s;
-  const head = s.slice(0, 90);
+  if (s.length < PAPER_CHARS) return s;
   const stop = Math.max(
-    head.lastIndexOf('。'),
-    head.lastIndexOf('；'),
-    head.lastIndexOf('，'),
-    head.lastIndexOf('. '),
-    head.lastIndexOf(' '),
+    s.lastIndexOf('。'),
+    s.lastIndexOf('；'),
+    s.lastIndexOf('. '),
+    s.lastIndexOf(' '),
   );
-  return stop > 40 ? head.slice(0, stop + 1) : head;
+  return stop > PAPER_CHARS - 200 ? s.slice(0, stop + 1) : s;
 });
+
+/**
+ * 纸卡正文的打字机：内容超过纸面时随打字整体上滚，最新一行始终贴着纸面底部；
+ * 读完停一下，淡出后从开头循环。内容本来就不满一屏时打完即停，不做无意义的循环。
+ * prefers-reduced-motion 下直接给全文：不逐字、不滚动。
+ */
+const paperTextRef = ref<HTMLElement | null>(null);
+const typedText = ref('');
+const typing = ref(false);
+/** 正文上移的距离（px）：只有内容超出纸面时才有值 */
+const paperShift = ref(0);
+const paperFade = ref(false);
+/** 循环回到开头时暂时关掉位移动画，避免正文从底部「倒卷」回顶部 */
+const paperRewind = ref(false);
+/** 静态展示（reduced-motion / compact）：不滚动，固定显示正文开头 */
+const paperStatic = ref(false);
+let typeTimer: number | undefined;
+let loopTimer: number | undefined;
+let fitTimer: number | undefined;
+
+/**
+ * 打字节奏（滚动时长在 .paper-text 的 CSS 里，与「一行约 20 字」的节奏对齐）。
+ * 每次落 2 个字而不是 1 个：字数推进速度不变（55 字/s），但每秒少一半的排版/重绘——
+ * 10px 字号下肉眼看不出成对出现，长正文的滚动开销却能降下来。
+ */
+const TYPE_MS = 36;
+const TYPE_STEP = 2;
+const HOLD_MS = 1800;
+const FADE_MS = 240;
+
+function clearTypeTimer() {
+  if (typeTimer !== undefined) window.clearInterval(typeTimer);
+  typeTimer = undefined;
+  typing.value = false;
+}
+function clearLoopTimer() {
+  if (loopTimer !== undefined) window.clearTimeout(loopTimer);
+  loopTimer = undefined;
+}
+function clearTimers() {
+  clearTypeTimer();
+  clearLoopTimer();
+  if (fitTimer !== undefined) window.clearTimeout(fitTimer);
+  fitTimer = undefined;
+}
+
+function syncShift() {
+  if (paperStatic.value) return;
+  const el = paperTextRef.value;
+  if (!el) return;
+  paperShift.value = Math.max(0, el.scrollHeight - el.clientHeight);
+}
+
+function typeFrom(start: number) {
+  const full = paperText.value;
+  if (!paperTextRef.value || start >= full.length) return;
+  paperStatic.value = false;
+  typing.value = true;
+  typeTimer = window.setInterval(() => {
+    const el = paperTextRef.value;
+    // 纸卡收起（compact）或已卸载：直接落全文
+    if (!el || el.clientHeight === 0) {
+      clearTypeTimer();
+      typedText.value = full;
+      paperShift.value = 0;
+      paperStatic.value = true;
+      return;
+    }
+    // 窗口不可见时不做布局测量，回到前台接着打
+    if (document.hidden) return;
+    const n = Math.min(full.length, typedText.value.length + TYPE_STEP);
+    typedText.value = full.slice(0, n);
+    syncShift();
+    if (n >= full.length) finishTyping();
+  }, TYPE_MS);
+}
+
+function finishTyping() {
+  clearTypeTimer();
+  if (paperShift.value <= 0) return;
+  loopTimer = window.setTimeout(() => {
+    loopTimer = undefined;
+    if (paperShift.value <= 0) return;
+    paperFade.value = true;
+    loopTimer = window.setTimeout(() => {
+      loopTimer = undefined;
+      paperRewind.value = true;
+      typedText.value = '';
+      paperShift.value = 0;
+      void nextTick().then(() => {
+        paperRewind.value = false;
+        startTypewriter(false);
+      });
+    }, FADE_MS);
+  }, HOLD_MS);
+}
+
+function startTypewriter(reset = true) {
+  clearTimers();
+  paperFade.value = false;
+  paperRewind.value = false;
+  paperStatic.value = false;
+  if (reset) {
+    typedText.value = '';
+    paperShift.value = 0;
+  }
+  if (!paperText.value) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    typedText.value = paperText.value;
+    paperStatic.value = true;
+    return;
+  }
+  void nextTick().then(() => {
+    // 当前档位不显示正文（compact）：直接落全文，别空转计时器
+    if (!paperTextRef.value || paperTextRef.value.clientHeight === 0) {
+      typedText.value = paperText.value;
+      paperStatic.value = true;
+      return;
+    }
+    typeFrom(typedText.value.length);
+  });
+}
+
+watch(paperText, () => startTypewriter(), { immediate: true });
+
+/** 窗口尺寸变化：打字中每帧会自己重算，停顿/静止时补算一次（拖动尺寸防抖） */
+watch(boxH, () => {
+  if (fitTimer !== undefined) window.clearTimeout(fitTimer);
+  fitTimer = window.setTimeout(() => {
+    fitTimer = undefined;
+    if (!typing.value) syncShift();
+  }, 300);
+});
+onBeforeUnmount(clearTimers);
 
 /** Markdown / HTML 混排正文 → 单段纯文本（摘要、字数共用一个口径，不追求完整语法解析） */
 function toPlain(raw: string): string {
@@ -393,6 +631,22 @@ function onDocKeyDown(e: KeyboardEvent) {
   tplOpen.value = false;
   wsMenuOpen.value = false;
 }
+/** role=menu 只描述语义，方向键得自己接：否则 Tab 进得来、却只能用鼠标往下点 */
+function onMenuKey(e: KeyboardEvent) {
+  const items = Array.from(
+    (e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'),
+  );
+  if (items.length === 0) return;
+  const cur = items.indexOf(document.activeElement as HTMLElement);
+  let next = -1;
+  if (e.key === 'ArrowDown') next = cur < 0 ? 0 : (cur + 1) % items.length;
+  else if (e.key === 'ArrowUp') next = cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = items.length - 1;
+  else return;
+  e.preventDefault();
+  items[next]?.focus();
+}
 /* 两个下拉共用同一对监听：常驻成本只是一次 contains 判断，比按开合反复挂摘更不容易漏 */
 onMounted(() => {
   document.addEventListener('pointerdown', onDocPointerDown, true);
@@ -411,14 +665,17 @@ function pickTemplate(tpl: MdTemplate) {
 // ---------------- 工作区切换 ----------------
 const wsMenuOpen = ref(false);
 const wsSwitchRef = ref<HTMLElement | null>(null);
+/** 路径分隔符按数据本身判断（Windows 反斜杠 / macOS·Linux 斜杠），不做平台嗅探 */
+const sepOf = (p: string): string => (p.includes('\\') ? '\\' : '/');
 /** 其它工作区：排除当前，最多 8 条（recentWorkspaces 本身上限 10）。
- *  路径只给「盘符\…\上一层」，完整路径在 title 里——菜单里塞整条路径会挤成一团 */
+ *  路径只给「盘符/…/上一层」，完整路径在 title 里——菜单里塞整条路径会挤成一团 */
 function parentHint(dir: string): string {
+  const sep = sepOf(dir);
   const parts = dir.split(/[\\/]/).filter(Boolean);
   parts.pop();
   if (parts.length === 0) return dir;
-  if (parts.length <= 2) return parts.join('\\');
-  return `${parts[0]}\\…\\${parts[parts.length - 1]}`;
+  if (parts.length <= 2) return parts.join(sep);
+  return `${parts[0]}${sep}…${sep}${parts[parts.length - 1]}`;
 }
 const otherWorkspaces = computed(() =>
   settings.settings.recentWorkspaces
@@ -437,11 +694,6 @@ function pickWorkspace(dir: string) {
 }
 
 // ---------------- 书桌版左侧目录栏 ----------------
-/** 左栏固定宽度：比全局侧栏（230）再收一档，把宽度让给五卡栅格 */
-const RAIL_W = 208;
-/* 是否显示由 WelcomeHost 传入（它同时负责让全局侧栏让位），这里只做渲染 */
-const showRail = computed(() => props.rail === true && !!ws.root);
-
 /** 「最近改动」行数按剩余高度自适应：19px 一行，扣掉小标题，1~8 行 */
 const wsRecentRef = ref<HTMLElement | null>(null);
 const wsRecentRows = ref(3);
@@ -476,7 +728,7 @@ interface DeskStats {
   days: number[];
   weekTotal: number;
   streak: number;
-  recent: Array<{ name: string; mtimeMs: number }>;
+  recent: Array<{ name: string; path: string; mtimeMs: number }>;
   truncated: boolean;
 }
 
@@ -488,15 +740,17 @@ const EMPTY_STATS: DeskStats = {
 /** 大工作区兜底：超过这个节点数就停（剩余部分不计，footer 不承诺精确） */
 const MAX_NODES = 60_000;
 const DAY_MS = 86_400_000;
+/** 日历日的零点：stats 依赖它，跨零点自动重算一次（每天一次，而不是每分钟重扫整棵树） */
+const dayStamp = computed(() => startOfDay(nowTick.value));
 
 const stats = computed<DeskStats>(() => {
   const tree: WorkspaceNode | null = ws.tree;
   if (!tree) return EMPTY_STATS;
 
   const days = [0, 0, 0, 0, 0, 0, 0];
-  const today = startOfDay(Date.now());
-  const windowStart = today - 6 * DAY_MS;
-  const top: Array<{ name: string; mtimeMs: number }> = [];
+  const today = dayStamp.value;
+  const windowStart = shiftDays(today, -6);
+  const top: Array<{ name: string; path: string; mtimeMs: number }> = [];
   let files = 0;
   let bytes = 0;
   let md = 0;
@@ -529,11 +783,12 @@ const stats = computed<DeskStats>(() => {
     }
     const mtime = node.mtimeMs ?? 0;
     if (mtime >= windowStart) {
+      // 用 round 而不是 floor：跨夏令时的两天相差 47/49 小时，四舍五入仍落在正确的那一格
       const idx = Math.round((startOfDay(mtime) - windowStart) / DAY_MS);
       if (idx >= 0 && idx < 7) days[idx] += 1;
     }
     if (top.length < 8 || mtime > top[top.length - 1].mtimeMs) {
-      top.push({ name: node.name, mtimeMs: mtime });
+      top.push({ name: node.name, path: node.path, mtimeMs: mtime });
       top.sort((a, b) => b.mtimeMs - a.mtimeMs);
       if (top.length > 8) top.pop();
     }
@@ -576,9 +831,9 @@ const legendLabel: Record<string, string> = {
  *  narrow 在 zh 下就是「五」、en 下是「F」，不用自己拼表 */
 const dayLabels = computed(() => {
   const locale = isEn.value ? 'en-US' : 'zh-CN';
-  const today = startOfDay(nowTick.value);
+  const today = dayStamp.value;
   return Array.from({ length: 7 }, (_, i) =>
-    new Date(today - (6 - i) * DAY_MS).toLocaleDateString(locale, { weekday: 'narrow' }),
+    new Date(shiftDays(today, i - 6)).toLocaleDateString(locale, { weekday: 'narrow' }),
   );
 });
 
@@ -588,6 +843,8 @@ const barPct = (n: number) => (n === 0 ? 4 : 12 + (n / maxDay.value) * 88);
 
 // ---------------- 页脚版本 ----------------
 const version = computed(() => currentVersion.value || pkg.version);
+const SHENCO_URL = 'https://shenco.wang';
+const openShenco = () => void openUrl(SHENCO_URL).catch(() => undefined);
 const versionNote = computed(() => {
   switch (updateState.value) {
     case 'uptodate': return t('welcome.desk.upToDate');
@@ -617,26 +874,40 @@ const versionNote = computed(() => {
             <div class="brand-sub">{{ dateLine }}<span class="brand-greet">{{ greeting }}</span></div>
           </div>
         </div>
-        <button type="button" class="search-pill" :title="t('welcome.desk.searchHint')" @click="emit('search')">
+        <button type="button" class="search-pill" v-tip="t('welcome.desk.searchHint')" @click="emit('search')">
           <Search :size="15" class="search-ic" />
           <span class="search-txt">{{ t('welcome.desk.searchPlaceholder') }}</span>
           <kbd>{{ modKey() }} P</kbd>
         </button>
       </header>
       <div class="desk-cols">
-        <!-- 书桌版左栏：直接用经典目录树（同一份组件、同一套交互），只是宽度固定收窄 -->
-        <aside v-if="showRail" class="rail">
-          <FileTree
-            :fixed-width="RAIL_W"
-            @open-file="(p: string) => emit('open-recent', p)"
-            @open-file-dbl="(p: string) => emit('open-recent', p)"
-            @open-file-edit="(p: string) => emit('open-recent', p)"
-            @switch-workspace="(d: string) => emit('switch-workspace', d)"
-            @open-workspace="emit('open-workspace')"
-            @create-workspace="emit('create-workspace')"
-            @remove-all-workspaces="emit('remove-all-workspaces')"
-          />
-        </aside>
+        <!-- 书桌版左栏：直接用经典目录树（同一份组件、同一套交互），默认 208、可拖宽；
+             栏要等工作区树就绪才出现，用过渡把它推开而不是让五张卡瞬移 -->
+        <Transition
+          name="desk-rail"
+          @enter="railEnter"
+          @after-enter="railSettled"
+          @leave="railLeave"
+          @leave-cancelled="railSettled"
+        >
+          <aside v-if="showRail" class="rail" :style="{ '--rail-w': `${railW + 2}px` }">
+            <FileTree
+              :fixed-width="railW"
+              resizable
+              :min-width="RAIL_MIN"
+              :max-width="railMax"
+              @resize="(w: number) => (railW = w)"
+              @hide="onRailHide"
+              @open-file="(p: string) => emit('open-tree-file', p)"
+              @open-file-dbl="(p: string) => emit('open-tree-file-dbl', p)"
+              @open-file-edit="(p: string) => emit('open-tree-file-edit', p)"
+              @switch-workspace="(d: string) => emit('switch-workspace', d)"
+              @open-workspace="emit('open-workspace')"
+              @create-workspace="emit('create-workspace')"
+              @remove-all-workspaces="emit('remove-all-workspaces')"
+            />
+          </aside>
+        </Transition>
 
         <main class="bento">
           <!-- 继续写作 -->
@@ -655,10 +926,12 @@ const versionNote = computed(() => {
                   <div class="doc">
                     <span class="badge" :class="`tone-${continueTone}`">{{ continueBadge }}</span>
                     <div class="doc-main">
-                      <h2 class="doc-title" :title="continueName">{{ continueStem }}<span class="ext">{{ continueExt }}</span></h2>
+                      <h2 class="doc-title" v-tip="continueName">{{ continueStem }}<span class="ext">{{ continueExt }}</span></h2>
                       <div class="doc-meta">
-                        <span class="crumb">{{ crumbOf(continuePath) }}</span>
-                        <i class="dot" />
+                        <template v-if="continueCrumb">
+                          <span class="crumb">{{ continueCrumb }}</span>
+                          <i class="dot" />
+                        </template>
                         <span>{{ continueKindLabel }}</span>
                       </div>
                     </div>
@@ -674,7 +947,7 @@ const versionNote = computed(() => {
                   </div>
                   <div class="actions">
                     <button type="button" class="btn primary" @click="emit('open-recent', continuePath)">
-                      {{ t('welcome.desk.continueBtn') }}
+                      {{ continueActionLabel }}
                       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                     </button>
                     <button type="button" class="btn outline" @click="previewContinue">
@@ -683,8 +956,8 @@ const versionNote = computed(() => {
                     <button
                       type="button"
                       class="btn icon-only"
-                      :title="t('welcome.desk.reveal')"
-                      :aria-label="t('welcome.desk.reveal')"
+                      v-tip="revealLabel"
+                      :aria-label="revealLabel"
                       @click="revealContinue"
                     >
                       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
@@ -703,11 +976,43 @@ const versionNote = computed(() => {
                   class="paper"
                   role="button"
                   tabindex="0"
-                  :aria-label="`${t('welcome.desk.continueBtn')} · ${continueName}`"
+                  :aria-label="`${continueActionLabel} · ${continueName}`"
                   @click="emit('open-recent', continuePath)"
                   @keydown.enter.prevent="emit('open-recent', continuePath)"
                   @keydown.space.prevent="emit('open-recent', continuePath)"
                 >
+                  <!-- 卡针：跨在纸卡上边缘，把纸「别」在卡面上 -->
+                  <span class="paper-pin" aria-hidden="true">
+                    <svg viewBox="0 0 32 26">
+                      <defs>
+                        <linearGradient id="deskPinMetal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0" stop-color="#fdfeff" />
+                          <stop offset="0.26" stop-color="#dfe6ee" />
+                          <stop offset="0.56" stop-color="#a3aeba" />
+                          <stop offset="0.72" stop-color="#cfd8e2" />
+                          <stop offset="1" stop-color="#7c8795" />
+                        </linearGradient>
+                      </defs>
+                      <!-- 两根提手钢丝：从金属体顶边向外张开抬起 -->
+                      <path d="M13 9.6C11.2 6.2 10.4 4.2 9 2.4" fill="none" stroke="#b9c4d0" stroke-width="1.9" stroke-linecap="round" />
+                      <path d="M19 9.6C20.8 6.2 21.6 4.2 23 2.4" fill="none" stroke="#b9c4d0" stroke-width="1.9" stroke-linecap="round" />
+                      <path d="M13.1 9.6C11.4 6.3 10.6 4.4 9.2 2.7" fill="none" stroke="#ffffff" stroke-width="0.65" stroke-linecap="round" opacity="0.7" />
+                      <path d="M18.9 9.6C20.6 6.3 21.4 4.4 22.8 2.7" fill="none" stroke="#ffffff" stroke-width="0.65" stroke-linecap="round" opacity="0.7" />
+                      <!-- 金属夹体：上窄下宽的折板，纸从下沿夹进去 -->
+                      <path
+                        d="M9.4 9h13.2l1.5 9.3a2.5 2.5 0 0 1-2.5 2.2H10.4a2.5 2.5 0 0 1-2.5-2.2Z"
+                        fill="url(#deskPinMetal)"
+                        stroke="#ffffff"
+                        stroke-opacity="0.5"
+                        stroke-width="0.8"
+                        stroke-linejoin="round"
+                      />
+                      <path d="M9.9 9.9h12.2" stroke="#ffffff" stroke-width="0.8" opacity="0.85" />
+                      <!-- 夹口：纸从下沿进去 -->
+                      <path d="M10.8 20.1h10.4" stroke="#414b58" stroke-width="2.4" stroke-linecap="round" opacity="0.9" />
+                      <path d="M10.8 20.1h10.4" stroke="#2a323c" stroke-width="1" stroke-linecap="round" opacity="0.55" />
+                    </svg>
+                  </span>
                   <div class="paper-head">
                     <span class="badge xs" :class="`tone-${continueTone}`">{{ continueBadge }}</span>
                     <span class="paper-name">{{ continueName }}</span>
@@ -715,7 +1020,19 @@ const versionNote = computed(() => {
                   <div class="paper-rule"><span>{{ t('welcome.desk.paperTag') }}</span></div>
                   <div class="paper-body" aria-hidden="true">
                     <h3 class="paper-title">{{ docHeading || continueStem }}</h3>
-                    <p class="paper-text">{{ paperText || t('welcome.desk.noExcerpt') }}</p>
+                    <div
+                      ref="paperTextRef"
+                      class="paper-text-wrap"
+                      :class="{ 'is-scrolled': paperShift > 0 }"
+                    >
+                      <p
+                        class="paper-text"
+                        :class="{ 'is-faded': paperFade, 'is-rewind': paperRewind }"
+                        :style="{ transform: `translateY(-${paperShift}px)` }"
+                      >
+                        {{ paperText ? typedText : t('welcome.desk.noExcerpt') }}<span v-if="typing" class="paper-caret" />
+                      </p>
+                    </div>
                   </div>
                   <div class="paper-props" aria-hidden="true">
                     <div v-if="fileSize > 0"><span>{{ t('welcome.desk.propSize') }}</span><b>{{ fmtSize(fileSize) }}</b></div>
@@ -755,31 +1072,34 @@ const versionNote = computed(() => {
               </button>
             </div>
             <div class="new-grid">
-              <button type="button" class="new-tile" @click="emit('new-kernel', 'md')">
+              <button type="button" class="new-tile tone-md" @click="emit('new-kernel', 'md')">
                 <span class="new-ico tone-md"><FileText :size="16" /></span>
                 <span class="new-txt">
                   <span class="new-label">Markdown</span>
                   <span class="new-sub">{{ t('welcome.desk.tileMdSub') }}</span>
                 </span>
+                <span class="new-mark" aria-hidden="true">MD</span>
               </button>
-              <button type="button" class="new-tile" @click="emit('new-kernel', 'mh')">
+              <button type="button" class="new-tile tone-mh" @click="emit('new-kernel', 'mh')">
                 <span class="new-ico tone-mh"><PenLine :size="16" /></span>
                 <span class="new-txt">
                   <span class="new-label">Markhtml</span>
                   <span class="new-sub">{{ t('welcome.desk.tileMhSub') }}</span>
                 </span>
+                <span class="new-mark" aria-hidden="true">MH</span>
               </button>
-              <button type="button" class="new-tile" @click="emit('new-kernel', 'code')">
+              <button type="button" class="new-tile tone-code" @click="emit('new-kernel', 'code')">
                 <span class="new-ico tone-code"><FileCode2 :size="16" /></span>
                 <span class="new-txt">
                   <span class="new-label">{{ t('welcome.desk.tileCode') }}</span>
                   <span class="new-sub">{{ t('welcome.desk.tileCodeSub') }}</span>
                 </span>
+                <span class="new-mark" aria-hidden="true">TXT</span>
               </button>
               <div ref="tplWrapRef" class="tpl-wrap">
                 <button
                   type="button"
-                  class="new-tile"
+                  class="new-tile tone-tpl"
                   :aria-expanded="tplOpen"
                   @click="tplOpen = !tplOpen"
                 >
@@ -788,8 +1108,9 @@ const versionNote = computed(() => {
                     <span class="new-label">{{ t('welcome.desk.tileTpl') }}</span>
                     <span class="new-sub">{{ templateList.map((x) => x.name).join(' · ') || t('welcome.desk.tileTplSub') }}</span>
                   </span>
+                  <span class="new-mark" aria-hidden="true">TPL</span>
                 </button>
-                <div v-if="tplOpen" class="tpl-menu" role="menu">
+                <div v-if="tplOpen" class="tpl-menu" role="menu" @keydown="onMenuKey">
                   <button
                     v-for="tpl in templateList"
                     :key="tpl.id"
@@ -801,19 +1122,21 @@ const versionNote = computed(() => {
                   <p v-if="templateList.length === 0" class="tpl-none">{{ t('welcome.desk.tileTplSub') }}</p>
                 </div>
               </div>
-              <button type="button" class="new-tile" @click="emit('open-workspace')">
+              <button type="button" class="new-tile tone-ws" @click="emit('open-workspace')">
                 <span class="new-ico tone-ws"><FolderOpen :size="16" /></span>
                 <span class="new-txt">
                   <span class="new-label">{{ t('welcome.openWorkspace') }}</span>
                   <span class="new-sub">{{ t('welcome.desk.tileOpenWsSub') }}</span>
                 </span>
+                <span class="new-mark" aria-hidden="true">DIR</span>
               </button>
-              <button type="button" class="new-tile" @click="emit('create-workspace')">
+              <button type="button" class="new-tile tone-ws" @click="emit('create-workspace')">
                 <span class="new-ico tone-ws"><FolderPlus :size="16" /></span>
                 <span class="new-txt">
                   <span class="new-label">{{ t('welcome.createWorkspace') }}</span>
                   <span class="new-sub">{{ t('welcome.desk.tileNewWsSub') }}</span>
                 </span>
+                <span class="new-mark" aria-hidden="true">NEW</span>
               </button>
             </div>
           </section>
@@ -833,10 +1156,10 @@ const versionNote = computed(() => {
                 :key="row.path"
                 type="button"
                 class="recent-row"
-                :title="row.path"
+                v-tip="row.path"
                 @click="emit('open-recent', row.path)"
               >
-                <span class="badge sm" :class="`tone-${row.tone}`">{{ row.badge }}</span>
+                <span class="badge sm" :class="`tone-${row.tone}`" data-tip-anchor>{{ row.badge }}</span>
                 <span class="row-main">
                   <span class="row-name">{{ row.name }}</span>
                   <span class="row-path">{{ row.crumb }}</span>
@@ -861,15 +1184,15 @@ const versionNote = computed(() => {
                   type="button"
                   class="ws-switch"
                   :aria-expanded="wsMenuOpen"
-                  :title="t('welcome.desk.switchWs')"
+                  v-tip="t('welcome.desk.switchWs')"
                   @click="wsMenuOpen = !wsMenuOpen"
                 >
                   {{ t('welcome.desk.switchWs') }}
                   <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
                 </button>
-                <div v-if="wsMenuOpen" class="ws-menu" role="menu">
+                <div v-if="wsMenuOpen" class="ws-menu" role="menu" @keydown="onMenuKey">
                   <div class="ws-menu-label">{{ t('welcome.desk.currentWs') }}</div>
-                  <div class="ws-menu-cur" :title="ws.root">{{ ws.rootName }}</div>
+                  <div class="ws-menu-cur" v-tip="ws.root">{{ ws.rootName }}</div>
                   <template v-if="otherWorkspaces.length > 0">
                     <div class="ws-menu-label">{{ t('welcome.desk.otherWs') }}</div>
                     <button
@@ -878,7 +1201,7 @@ const versionNote = computed(() => {
                       type="button"
                       role="menuitem"
                       class="ws-menu-item"
-                      :title="w.dir"
+                      v-tip="w.dir"
                       @click="pickWorkspace(w.dir)"
                     >
                       <span class="ws-mi-name">{{ w.name }}</span>
@@ -889,18 +1212,15 @@ const versionNote = computed(() => {
                   <button type="button" role="menuitem" class="ws-menu-item plain" @click="wsMenuOpen = false; emit('open-workspace')">
                     {{ t('welcome.desk.openOtherWs') }}
                   </button>
-                  <button type="button" role="menuitem" class="ws-menu-item plain" @click="wsMenuOpen = false; ws.refresh()">
-                    {{ t('welcome.desk.refreshTree') }}
-                  </button>
                 </div>
               </div>
             </div>
 
             <template v-if="ws.root">
-              <div class="ws-name" :title="ws.rootName">{{ ws.rootName }}</div>
-              <div class="ws-path" :title="ws.root">{{ ws.root }}</div>
-              <div class="ws-stats">
-                <strong>{{ stats.files }}</strong><span>{{ t('welcome.desk.files') }}</span>
+              <div class="ws-name" v-tip="ws.rootName">{{ ws.rootName }}</div>
+              <div class="ws-path" v-tip="ws.root">{{ ws.root }}</div>
+              <div class="ws-stats" v-tip="stats.truncated ? t('welcome.desk.statsTruncated') : undefined">
+                <strong>{{ stats.truncated ? '≥' : '' }}{{ fmtCount(stats.files) }}</strong><span>{{ t('welcome.desk.files') }}</span>
                 <i class="dot gap" />
                 <strong>{{ sizeText }}</strong>
               </div>
@@ -918,8 +1238,8 @@ const versionNote = computed(() => {
               </div>
               <div v-if="stats.recent.length > 0 && sizeClass !== 'size-sm'" ref="wsRecentRef" class="ws-recent">
                 <div class="mini-label">{{ t('welcome.desk.recentChanges') }}</div>
-                <div v-for="f in stats.recent.slice(0, wsRecentRows)" :key="f.name" class="mini-row">
-                  <span :title="f.name">{{ f.name }}</span>
+                <div v-for="f in stats.recent.slice(0, wsRecentRows)" :key="f.path" class="mini-row">
+                  <span>{{ f.name }}</span>
                   <span>{{ relTime(f.mtimeMs) }}</span>
                 </div>
               </div>
@@ -957,9 +1277,13 @@ const versionNote = computed(() => {
                   :key="i"
                   class="bar-col"
                   :class="{ today: i === 6 }"
+                  v-tip="`${n} ${t('welcome.desk.weekUnit')}`"
                 >
-                  <div class="bar-track"><i class="bar-fill" :style="{ height: `${barPct(n)}%` }" /></div>
-                  <span>{{ dayLabels[i] }}</span>
+                  <div class="bar-track" :style="{ '--h': `${barPct(n)}%` }">
+                    <span class="bar-val" aria-hidden="true">{{ n }}</span>
+                    <i class="bar-fill" :style="{ height: `${barPct(n)}%` }" />
+                  </div>
+                  <span class="bar-day">{{ dayLabels[i] }}</span>
                 </div>
               </div>
               <div class="week-foot">
@@ -976,11 +1300,48 @@ const versionNote = computed(() => {
           </main>
       </div>
       <footer class="foot">
-        <i class="ok-dot" />
-        <span class="foot-ver">v{{ version }}<template v-if="versionNote"> · {{ versionNote }}</template></span>
+        <a
+          class="foot-design"
+          :href="SHENCO_URL"
+          @click.prevent="openShenco"
+        >
+          <svg class="foot-design-ic" viewBox="0 0 16 16" aria-hidden="true">
+            <defs>
+              <linearGradient id="footShencoStar" x1="2" y1="1" x2="15" y2="15" gradientUnits="userSpaceOnUse">
+                <stop class="st-a" offset="0" />
+                <stop class="st-b" offset="1" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M8 1.2c.5 3.1 1.9 4.5 5 5-3.1.5-4.5 1.9-5 5-.5-3.1-1.9-4.5-5-5 3.1-.5 4.5-1.9 5-5Z"
+              fill="url(#footShencoStar)"
+            />
+            <path
+              d="M13.2 10.9c.2 1.25.75 1.8 2 2-1.25.2-1.8.75-2 2-.2-1.25-.75-1.8-2-2 1.25-.2 1.8-.75 2-2Z"
+              class="st-mini"
+              fill="url(#footShencoStar)"
+            />
+          </svg>
+          <span class="foot-design-txt">Design by Shenco</span>
+        </a>
+        <span class="foot-status">
+          <i class="ok-dot" />
+          <span class="foot-ver">v{{ version }}<template v-if="versionNote"> · {{ versionNote }}</template></span>
+        </span>
         <span class="foot-right">{{ t('welcome.desk.enginesShort') }}</span>
       </footer>
     </div>
+    <!-- 拖到最左收起后的恢复入口：贴左缘的窄把手，位置就是栏原来的垂直范围中部 -->
+    <button
+      v-if="canRestoreRail"
+      type="button"
+      class="rail-restore"
+      :aria-label="t('welcome.desk.railRestore')"
+      v-tip="t('welcome.desk.railRestore')"
+      @click="restoreRail"
+    >
+      <PanelLeftOpen :size="14" />
+    </button>
   </div>
 </template>
 
@@ -1017,6 +1378,16 @@ const versionNote = computed(() => {
   --desk-c-sheet: #8fd3ae;
   --desk-c-other: #9aa3b1;
 }
+/* logo 渐变配色：两处环境光收成同一条蓝（亮蓝 → 深海军蓝），不再掺紫，
+   让书桌底色与主按钮/柱状图的 logo 渐变连成一片 */
+:root[data-theme='light'][data-palette='azure'] .desk {
+  --desk-brand-soft: rgb(55 138 221 / 0.16);
+  --desk-violet: rgb(12 68 124 / 0.09);
+}
+:root[data-theme='dark'][data-palette='nebula'] .desk {
+  --desk-brand-soft: rgb(90 168 240 / 0.22);
+  --desk-violet: rgb(27 109 193 / 0.14);
+}
 .desk::before {
   content: '';
   position: absolute;
@@ -1040,6 +1411,8 @@ const versionNote = computed(() => {
   flex-direction: column;
   /* 四周留白：卡片不贴窗边，视线自然收到中间（飞总 2026-10-23 第 4 条：再加一档） */
   padding: 40px 68px 22px;
+  /* 目录栏到位时内距会从 40/68 收到 24/28，和栏宽一起补过渡，整页才不会瞬移 */
+  transition: padding 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 /* 超宽屏把内容收在一条阅读带里，否则 2560 宽会把五张卡拉成面条。
    ★ 品牌行 / 栅格 / 页脚必须共用同一条带宽与居中规则：
@@ -1306,7 +1679,7 @@ kbd {
 .c-ws.menu-open { z-index: 5; }
 
 /* ---------- 书桌版左栏（内嵌经典目录树） ---------- */
-/* 宽度由树的 fixedWidth 决定（208），这里只包一层卡片外观。
+/* 宽度 = 树的宽度 + 两侧边框，由模板内联给出（可拖宽；入场过渡从 0 推到该目标）。
    .explorer 自带 --mk-panel 底色与右缘 1px 竖线，嵌进卡片要去掉，否则像贴了两层皮 */
 .rail {
   /* 相对定位只为了让悬停的 1px 抬升用 top 实现：
@@ -1314,6 +1687,8 @@ kbd {
   position: relative;
   top: 0;
   flex: none;
+  /* 宽度走 CSS 变量而不是内联 width：入场/退场的 width 过渡类才压得过它 */
+  width: var(--rail-w);
   display: flex;
   min-height: 0;
   border-radius: 14px;
@@ -1332,9 +1707,29 @@ kbd {
 .size-xl .rail:hover {
   box-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 22px 44px -28px rgb(16 24 40 / 0.34);
 }
+/* 目录栏入场：横向档靠宽度把五张卡「推开」+ 淡入；竖排档只淡入（栏在栅格上方，宽度推不动） */
+.desk-rail-enter-active,
+.desk-rail-leave-active {
+  transition:
+    width 0.3s cubic-bezier(0.22, 0.61, 0.36, 1),
+    margin-right 0.3s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.3s ease;
+  overflow: hidden;
+}
+.desk-rail-enter-from,
+.desk-rail-leave-to { opacity: 0; }
+/* 负外边距抵消 .desk-cols 的 16px gap：首帧不先跳 16px 再慢慢推 */
+.desk.size-xl .desk-rail-enter-from,
+.desk.size-xl .desk-rail-leave-to {
+  width: 0;
+  margin-right: -16px;
+}
 @media (prefers-reduced-motion: reduce) {
   .rail { transition: none; }
   .rail:hover { top: 0; }
+  .desk-body { transition: none; }
+  .desk-rail-enter-active,
+  .desk-rail-leave-active { transition: none; }
 }
 :root[data-theme='dark'] .rail {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 18px 40px -30px rgb(0 0 0 / 0.9);
@@ -1348,8 +1743,55 @@ kbd {
   height: 100%;
   min-width: 0;
 }
+/* 栏自身已有一圈 1px 卡片边框，树手柄再画一条会在内侧多出一道平行线：
+   书桌版不画手柄线（热区与 col-resize 光标仍在），边缘反馈交给栏的边框本身 */
+.desk .rail :deep(.resizer::after) { display: none; }
 .desk .rail :deep(.panel-head) { padding-left: 10px; }
 .desk .rail :deep(.tree) { padding: 2px 6px 10px; }
+
+/* 拖到最左收起后的恢复把手：贴左缘、低对比常驻，悬停提亮（松手瞬间就在光标附近） */
+.rail-restore {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 54px;
+  padding: 0;
+  border: 1px solid var(--mk-border);
+  border-left: 0;
+  border-radius: 0 9px 9px 0;
+  background: var(--mk-panel);
+  color: var(--mk-fg-muted);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 8px 20px -14px rgb(16 24 40 / 0.28);
+  transform: translateY(-50%);
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  animation: rail-restore-in 0.18s ease-out;
+}
+.rail-restore:hover {
+  opacity: 1;
+  color: var(--mk-fg);
+  border-color: var(--mk-border-strong);
+  background: var(--mk-panel-soft);
+}
+.rail-restore:focus-visible {
+  outline: var(--mk-focus-ring);
+  outline-offset: 2px;
+}
+@keyframes rail-restore-in {
+  from { opacity: 0; transform: translate(-6px, -50%); }
+}
+:root[data-theme='dark'] .rail-restore {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 24px -16px rgb(0 0 0 / 0.85);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-restore { animation: none; }
+}
 
 /* ---------- 卡头 ---------- */
 .eyebrow {
@@ -1435,6 +1877,8 @@ kbd {
 .tone-md { --c: var(--desk-c-md); }
 .tone-mh { --c: var(--desk-c-mh); }
 .tone-code { --c: var(--desk-c-code); }
+.tone-tpl { --c: var(--desk-c-mh); }
+.tone-ws { --c: var(--desk-brand); }
 .tone-doc { --c: var(--desk-c-doc); }
 .tone-pdf { --c: var(--desk-c-pdf); }
 .tone-img { --c: var(--desk-c-img); }
@@ -1538,6 +1982,7 @@ kbd {
 /* 右栏文档纸卡：整卡可点（等同「继续写作」），悬停抬起 + 品牌描边。
    底色用 --mk-bg 而不是 panel，看起来才像「一张纸」压在卡片上 */
 .paper {
+  position: relative;
   flex: none;
   width: 238px;
   align-self: stretch;
@@ -1549,7 +1994,8 @@ kbd {
   border: 1px solid var(--mk-border);
   background: var(--mk-bg);
   box-shadow: 0 12px 26px -16px rgb(16 24 40 / 0.5), 0 1px 2px rgb(16 24 40 / 0.06);
-  overflow: hidden;
+  /* 卡针要越过上边缘，不能被自身圆角裁掉；正文上滚由 .paper-text-wrap 自己裁 */
+  overflow: visible;
   text-align: left;
   font: inherit;
   color: inherit;
@@ -1571,6 +2017,31 @@ kbd {
 }
 .tight .paper { width: 202px; }
 .compact .paper { width: 190px; }
+/* 两列/单列档的卡片高度由内容决定，纸卡若不给上限，打字机打满 1600 字时
+   正文的固有高度（~1600px）会把整张「继续写作」卡撑爆、页面被迫滚动。
+   xl 档有栅格行高兜底，不需要这条。 */
+.size-lg .paper,
+.size-sm .paper { max-height: 300px; }
+/* 同样两档里纸卡只剩一段窄窗格，打字机正文窗口压到两行高 */
+.size-lg .paper-text-wrap,
+.size-sm .paper-text-wrap { max-height: 40px; }
+/* 卡针：金属夹体跨在上边缘，提手露在纸外，投影压在纸面上 */
+.paper-pin {
+  position: absolute;
+  z-index: 3;
+  top: -14px;
+  left: 50%;
+  width: 32px;
+  height: 26px;
+  transform: translateX(-50%) rotate(-3deg);
+  filter: drop-shadow(0 3px 4px rgb(16 24 40 / 0.45));
+  pointer-events: none;
+}
+.paper-pin svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 .paper-head {
   display: flex;
   align-items: center;
@@ -1605,32 +2076,70 @@ kbd {
   flex: 1 1 auto;
   min-height: 0;
   margin-top: 8px;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 .paper-title {
+  flex: none;
   margin: 0;
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1.32;
+  line-height: 1.4;
   letter-spacing: -0.01em;
   color: var(--mk-fg);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 正文窗口：高度随纸卡自适应，内容超出后由打字机整体上移 */
+.paper-text-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 7px;
+  overflow: hidden;
+}
+/* 上滚时顶边淡出，避免整行被硬切在窗口边缘 */
+.paper-text-wrap.is-scrolled {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
 }
 .paper-text {
-  margin: 7px 0 0;
-  font-size: 11px;
+  margin: 0;
+  font-size: 10px;
   line-height: 1.7;
   color: var(--mk-fg-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  line-clamp: 2;
+  /* 位移时长与打字节奏对齐（一行约 20 字 × 18ms），滚起来才连贯；淡入淡出与脚本 FADE_MS 一致 */
+  transition: transform 360ms linear, opacity 240ms ease;
 }
-.compact .paper-text { display: none; }
+.paper-text.is-faded {
+  opacity: 0;
+}
+.paper-text.is-rewind {
+  transition: none;
+}
+/* 打字机光标：只在逐字输入时出现，打完自动消失 */
+.paper-caret {
+  display: inline-block;
+  width: 5px;
+  height: 11px;
+  margin-left: 1px;
+  border-radius: 1px;
+  vertical-align: -1px;
+  background: var(--desk-brand);
+  animation: paper-caret-blink 1.05s steps(1, end) infinite;
+}
+@keyframes paper-caret-blink {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  56%,
+  100% {
+    opacity: 0;
+  }
+}
+.compact .paper-text-wrap { display: none; }
 /* 文件属性：两列（标签 / 值），值右对齐等宽数字，像文档信息栏 */
 .paper-props {
   flex: none;
@@ -1715,10 +2224,45 @@ kbd {
 }
 .btn.primary {
   background: linear-gradient(180deg, var(--desk-brand), color-mix(in srgb, var(--desk-brand) 72%, var(--desk-brand-deep)));
-  color: #fff;
+  /* 星蓝配色的顶色更亮，白字会掉到 3:1 以下——由 palette 提供 --desk-brand-fg 换深墨字 */
+  color: var(--desk-brand-fg, #fff);
   box-shadow: 0 8px 18px -10px var(--desk-brand);
 }
 .btn.primary:hover { transform: translateY(-1px); }
+/* 「继续 XX」按钮：一道水波似的柔光从左扫到右，扫完停一会儿再重来 */
+.c-continue .actions .btn.primary {
+  position: relative;
+  overflow: hidden;
+}
+.c-continue .actions .btn.primary::after {
+  content: '';
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: 0;
+  width: 46%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgb(255 255 255 / 0.3) 40%,
+    rgb(255 255 255 / 0.08) 56%,
+    transparent 100%
+  );
+  transform: translateX(-130%) skewX(-12deg);
+  animation: desk-btn-wave 4.4s cubic-bezier(0.4, 0, 0.25, 1) infinite;
+  pointer-events: none;
+}
+@keyframes desk-btn-wave {
+  0% {
+    transform: translateX(-130%) skewX(-12deg);
+  }
+  38% {
+    transform: translateX(300%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(300%) skewX(-12deg);
+  }
+}
 .btn.ghost { color: var(--mk-fg-muted); }
 .btn.ghost:hover { background: var(--mk-hover); color: var(--mk-fg); }
 .btn.outline { border-color: var(--mk-border); }
@@ -1781,6 +2325,8 @@ kbd {
 }
 .compact .new-grid { gap: 7px; margin-top: 9px; }
 .new-tile {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1804,6 +2350,8 @@ kbd {
 .new-tile:focus-visible { outline: var(--mk-focus-ring); outline-offset: 2px; }
 .new-ico {
   --c: var(--desk-c-md);
+  position: relative;
+  z-index: 1;
   flex: none;
   display: grid;
   place-items: center;
@@ -1817,6 +2365,8 @@ kbd {
 .new-ico.tone-tpl { --c: var(--desk-c-mh); }
 .new-ico.tone-ws { --c: var(--desk-brand); }
 .new-txt {
+  position: relative;
+  z-index: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1839,6 +2389,42 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 悬停水印：右下角的类型缩写。墨色由左上向右下淡开，像压进纸面的暗纹，
+   平时完全隐形，不占位也不挡点击 */
+.new-mark {
+  position: absolute;
+  right: 10px;
+  bottom: 4px;
+  z-index: 0;
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--c, var(--desk-brand)) 26%, transparent);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.22, 0.8, 0.3, 1);
+  pointer-events: none;
+  user-select: none;
+}
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .new-mark {
+    background-image: linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--c, var(--desk-brand)) 44%, transparent),
+      color-mix(in srgb, var(--c, var(--desk-brand)) 8%, transparent)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+.new-tile:hover .new-mark,
+.new-tile:focus-visible .new-mark {
+  opacity: 1;
+  transform: translateY(0);
+}
+.compact .new-mark { right: 8px; bottom: 3px; font-size: 18px; }
 .compact .new-label { font-size: 12px; }
 .compact .new-sub { font-size: 10px; }
 .compact .new-ico { width: 26px; height: 26px; border-radius: 8px; }
@@ -1875,6 +2461,7 @@ kbd {
   cursor: pointer;
 }
 .tpl-item:hover { background: var(--mk-hover); }
+.tpl-item:focus-visible { outline: var(--mk-focus-ring); outline-offset: -2px; }
 .tpl-none {
   margin: 0;
   padding: 7px 9px;
@@ -2037,6 +2624,7 @@ kbd {
   cursor: pointer;
 }
 .ws-menu-item:hover { background: var(--mk-hover); }
+.ws-menu-item:focus-visible { outline: var(--mk-focus-ring); outline-offset: -2px; }
 .ws-menu-item.plain {
   font-size: 11.5px;
   color: var(--mk-fg);
@@ -2219,6 +2807,7 @@ kbd {
   gap: 5px;
 }
 .bar-track {
+  position: relative;
   width: 100%;
   max-width: 20px;
   flex: 1;
@@ -2226,22 +2815,72 @@ kbd {
   align-items: flex-end;
   border-radius: 5px;
   background: var(--mk-panel-muted);
-  overflow: hidden;
+  transition: background-color 0.18s ease;
 }
 .bar-fill {
   width: 100%;
   border-radius: 5px;
   background: color-mix(in srgb, var(--desk-brand) 45%, transparent);
+  transform-origin: bottom;
+  transition: filter 0.18s ease;
 }
 .bar-col.today .bar-fill {
   background: linear-gradient(180deg, var(--desk-brand), color-mix(in srgb, var(--desk-brand) 68%, var(--desk-brand-deep)));
 }
-.bar-col span {
+/* 悬停：整轨淡染 + 柱体提亮回弹，柱顶浮出当日改动数 */
+.bar-col:hover .bar-track {
+  background: color-mix(in srgb, var(--desk-brand) 10%, var(--mk-panel-muted));
+}
+.bar-col:hover .bar-fill {
+  filter: saturate(1.2) brightness(1.08);
+  animation: bar-bump 0.36s cubic-bezier(0.22, 0.9, 0.28, 1.15);
+}
+.bar-val {
+  position: absolute;
+  left: 50%;
+  /* 贴着柱顶内侧；空柱夹到轨道底部，满柱夹在轨内，避免溢出到上方数字区 */
+  bottom: clamp(0px, calc(var(--h, 0%) - 16px), calc(100% - 16px));
+  padding: 1px 4px;
+  border-radius: 5px;
+  background: var(--mk-panel);
+  border: 1px solid var(--mk-border);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--mk-fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 2px) scale(0.9);
+  transition: opacity 0.16s ease, transform 0.2s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+.bar-col:hover .bar-val {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+.bar-day {
   font-size: 9.5px;
   line-height: 1;
   color: var(--mk-fg-muted);
+  transition: color 0.16s ease;
 }
-.bar-col.today span { color: var(--mk-fg); font-weight: 600; }
+.bar-col:hover .bar-day { color: var(--mk-fg); }
+.bar-col.today .bar-day { color: var(--mk-fg); font-weight: 600; }
+@keyframes bar-bump {
+  0% { transform: scaleY(1); }
+  38% { transform: scaleY(0.9); }
+  100% { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar-col:hover .bar-fill { animation: none; }
+  .c-continue .actions .btn.primary::after { animation: none; opacity: 0; }
+  .bar-fill,
+  .bar-val,
+  .bar-day,
+  .bar-track,
+  .new-mark { transition: none; }
+}
 .week-foot {
   display: flex;
   align-items: center;
@@ -2260,16 +2899,87 @@ kbd {
 }
 
 /* ---------- 页脚 ---------- */
+/* 左：署名 / 中：版本与更新状态 / 右：引擎说明。
+   三栏用 1fr auto 1fr，版本才能真正落在整条带宽的中线，而不是被左右两端拽偏 */
 .foot {
   flex: none;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 7px;
+  column-gap: 10px;
   margin-top: 10px;
   font-size: 10px;
   color: var(--mk-fg-muted);
 }
 .compact .foot { margin-top: 7px; }
+.foot-design {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 4px;
+  opacity: 0.82;
+  transition: color 0.18s ease, opacity 0.18s ease;
+}
+.foot-design:hover { color: var(--desk-brand); opacity: 1; }
+.foot-design:focus-visible {
+  /* 先给实色兜底：macOS 12.x 的 WKWebView 有 :focus-visible 但还没 color-mix */
+  outline: 2px solid var(--desk-brand);
+  outline-offset: 2px;
+  outline: 2px solid color-mix(in srgb, var(--desk-brand) 55%, transparent);
+}
+.foot-design-txt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 小星标：双星叠出层次，渐变跟主题品牌色走（老 WebKit 不认 color-mix 时退回纯品牌色） */
+.foot-design-ic {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.foot-design-ic .st-a { stop-color: var(--desk-brand); }
+.foot-design-ic .st-b { stop-color: var(--desk-brand); }
+.foot-design-ic .st-b { stop-color: color-mix(in srgb, var(--desk-brand) 52%, #86d3ff); }
+.foot-design:hover .foot-design-ic { transform: rotate(-14deg) scale(1.08); }
+/* 双星各闪各的：主星先暗一下再亮回来，小星错开半拍，像真的在眨眼 */
+.foot-design-ic path {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: foot-star-twinkle 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.foot-design-ic .st-mini {
+  --foot-star-peak: 0.62;
+  --foot-star-low: 0.18;
+  opacity: 0.62;
+  animation-delay: 0.55s;
+}
+@keyframes foot-star-twinkle {
+  0%, 100% { opacity: var(--foot-star-peak, 1); transform: scale(1); }
+  8% { opacity: var(--foot-star-low, 0.3); transform: scale(0.72); }
+  18% { opacity: var(--foot-star-peak, 1); transform: scale(1.06); }
+  28% { opacity: calc(var(--foot-star-peak, 1) * 0.62); transform: scale(0.94); }
+  38% { opacity: var(--foot-star-peak, 1); transform: scale(1.02); }
+  55% { opacity: calc(var(--foot-star-peak, 1) * 0.92); transform: scale(1); }
+}
+/* 静止偏好要把动效关干净；这条必须写在动画规则之后，否则同权重会被上面的 animation 盖回去 */
+@media (prefers-reduced-motion: reduce) {
+  .foot-design-ic { transition: none; }
+  .foot-design:hover .foot-design-ic { transform: none; }
+  .foot-design-ic path { animation: none; }
+}
+.foot-status {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
 .ok-dot {
   flex: none;
   width: 6px;
@@ -2280,7 +2990,7 @@ kbd {
 }
 .foot-ver { white-space: nowrap; }
 .foot-right {
-  margin-left: auto;
+  justify-self: end;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2289,5 +2999,13 @@ kbd {
 .size-sm .foot-right { display: none; }
 .size-sm .brand-sub { display: none; }
 .size-sm .search-pill { min-width: 0; }
+
+/* 老 WebKit（Safari 16.2 以前）不认 color-mix：主按钮的渐变与柱状图会整条声明失效，
+   前者留下白字透明底、后者留下看不见的柱子。这里只兜关键三处，其余淡色描边丢了无碍 */
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .btn.primary { background: var(--desk-brand); }
+  .bar-fill { background: var(--desk-brand); opacity: 0.45; }
+  .bar-col.today .bar-fill { opacity: 1; }
+}
 .size-sm .search-txt { display: none; }
 </style>

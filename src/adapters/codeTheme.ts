@@ -5,7 +5,7 @@
  * （关键词红、函数紫、类型橙、字符串浅蓝、注释灰斜体、标签/正则绿），
  * 替换 CM 内置 defaultHighlightStyle（亮色区分度不足）与 oneDark（与亮色风格断裂）。
  * 选区/光标/当前行色走 global.css 的 --mk-cm-sel / --mk-cm-caret / --mk-cm-active
- * token（随 data-theme + data-palette 一起切换，6 套配色各有一组）。
+ * token（随 data-theme + data-palette 一起切换，8 套配色各有一组）。
  */
 import { EditorView } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';

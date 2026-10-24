@@ -74,7 +74,7 @@ function fmtTime(ms: number) {
             v-for="r in recent"
             :key="r.path"
             class="recent"
-            :title="r.path"
+            v-tip="r.path"
             @click="emit('open-recent', r.path)"
           >
             <span class="r-name">{{ r.path.split(/[\\/]/).pop() }}</span>

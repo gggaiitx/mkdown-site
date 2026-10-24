@@ -220,10 +220,10 @@ pub struct AppSettings {
     /// 这样升级用户不会被"跟随系统"意外改掉原来的亮暗选择
     #[serde(default)]
     pub theme_mode: String,
-    /// 明色配色："paper"（素白，默认）| "fog"（冷灰）| "sepia"（米黄）
+    /// 明色配色："paper"（素白，默认）| "fog"（冷灰）| "sepia"（米黄）| "azure"（晴蓝）
     #[serde(default = "default_theme_palette_light")]
     pub theme_palette_light: String,
-    /// 暗色配色："graphite"（石墨，默认）| "midnight"（午夜蓝）| "ember"（暖褐）
+    /// 暗色配色："graphite"（石墨，默认）| "midnight"（午夜蓝）| "ember"（暖褐）| "nebula"（星蓝）
     #[serde(default = "default_theme_palette_dark")]
     pub theme_palette_dark: String,
     /// 全局字号（px）：前端以 0.5px 为一档增减，故必须是浮点不是 u32

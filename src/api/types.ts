@@ -96,10 +96,10 @@ export interface RecentFile {
 export type ThemeKind = 'light' | 'dark';
 /** 模式偏好：system = 跟随系统（仅切模式，配色各模式下各自保留）；light/dark = 手动锁定 */
 export type ThemeModePref = 'system' | ThemeKind;
-/** 明色三套配色（paper = 素白，出厂默认） */
-export type LightPalette = 'paper' | 'fog' | 'sepia';
-/** 暗色三套配色（graphite = 石墨，出厂默认） */
-export type DarkPalette = 'graphite' | 'midnight' | 'ember';
+/** 明色四套配色（paper = 素白，出厂默认；azure = 晴蓝，取自 logo 渐变） */
+export type LightPalette = 'paper' | 'fog' | 'sepia' | 'azure';
+/** 暗色四套配色（graphite = 石墨，出厂默认；nebula = 星蓝，取自 logo 渐变） */
+export type DarkPalette = 'graphite' | 'midnight' | 'ember' | 'nebula';
 export type ThemePalette = LightPalette | DarkPalette;
 export type EditorMode = 'edit' | 'split' | 'read';
 /** 内容版式：窄 / 中 / 宽 = 正文列限宽三档；full = 自适应铺满（不给阅读列上限） */
@@ -128,9 +128,9 @@ export interface AppSettings {
   theme: ThemeKind;
   /** 模式偏好：system（跟随系统）/ light / dark */
   themeMode: ThemeModePref;
-  /** 明色模式下的配色（paper 素白 / fog 冷灰 / sepia 米黄） */
+  /** 明色模式下的配色（paper 素白 / fog 冷灰 / sepia 米黄 / azure 晴蓝） */
   themePaletteLight: LightPalette;
-  /** 暗色模式下的配色（graphite 石墨 / midnight 午夜蓝 / ember 暖褐） */
+  /** 暗色模式下的配色（graphite 石墨 / midnight 午夜蓝 / ember 暖褐 / nebula 星蓝） */
   themePaletteDark: DarkPalette;
   /** 全局字号（px）：0.5px 一档，见 FONT_STEP */
   fontSize: number;

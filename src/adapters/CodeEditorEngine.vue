@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
 <template>
   <!-- 选区/光标/当前行色**不再内联注入**：改由 global.css 的 --mk-cm-* token 提供
        （:root 为素白、:root[data-theme='dark'] 为石墨，其余配色在各自 palette 块里覆盖）。
-       内联值会以元素级声明压死 palette 覆盖，6 套配色下选区不跟随配色——这正是要避免的 -->
+       内联值会以元素级声明压死 palette 覆盖，8 套配色下选区不跟随配色——这正是要避免的 -->
   <div ref="rootRef" class="code-editor-engine" @contextmenu="onContextMenu"></div>
 </template>
 

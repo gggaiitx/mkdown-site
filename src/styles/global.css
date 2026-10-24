@@ -63,6 +63,8 @@
   --mk-shadow-dialog: 0 12px 40px rgb(0 0 0 / 0.25);
   --mk-shadow-tip: 0 4px 14px rgb(0 0 0 / 0.28);
   --mk-mask: rgb(0 0 0 / 0.4);
+  /* 下拉菜单展开时的内容区遮罩：比对话框 .mask 轻，只压暗内容、不挡顶栏与菜单本身 */
+  --mk-scrim-menu: rgb(0 0 0 / 0.18);
 
   /* 焦点环：所有可聚焦控件共用一份规格（此前 5 个文件各写各的 1px/2px/muted 色） */
   --mk-focus-ring: 2px solid var(--mk-accent);
@@ -138,6 +140,7 @@
   --mk-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.5);
   --mk-shadow-dialog: 0 12px 40px rgb(0 0 0 / 0.6);
   --mk-mask: rgb(0 0 0 / 0.55);
+  --mk-scrim-menu: rgb(0 0 0 / 0.34);
 
   /* 代码块高亮 token 色：GitHub Dark 官方主题值（亮色默认值见 :root） */
   --hl-keyword: #ff7b72;
@@ -275,6 +278,73 @@
   --mk-cm-sel: #3f3a33;
   --mk-cm-caret: #cfa87f;
   --mk-cm-active: rgb(255 255 255 / 0.04);
+}
+
+/* ---- 明色 · 晴蓝 Azure：取自 logo 渐变（冰蓝 #E6F1FB → 天蓝 #378ADD → 深海军蓝 #0C447C）。
+   冷白纸面 + 冰蓝面板，交互色取渐变中段的蓝；光晕（--desk-brand-soft）在书桌版里同步换色 ---- */
+:root[data-theme='light'][data-palette='azure'] {
+  --mk-bg: rgb(247 250 254);
+  --mk-panel: rgb(237 243 251);
+  --mk-panel-muted: rgb(230 238 248);
+  --mk-panel-soft: rgb(233 241 250);
+  --mk-bg-input: rgb(255 255 255);
+  --mk-fg: rgb(18 41 63);
+  --mk-fg-muted: rgb(78 102 126);
+  --mk-border: rgb(213 225 239);
+  --mk-border-strong: rgb(186 205 226);
+  --mk-hover: rgb(228 238 250);
+  --mk-active: rgb(214 229 246);
+  --mk-accent: #1b6dc1;
+  --mk-accent-fg: #ffffff;
+  --mk-accent-weak: rgb(27 109 193 / 0.1);
+  --mk-tip-bg: rgb(12 68 124);
+  --mk-tip-fg: rgb(242 248 254);
+  --mk-ol-1: rgb(18 41 63);
+  --mk-ol-2: rgb(78 102 126);
+  --mk-ol-3: rgb(113 137 160);
+  --mk-ol-4: rgb(163 181 199);
+  /* 编辑正文取海军蓝墨色；选区/光标跟着主色走，不再用默认的中性蓝 */
+  --mk-editor-fg: rgb(34 56 76);
+  --mk-cm-sel: #bedcf7;
+  --mk-cm-caret: #1b6dc1;
+  --mk-cm-active: rgb(18 41 63 / 0.05);
+  /* 书桌/目录树的品牌渐变：顶部取 logo 天蓝的可读档（白字 4.45:1），底部压到 logo 深海军蓝 */
+  --desk-brand: #2b78d2;
+  --desk-brand-deep: #0c447c;
+  --desk-brand-fg: #ffffff;
+}
+
+/* ---- 暗色 · 星蓝 Nebula：logo 的深海军蓝压暗作底（#0C447C → #0A1520），
+   主色取亮蓝 #5AA8F0；暗底上的蓝渐变（天蓝 → 深海军蓝）比午夜蓝更饱和、更有"夜航"感 ---- */
+:root[data-theme='dark'][data-palette='nebula'] {
+  --mk-bg: rgb(10 21 32);
+  --mk-panel: rgb(15 29 44);
+  --mk-panel-muted: rgb(18 35 51);
+  --mk-panel-soft: rgb(21 41 60);
+  --mk-bg-input: rgb(18 36 52);
+  --mk-fg: rgb(222 234 246);
+  --mk-fg-muted: rgb(148 170 192);
+  --mk-border: rgb(98 140 182 / 0.3);
+  --mk-border-strong: rgb(98 140 182 / 0.48);
+  --mk-hover: rgb(23 44 65);
+  --mk-active: rgb(29 54 80);
+  --mk-accent: #5aa8f0;
+  --mk-accent-fg: #08131f;
+  --mk-accent-weak: rgb(90 168 240 / 0.16);
+  --mk-tip-bg: rgb(226 238 250);
+  --mk-tip-fg: rgb(10 21 32);
+  --mk-ol-1: rgb(222 234 246);
+  --mk-ol-2: rgb(148 170 192);
+  --mk-ol-3: rgb(107 130 153);
+  --mk-ol-4: rgb(74 95 117);
+  --mk-editor-fg: rgb(201 218 233);
+  --mk-cm-sel: #1d4366;
+  --mk-cm-caret: #7cc0f7;
+  --mk-cm-active: rgb(255 255 255 / 0.05);
+  --desk-brand: #5aa8f0;
+  --desk-brand-deep: #0c447c;
+  /* 亮蓝底上用深海军蓝字（7.4:1）；默认暗色的白字留给 graphite，不连带改动 */
+  --desk-brand-fg: #08131f;
 }
 
 * {
