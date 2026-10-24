@@ -688,7 +688,21 @@
         <div class="tl-item is-latest">
           <span class="tl-dot"></span>
           <div class="tl-card">
-            <div class="tl-head"><span class="tl-ver">v0.7.2</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <div class="tl-head"><span class="tl-ver">v0.7.3</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <ul>
+              <li><b>新增两套配色</b>：明色「晴蓝」、暗色「星蓝」，取自 logo 渐变的冰蓝 → 天蓝 → 深海军蓝；主按钮前景色跟配色走，亮蓝底改用深墨字，Markdown 预览、书桌环境光、编辑器选区与光标一起跟随</li>
+              <li><b>书桌左栏可拖宽</b>：目录树 200–360px 拖宽、拖到最左收起；收起后窗口左缘留窄把手，一点按原宽度展开；书桌版不再叠画拖宽手柄线</li>
+              <li><b>继续工作卡的纸会自己写</b>：正文逐字打入，超出纸面整体上滚，读完淡出回首；按钮按类型给出「继续写作 / 继续编码 / 继续查阅」；纸卡加金属卡针，标题单行省略</li>
+              <li><b>书桌细节</b>：新建磁贴悬停浮出类型水印、继续按钮周期柔光、本周柱状图悬停显示当日改动数、页脚三栏（Design by Shenco）、工作区统计超过 6 万个节点时标注「≥」</li>
+              <li><b>自适应带回差</b>：书桌进入 / 退出（1000×520 / 960×480）与左栏出现 / 收起（1240 / 1200）阈值分开，边界上拖动不再反复重建；左栏另加 640px 高度门槛</li>
+              <li><b>提示与细节</b>：应用内气泡统一单行不折行、超长省略、箭头对准图标；顶栏文件下拉展开时给内容区加轻遮罩；macOS 补老版 WebKit 的 <code>color-mix</code> 实色兜底</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.7.2</span><span class="tl-date">2026.10</span></div>
             <ul>
               <li><b>全局字体</b>：设置 → 外观新增字体选择，应用默认 / 系统默认 / 系统字体搜索与逐项预览 / 自定义字体栈；界面、Markdown 与 Markhtml 编辑预览、表格预览、代码编辑器一起跟随，代码块仍保持等宽</li>
               <li><b>设置下拉统一重做</b>：四页 13 个原生 select 换成应用内下拉，200px 起步、最长 320px、右缘对齐，超长省略可悬停看全文；支持方向键 / Home / End / Enter，Esc 只关下拉</li>
@@ -1076,9 +1090,9 @@
       <h2>现在就开始书写</h2>
       <p>支持 Windows / macOS，体积小巧，开箱即用。</p>
       <div class="hero-cta">
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.2/Mkdown_0.7.2_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.2/Mkdown_0.7.2_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.2/Mkdown_0.7.2_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.3/Mkdown_0.7.3_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.3/Mkdown_0.7.3_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.3/Mkdown_0.7.3_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
       </div>
       <div class="mac-tip">
         <p class="mac-tip-head">本应用未做 Apple 开发者签名，首次打开若提示「无法验证开发者」或「已损坏」，任选其一绕过：</p>
