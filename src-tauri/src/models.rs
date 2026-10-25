@@ -228,6 +228,11 @@ fn default_welcome_rail_width() -> f64 {
     208.0
 }
 
+/// 码猫陪伴：出厂开
+fn default_pet_enabled() -> bool {
+    true
+}
+
 /// ←/→ 同目录文件切换：出厂开
 fn default_sibling_nav() -> bool {
     true
@@ -361,6 +366,9 @@ pub struct AppSettings {
     /// 欢迎页书桌版左栏宽度（px）：与工作台侧栏分开存，共用同一个 remember 开关
     #[serde(default = "default_welcome_rail_width")]
     pub welcome_rail_width: f64,
+    /// 「码猫」开关：书桌右下角那只猫是否显示（关掉后含定时提醒一起停）
+    #[serde(default = "default_pet_enabled")]
+    pub pet_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -410,6 +418,7 @@ impl Default for AppSettings {
             file_tree_remember_width: default_file_tree_remember_width(),
             file_tree_width: default_file_tree_width(),
             welcome_rail_width: default_welcome_rail_width(),
+            pet_enabled: default_pet_enabled(),
         }
     }
 }

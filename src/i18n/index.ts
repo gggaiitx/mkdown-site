@@ -40,7 +40,7 @@ for (const path of Object.keys(mods).sort()) {
   if (mod?.en) deepMerge(en, mod.en);
 }
 
-function lookup(dict: Dict, key: string): string | undefined {
+function lookupRaw(dict: Dict, key: string): unknown {
   let cur: unknown = dict;
   for (const seg of key.split('.')) {
     if (cur && typeof cur === 'object' && seg in (cur as Dict)) {
@@ -49,7 +49,12 @@ function lookup(dict: Dict, key: string): string | undefined {
       return undefined;
     }
   }
-  return typeof cur === 'string' ? cur : undefined;
+  return cur;
+}
+
+function lookup(dict: Dict, key: string): string | undefined {
+  const v = lookupRaw(dict, key);
+  return typeof v === 'string' ? v : undefined;
 }
 
 export function useI18n() {
@@ -64,5 +69,11 @@ export function useI18n() {
     }
     return s;
   };
-  return { t };
+  /** 取字符串数组（语言包里写成 `lines: [...]`）。台词池这类整组文案用它，不必拆成 line0..lineN */
+  const tList = (key: string): string[] => {
+    const dict = settings.settings.language === 'en-US' ? en : zh;
+    const v = lookupRaw(dict, key) ?? lookupRaw(zh, key);
+    return Array.isArray(v) ? (v as string[]) : [];
+  };
+  return { t, tList };
 }

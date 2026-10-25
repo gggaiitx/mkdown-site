@@ -278,7 +278,7 @@ type HintKey =
   | 'engine' | 'auto-save' | 'scroll-sync' | 'toolbar' | 'focus' | 'line-numbers'
   | 'font-family' | 'font-size' | 'export-font' | 'export-image'
   | 'theme-palette' | 'preview-theme' | 'read-layout' | 'outline' | 'welcome'
-  | 'file-tree-meta' | 'tree-width'
+  | 'file-tree-meta' | 'tree-width' | 'pet'
   | 'word-engine' | 'word-import';
 const openHint = ref<HintKey | null>(null);
 function toggleHint(key: HintKey) {
@@ -743,6 +743,24 @@ onBeforeUnmount(onDragEnd);
                 @update:model-value="patch({ backTopMode: $event as AppSettings['backTopMode'] })"
               />
             </div>
+
+            <!-- 码猫：书桌右下角那只猫的显示开关 -->
+            <div class="sec-sub">
+              <span>{{ t('settings.actionGroupPet') }}</span>
+              <SettingsHintIcon target="pet" :open="openHint === 'pet'" @toggle="toggleHint('pet')" />
+            </div>
+            <div class="row">
+              <label>{{ t('settings.petEnabled') }}</label>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.petEnabled"
+                  @change="patch({ petEnabled: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div v-if="openHint === 'pet'" id="hint-pet" class="sec-note">{{ t('settings.petHint') }}</div>
 
             <!-- 资源管理器：拖宽的侧栏宽度是否记住 -->
             <div class="sec-sub">

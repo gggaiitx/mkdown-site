@@ -26,6 +26,7 @@ import { useI18n } from '../i18n';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { BRAND_NAME } from '../utils/brand';
+import DeskPet from './DeskPet.vue';
 import FileTree from './FileTree.vue';
 import { fileKind, type FileKind } from '../utils/fileKind';
 import { isMac, modKey } from '../utils/keyHint';
@@ -54,6 +55,9 @@ const emit = defineEmits<{
   (e: 'open-tree-file-dbl', path: string): void;
   (e: 'open-tree-file-edit', path: string): void;
 }>();
+
+/** 码猫宽度（px）：固定尺寸，设置里不再暴露 */
+const PET_W = 52;
 
 const { t } = useI18n();
 const settings = useSettingsStore();
@@ -934,7 +938,12 @@ const versionNote = computed(() => {
 </script>
 
 <template>
-  <div ref="rootRef" class="desk" :class="[sizeClass, { compact, tight, 'has-rail': showRail }]">
+  <div
+    ref="rootRef"
+    class="desk"
+    :class="[sizeClass, { compact, tight, 'has-rail': showRail, 'has-pet': settings.settings.petEnabled }]"
+    :style="{ '--pet-w': `${PET_W}px` }"
+  >
     <div class="desk-body">
       <header class="head">
         <div class="brand">
@@ -1432,6 +1441,13 @@ const versionNote = computed(() => {
         <span class="foot-right">{{ t('welcome.desk.enginesShort') }}</span>
       </footer>
     </div>
+    <!-- 码猫：坐在底部状态栏右端。挂在本层（不是 .bento 里）——它按 .desk 量坐标，
+         同时要用到页脚的位置来定落点 -->
+    <DeskPet
+      :continue-name="continueName"
+      @continue="continuePath && emit('continue-edit', continuePath)"
+    />
+
     <!-- 拖到最左收起后的恢复入口：贴左缘的窄把手，位置就是栏原来的垂直范围中部 -->
     <button
       v-if="canRestoreRail"
@@ -3140,6 +3156,11 @@ kbd {
   box-shadow: 0 0 7px -1px var(--mk-ok);
 }
 .foot-ver { white-space: nowrap; }
+/* 常驻码猫站在右下角：页脚这行引擎名让出猫的宽度，避免被压住 */
+.desk.has-pet .foot-right {
+  /* 猫右缘距窗口 22px、宽 52px，留 78px 就够，多留会把引擎名推得太左 */
+  padding-right: calc(var(--pet-w, 52px) + 26px);
+}
 .foot-right {
   justify-self: end;
   overflow: hidden;

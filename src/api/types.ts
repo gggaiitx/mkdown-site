@@ -220,6 +220,8 @@ export interface AppSettings {
   /** 欢迎页书桌版左栏宽度（px）：与工作台侧栏分开存——书桌要留空间给卡片，
    *  两处宽度互相不干扰，但共用「记住侧栏宽度」这一个开关 */
   welcomeRailWidth: number;
+  /** 书桌右下角那只「码猫」是否显示。关掉后整只猫不出现（含定时提醒） */
+  petEnabled: boolean;
 }
 
 /** 文件树排序：名称 / 修改时间 / 大小，各两向 */
@@ -283,4 +285,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fileTreeRememberWidth: true,
   fileTreeWidth: 260,
   welcomeRailWidth: 208,
+  petEnabled: true,
 };

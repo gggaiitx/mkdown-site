@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-smoke*/
+dist-desk-probe/
 src-tauri/target/
 src-tauri/gen/
 *.log
@@ -12,3 +13,5 @@ repro/
 scripts/clean_test3.cjs
 _env_probe.txt
 .wbapp_*.genie
+# 码猫表情的原始参考图（22MB）：只作生成输入，产物在 src/assets/mascot/
+vibe_images/
