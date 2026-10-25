@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia';
 import { allowAssetDir } from '../api/imageApi';
-import { createEntry, deleteEntry, listWorkspaceTree, renameEntry } from '../api/workspaceApi';
+import { createEntry, deleteEntry, listWorkspaceTree, moveEntry, renameEntry } from '../api/workspaceApi';
 import { warmSearchCache } from '../api/searchApi';
 import type { NodeKind, WorkspaceNode } from '../api/types';
+import { useI18n } from '../i18n';
+import { useEditorStore } from './editorStore';
 import { useSettingsStore } from './settingsStore';
 import { useTabsStore } from './tabsStore';
 
@@ -106,7 +108,6 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async renameEntry(path: string, newName: string) {
       await renameEntry(path, newName);
-      await this.refresh();
       const newPath = path.replace(/[^\\/]+$/, newName);
       // 打开的标签跟随新路径（重命名目录时子文件按前缀一并跟随）；
       // 扩展名被改掉时内部会重算 kind，让引擎跟着换（md ⇄ txt ⇄ mh）
@@ -122,10 +123,47 @@ export const useWorkspaceStore = defineStore('workspace', {
       const nextExpanded = new Set<string>();
       for (const p of this.expanded) nextExpanded.add(remap(p));
       this.expanded = nextExpanded;
+      // 与移动同理：路径跟随先落定，刷新失败只报视图过期，不回滚标签路径
+      try {
+        await this.refresh();
+      } catch (err) {
+        const { t } = useI18n();
+        const msg = err instanceof Error ? err.message : String(err);
+        useEditorStore().showToast(t('filetree.renamedRefreshFailed', { msg }), 'error');
+      }
     },
     async deleteEntry(path: string) {
       await deleteEntry(path);
       await this.refresh();
+    },
+    /** 拖拽移动：写盘成功后让已打开的标签、选中态、展开态一起跟着换路径。
+     *  不跟随的话标签还指着旧路径，下一次保存会新建出一个同名文件（P0 级体验坑）。
+     *  跟随必须排在刷新之前：刷新只是重画树，它失败（权限/目录被删）也不能
+     *  把标签留在旧路径上——磁盘已经搬完了，视图过期远比路径错配安全。 */
+    async moveEntry(path: string, targetDir: string) {
+      const node = await moveEntry(path, targetDir);
+      const sep = path.includes('\\') ? '\\' : '/';
+      const newPath = node.path;
+      // 与重命名同一条链路：目录被移动时，其下所有打开的文件按前缀一并跟随
+      await useTabsStore().retabPath(path, newPath);
+      this.expandDir(targetDir); // 展开目标目录，让用户看见移过去的条目
+      const remap = (p: string): string => {
+        if (p === path) return newPath;
+        if (p.startsWith(path + sep)) return newPath + p.slice(path.length);
+        return p;
+      };
+      if (this.selectedPath) this.selectedPath = remap(this.selectedPath);
+      const nextExpanded = new Set<string>();
+      for (const p of this.expanded) nextExpanded.add(remap(p));
+      this.expanded = nextExpanded;
+      try {
+        await this.refresh();
+      } catch (err) {
+        const { t } = useI18n();
+        const msg = err instanceof Error ? err.message : String(err);
+        useEditorStore().showToast(t('filetree.movedRefreshFailed', { msg }), 'error');
+      }
+      return node;
     },
   },
 });

@@ -6,8 +6,27 @@ export const readFile = (path: string) => call<FileContent>('read_file', { path 
 /** 取走「打开方式」启动参数解析出的待打开文件（取后即清） */
 export const takePendingOpenArgs = () => call<string[]>('take_pending_open_args');
 
-export const writeFileAtomic = (path: string, content: string, keepBom: boolean) =>
-  call<SaveResult>('write_file_atomic', { path, content, keepBom });
+/**
+ * 原子写回。
+ * `encoding` 传 `readFile` 报出的原编码（"GBK" / "utf-16le" / "utf-8-bom" …），后端按它回写字节，
+ * GBK / UTF-16 文档因此可以就地保存；省略则按 UTF-8 写（新建文件、纯 UTF-8 文档）。
+ * 目标编码表示不了正文时后端抛 ENCODING_ERROR，调用方需提示另存为 UTF-8。
+ * `hadDecodeErrors` 来自 `readFile`：为 true 时文档正文已含 U+FFFD、原字节不可还原，
+ * 后端会直接拒绝就地保存（同样报 ENCODING_ERROR）。
+ */
+export const writeFileAtomic = (
+  path: string,
+  content: string,
+  keepBom: boolean,
+  encoding?: string,
+  hadDecodeErrors = false,
+) => call<SaveResult>('write_file_atomic', {
+  path,
+  content,
+  keepBom,
+  encoding: encoding ?? null,
+  hadDecodeErrors,
+});
 
 /** 按应用内选择器给出的路径写入（另存为 / 导出）：登记授权后原子写 */
 export const saveTextAt = (path: string, content: string) =>

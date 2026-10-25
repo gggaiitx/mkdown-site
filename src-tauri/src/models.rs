@@ -8,8 +8,12 @@ pub struct FileContent {
     /// "utf-8" | "utf-8-bom" | "gbk" | ...
     pub encoding: String,
     pub had_bom: bool,
-    /// 非 UTF-8 文档（如 GBK）标记：前端据此禁止就地写并提示另存为 UTF-8
+    /// 内容是否本来就是 UTF-8（含 BOM）：仅作信息展示；
+    /// 就地保存按 `encoding` 原样回写，不再据此拦截
     pub is_utf8: bool,
+    /// 按探测出的编码解码时出现了无法解码的字节（已被替换成 U+FFFD）。
+    /// 前端标记为不可就地保存：写回会丢掉原始字节，只能另存为 UTF-8。
+    pub had_decode_errors: bool,
     pub size: u64,
     pub mtime_ms: i64,
 }
@@ -194,6 +198,36 @@ fn default_back_top_enabled() -> bool {
     true
 }
 
+/// 文件树显示文件大小：出厂关（窄侧栏下两列会挤掉文件名，需要时在设置里打开）
+fn default_file_tree_show_size() -> bool {
+    false
+}
+
+/// 文件树显示修改时间：出厂关
+fn default_file_tree_show_mtime() -> bool {
+    false
+}
+
+/// 文件树排序方式：出厂按名称升序（与目录树一直以来的行为一致）
+fn default_file_tree_sort() -> String {
+    "name-asc".into()
+}
+
+/// 记住侧栏宽度：出厂开
+fn default_file_tree_remember_width() -> bool {
+    true
+}
+
+/// 侧栏宽度默认值：260（要放得下名字 + 行末两列）
+fn default_file_tree_width() -> f64 {
+    260.0
+}
+
+/// 书桌版左栏宽度默认值：208（书桌要留空间给卡片，比工作台侧栏窄）
+fn default_welcome_rail_width() -> f64 {
+    208.0
+}
+
 /// ←/→ 同目录文件切换：出厂开
 fn default_sibling_nav() -> bool {
     true
@@ -309,6 +343,24 @@ pub struct AppSettings {
     /// 「回到顶部」显现方式："auto"（指针移入右下角才浮出）| "always"（滚动后常驻）
     #[serde(default = "default_back_top_mode")]
     pub back_top_mode: String,
+    /// 文件树每行末尾显示文件大小（只对文件）
+    #[serde(default = "default_file_tree_show_size")]
+    pub file_tree_show_size: bool,
+    /// 文件树每行末尾显示修改时间
+    #[serde(default = "default_file_tree_show_mtime")]
+    pub file_tree_show_mtime: bool,
+    /// 文件树排序方式："name-asc"（默认）| "name-desc" | "mtime-desc" | "mtime-asc" | "size-desc" | "size-asc"
+    #[serde(default = "default_file_tree_sort")]
+    pub file_tree_sort: String,
+    /// 记住用户拖出来的侧栏宽度（设置-操作可关）
+    #[serde(default = "default_file_tree_remember_width")]
+    pub file_tree_remember_width: bool,
+    /// 侧栏宽度（px）：仅 remember 开着时生效
+    #[serde(default = "default_file_tree_width")]
+    pub file_tree_width: f64,
+    /// 欢迎页书桌版左栏宽度（px）：与工作台侧栏分开存，共用同一个 remember 开关
+    #[serde(default = "default_welcome_rail_width")]
+    pub welcome_rail_width: f64,
 }
 
 impl Default for AppSettings {
@@ -352,6 +404,12 @@ impl Default for AppSettings {
             preview_bar_bottom: default_preview_bar_bottom(),
             back_top_enabled: default_back_top_enabled(),
             back_top_mode: default_back_top_mode(),
+            file_tree_show_size: default_file_tree_show_size(),
+            file_tree_show_mtime: default_file_tree_show_mtime(),
+            file_tree_sort: default_file_tree_sort(),
+            file_tree_remember_width: default_file_tree_remember_width(),
+            file_tree_width: default_file_tree_width(),
+            welcome_rail_width: default_welcome_rail_width(),
         }
     }
 }

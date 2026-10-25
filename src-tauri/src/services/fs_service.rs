@@ -13,6 +13,9 @@ pub struct DetectedText {
     pub had_bom: bool,
     /// 内容是否本来就是 UTF-8 可无损写回（含 BOM）
     pub is_utf8: bool,
+    /// 解码时出现了无法解码的字节（内容里已插入 U+FFFD）：
+    /// 原文再也无法逐字节还原，处于这种状态的文档只能另存为 UTF-8
+    pub had_decode_errors: bool,
 }
 
 const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
@@ -21,6 +24,8 @@ const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 /// 1) UTF-8 BOM / UTF-16 BOM 直接识别；
 /// 2) 无 BOM 先按 UTF-8 校验；
 /// 3) 非法 UTF-8 时用 chardetng 猜测（GBK 等），转 UTF-8 供前端编辑。
+/// 解码中出现无法解码的字节时记入 `had_decode_errors`：那些位置已经变成 U+FFFD，
+/// 原始字节不可还原，前端据此禁止就地保存、只能另存为 UTF-8。
 pub fn read_text(path: &Path) -> AppResult<DetectedText> {
     let bytes = fs::read(path)?;
     Ok(detect_text(&bytes))
@@ -31,30 +36,33 @@ pub fn read_text(path: &Path) -> AppResult<DetectedText> {
 /// 避免「metadata 检查 + 全量 read」两步之间文件增长越过闸门（P1-6）。
 pub fn detect_text(bytes: &[u8]) -> DetectedText {
     if bytes.starts_with(&UTF8_BOM) {
-        let (cow, _, _) = encoding_rs::UTF_8.decode(&bytes[UTF8_BOM.len()..]);
+        let (cow, _, had_errors) = encoding_rs::UTF_8.decode(&bytes[UTF8_BOM.len()..]);
         return DetectedText {
             content: cow.into_owned(),
             encoding: "utf-8-bom".into(),
             had_bom: true,
             is_utf8: true,
+            had_decode_errors: had_errors,
         };
     }
     if bytes.starts_with(&[0xFF, 0xFE]) {
-        let (cow, _, _) = encoding_rs::UTF_16LE.decode(&bytes[2..]);
+        let (cow, _, had_errors) = encoding_rs::UTF_16LE.decode(&bytes[2..]);
         return DetectedText {
             content: cow.into_owned(),
             encoding: "utf-16le".into(),
             had_bom: true,
             is_utf8: false,
+            had_decode_errors: had_errors,
         };
     }
     if bytes.starts_with(&[0xFE, 0xFF]) {
-        let (cow, _, _) = encoding_rs::UTF_16BE.decode(&bytes[2..]);
+        let (cow, _, had_errors) = encoding_rs::UTF_16BE.decode(&bytes[2..]);
         return DetectedText {
             content: cow.into_owned(),
             encoding: "utf-16be".into(),
             had_bom: true,
             is_utf8: false,
+            had_decode_errors: had_errors,
         };
     }
 
@@ -64,20 +72,85 @@ pub fn detect_text(bytes: &[u8]) -> DetectedText {
             encoding: "utf-8".into(),
             had_bom: false,
             is_utf8: true,
+            had_decode_errors: false,
         },
         Err(_) => {
             let mut det = chardetng::EncodingDetector::new();
             det.feed(bytes, true);
             let enc = det.guess(None, false);
-            let (cow, _, _) = enc.decode(bytes);
+            let (cow, _, had_errors) = enc.decode(bytes);
             DetectedText {
                 content: cow.into_owned(),
                 encoding: enc.name().to_string(),
                 had_bom: false,
                 is_utf8: false,
+                had_decode_errors: had_errors,
             }
         }
     }
+}
+
+/// 按原编码把文本编回字节（保存链路）。
+///
+/// - `encoding` 取 `detect_text` 报出的名字（`utf-8` / `utf-8-bom` / `utf-16le` / `utf-16be` /
+///   chardetng 猜测名如 `GBK`）；传空串或未知值不静默兜底，一律报错由前端提示另存为 UTF-8。
+/// - UTF-8 两档由本函数自己补 BOM：`encoding_rs` 的 UTF-8 编码器不写 BOM，语义不如显式清楚；
+///   其余编码交给 `encode_without_bom_handling`，UTF-16 两档按 `keep_bom` 手工补 BOM
+///   （BOM 必须保住——无 BOM 的 UTF-16 下次打开会被当未知编码，整篇乱码）。
+/// - 编码无法表示正文中的字符（GBK 里写 emoji）时返回 `Encoding` 错误，**绝不静默替换成 `?`**：
+///   静默替换会悄悄改坏文档，且用户无从发现。
+/// - 再做一次往返校验（encode → decode 还原同一文本）：chardetng 是猜测，把 GBK 认成
+///   windows-1252 时往返必然对不上，宁可拒绝保存也不能写坏原文件。
+pub fn encode_text(content: &str, encoding: &str, keep_bom: bool) -> AppResult<Vec<u8>> {
+    let label = encoding.trim().to_ascii_lowercase();
+    if label.is_empty() || label == "utf-8" || label == "utf8" || label == "utf-8-bom" {
+        let mut bytes = Vec::with_capacity(content.len() + UTF8_BOM.len());
+        if keep_bom || label == "utf-8-bom" {
+            bytes.extend_from_slice(&UTF8_BOM);
+        }
+        bytes.extend_from_slice(content.as_bytes());
+        return Ok(bytes);
+    }
+
+    let enc = encoding_rs::Encoding::for_label(encoding.trim().as_bytes()).ok_or_else(|| {
+        AppError::Encoding(format!("无法识别的文件编码 {encoding}，请另存为 UTF-8"))
+    })?;
+
+    // UTF-16 手工编码：encoding_rs 里这两档的 *output encoding* 是 UTF-8（WHATWG 规范），
+    // `encode()` 拿到的是 UTF-8 字节，写回 UTF-16 文件会把编码整个换掉。
+    // UTF-16 能表示全部 Unicode（Rust str 不存在孤立代理项），无需可表示性检查。
+    if enc == encoding_rs::UTF_16LE || enc == encoding_rs::UTF_16BE {
+        let le = enc == encoding_rs::UTF_16LE;
+        let mut out = Vec::with_capacity(content.len() * 2 + 2);
+        if keep_bom {
+            out.extend_from_slice(if le { &[0xFF, 0xFE][..] } else { &[0xFE, 0xFF][..] });
+        }
+        for unit in content.encode_utf16() {
+            let b = if le {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            };
+            out.extend_from_slice(&b);
+        }
+        return Ok(out);
+    }
+
+    let (body, _, had_unmappable) = enc.encode(content);
+    if had_unmappable {
+        return Err(AppError::Encoding(format!(
+            "当前编码 {} 无法表示正文中的部分字符（例如表情符号），请另存为 UTF-8",
+            enc.name()
+        )));
+    }
+    let (back, _, back_errors) = enc.decode(&body);
+    if back_errors || back != content {
+        return Err(AppError::Encoding(format!(
+            "按 {} 回写会改变正文，已中止保存；请另存为 UTF-8",
+            enc.name()
+        )));
+    }
+    Ok(body.into_owned())
 }
 
 /// 原子写：同目录临时文件 → 写入 → sync → persist(rename 覆盖)。
@@ -499,6 +572,21 @@ mod tests {
         assert!(det.is_utf8 && !det.had_bom);
         assert_eq!(det.encoding, "utf-8");
         assert_eq!(det.content, "# 标题\n内容");
+        assert!(!det.had_decode_errors);
+    }
+
+    /// 解码时出现非法字节：内容里已经混入 U+FFFD，标记必须报出来
+    /// （前端据此禁止就地保存——写回等于把看不懂的字节永久替换掉）
+    #[test]
+    fn decode_errors_are_flagged() {
+        // 用「UTF-8 BOM + 非法字节」这条确定的路径：探测编码固定为 utf-8-bom，
+        // 不会像无 BOM 那样被 chardetng 猜成 windows-1252（后者什么字节都能解、不会报错）
+        let mut bytes = UTF8_BOM.to_vec();
+        bytes.extend_from_slice(&[0x41, 0xFF, 0xFE, 0x42]);
+        let det = detect_text(&bytes);
+        assert_eq!(det.encoding, "utf-8-bom");
+        assert!(det.had_decode_errors, "非法 UTF-8 字节必须被标记");
+        assert!(det.content.contains('\u{FFFD}'));
     }
 
     #[test]
@@ -523,6 +611,58 @@ mod tests {
         let det = read_text(&p).unwrap();
         assert!(!det.is_utf8);
         assert_eq!(det.content, "这是一份 GBK 编码的文档");
+        assert!(!det.had_decode_errors, "合法 GBK 不应报解码错误");
+    }
+
+    /// GBK 文档就地保存：写回的字节必须仍是 GBK，且读回来一字不差
+    #[test]
+    fn gbk_saves_back_in_original_encoding() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("gbk.txt");
+        let (bytes, _, _) = encoding_rs::GBK.encode("中文段落，含标点。");
+        fs::write(&p, bytes).unwrap();
+        let det = read_text(&p).unwrap();
+        let edited = format!("{}已编辑", det.content);
+        let out = encode_text(&edited, &det.encoding, det.had_bom).unwrap();
+        fs::write(&p, &out).unwrap();
+        // 仍是 GBK：中文 GBK 字节必然是非法 UTF-8 序列，若写成 UTF-8 这条断言会失败
+        assert!(std::str::from_utf8(&out).is_err(), "回写后不应变成 UTF-8");
+        let again = read_text(&p).unwrap();
+        assert_eq!(again.content, edited);
+        assert_eq!(again.encoding, "GBK");
+    }
+
+    /// GBK 表示不了 emoji：必须报错，不能静默写成 `?`
+    #[test]
+    fn gbk_rejects_unrepresentable_text() {
+        let err = encode_text("中文😀", "GBK", false).unwrap_err();
+        assert!(matches!(err, AppError::Encoding(_)), "应为编码错误: {err:?}");
+        assert!(
+            err.to_string().contains("无法表示"),
+            "提示要说明原因: {err}"
+        );
+    }
+
+    /// BOM 在保存后必须原样保住：UTF-16 丢了 BOM，下次打开会被当未知编码整篇乱码
+    #[test]
+    fn bom_survives_save() {
+        let utf8bom = encode_text("文档", "utf-8-bom", true).unwrap();
+        assert!(utf8bom.starts_with(&UTF8_BOM));
+        let u16le = encode_text("文档", "utf-16le", true).unwrap();
+        assert_eq!(&u16le[..2], &[0xFF, 0xFE]);
+        let u16be = encode_text("文档", "utf-16be", true).unwrap();
+        assert_eq!(&u16be[..2], &[0xFE, 0xFF]);
+        // 无 BOM 的 UTF-8 不被凭空加 BOM
+        let plain = encode_text("文档", "utf-8", false).unwrap();
+        assert!(!plain.starts_with(&UTF8_BOM));
+    }
+
+    /// 编码猜错时必须拒绝保存，而不是写坏原文件
+    #[test]
+    fn wrong_encoding_is_rejected() {
+        assert!(encode_text("plain ascii", "GBK", false).is_ok(), "能表示则允许");
+        assert!(encode_text("中文", "windows-1252", false).is_err(), "1252 表示不了中文");
+        assert!(encode_text("中文", "no-such-encoding", false).is_err(), "未知编码名要拒绝");
     }
 
     #[test]

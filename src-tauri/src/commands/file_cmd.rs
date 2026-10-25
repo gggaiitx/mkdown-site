@@ -58,6 +58,7 @@ pub async fn read_file(path: String, state: State<'_, AppState>) -> AppResult<Fi
             encoding: det.encoding,
             had_bom: det.had_bom,
             is_utf8: det.is_utf8,
+            had_decode_errors: det.had_decode_errors,
             size: meta.len(),
             mtime_ms: fs_service::mtime_ms(&p),
         })
@@ -70,16 +71,28 @@ pub async fn write_file_atomic(
     path: String,
     content: String,
     keep_bom: bool,
+    // 原文件编码（`read_file` 报出的名字）。省略 / null 时按 UTF-8 写；
+    // 传了就按原编码回写，GBK / UTF-16 文档因此可以就地保存。
+    // 注意：函数的参数位置只放行 allow/cfg 一类属性，此处不能用 /// 文档注释。
+    encoding: Option<String>,
+    // `read_file` 报出的「解码时出现过非法字节」标记。这种文档的正文里已经混入
+    // U+FFFD，原字节无法还原，就地写回等于永久丢掉那部分内容 → 直接拒绝，引导另存为 UTF-8。
+    had_decode_errors: Option<bool>,
     state: State<'_, AppState>,
 ) -> AppResult<SaveResult> {
     let p = PathBuf::from(&path);
     state.ensure_allowed(&p)?;
     spawn_io(move || {
-        let mut bytes = Vec::with_capacity(content.len() + 3);
-        if keep_bom {
-            bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+        if had_decode_errors.unwrap_or(false) {
+            return Err(AppError::Encoding(
+                "原文件包含当前编码无法解码的字节，就地保存会丢失内容；请另存为 UTF-8".into(),
+            ));
         }
-        bytes.extend_from_slice(content.as_bytes());
+        let bytes = fs_service::encode_text(
+            &content,
+            encoding.as_deref().unwrap_or("utf-8"),
+            keep_bom,
+        )?;
         fs_service::write_atomic(&p, &bytes)?;
         let meta = fs::metadata(&p)?;
         Ok(SaveResult {

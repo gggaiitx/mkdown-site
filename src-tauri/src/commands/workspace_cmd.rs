@@ -71,6 +71,24 @@ pub async fn rename_entry(
     spawn_io(move || workspace_service::rename_entry(Path::new(&path), &new_name)).await
 }
 
+/// 移动条目到目标目录（文件树拖拽）。源与目标目录都必须已在白名单内：
+/// 拖进工作区外的目录属于越界，直接拒绝。
+#[tauri::command]
+pub async fn move_entry(
+    path: String,
+    target_dir: String,
+    state: State<'_, AppState>,
+) -> AppResult<WorkspaceNode> {
+    let p = PathBuf::from(&path);
+    let t = PathBuf::from(&target_dir);
+    state.ensure_allowed(&p)?;
+    state.ensure_allowed(&t)?;
+    spawn_io(move || {
+        workspace_service::move_entry(Path::new(&path), Path::new(&target_dir))
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn delete_entry(path: String, state: State<'_, AppState>) -> AppResult<()> {
     let p = PathBuf::from(&path);

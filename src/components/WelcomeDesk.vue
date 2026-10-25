@@ -45,6 +45,8 @@ const emit = defineEmits<{
   (e: 'new-kernel', kind: 'md' | 'mh' | 'code'): void;
   (e: 'open-recent', path: string): void;
   (e: 'open-recent-preview', path: string): void;
+  /** 「继续写作」与水波纸卡：落位一律编辑态，不跟用户的默认视图偏好 */
+  (e: 'continue-edit', path: string): void;
   (e: 'switch-workspace', dir: string): void;
   (e: 'remove-all-workspaces'): void;
   (e: 'search'): void;
@@ -107,18 +109,69 @@ const canRestoreRail = computed(() => props.rail === true && !!ws.root && railCl
    下限沿用目录树自己的 200；上限按「栅格不低于 918px」反推——
    918 是现网左栏最小态（窗口回差阈值 1200 − 左右内距 56 − 间隙 16 − 栏宽 210），
    再给栏宽封顶 360；超宽屏的内容带被 .desk-cols 封在 1440，算边界前先夹进去。
-   窗口变窄时上限跟着收，已有宽度立即夹回（不逆向恢复，避免和用户意图打架） */
+   窗口变窄时上限跟着收：只夹「渲染宽度」，空间恢复后回到用户宽度 */
 const RAIL_MIN = 200;
 const RAIL_MAX = 360;
 const BENTO_FLOOR = 918;
-const railW = ref(RAIL_W);
+/** 栏宽持久化：与工作台侧栏分开存（书桌留空间给卡片，两处宽度不该互相干扰），
+ *  但共用「记住侧栏宽度」这一个开关；读盘是异步的，兜底靠下面的 watch */
+const railSaved = () =>
+  settings.settings.fileTreeRememberWidth
+    ? Math.round(Math.min(RAIL_MAX, Math.max(RAIL_MIN, settings.settings.welcomeRailWidth)))
+    : RAIL_W;
+/** 用户拖出来的目标宽度（持久化对象）。★ 不能拿「当前渲染宽度」代替它：
+ *  从编辑器回书桌时全局侧栏可能还占着一帧，宿主量出来更窄、railMax 掉到下限；
+ *  若把那一刻的渲染宽度反写进目标值，记住的栏宽就被永久压小（2026-10-25 反馈） */
+const railPref = ref(railSaved());
+/** 实际渲染宽度：按当前栅格边界夹取，空间恢复后自动回到 railPref */
+const railW = ref(railPref.value);
+/** 隐藏后恢复用的初值：也跟随存储宽度，否则拖隐一次就把宽度丢回 208 */
+railLastW.value = railPref.value;
+let railSaveTimer: number | undefined;
 const railMax = computed(() => {
   const band = Math.min(boxW.value - 56, 1440);
   return Math.max(RAIL_MIN, Math.min(RAIL_MAX, Math.round(band - 16 - BENTO_FLOOR - 2)));
 });
-watch(railMax, (m) => {
-  if (railW.value > m) railW.value = m;
-});
+/** 边界变化只影响渲染宽度（立即执行一次，把首帧 boxW=1280 的兜底也夹进去）。
+ *  目标宽度原样保留，所以窄一帧不会吃掉用户存下的宽度 */
+watch(
+  railMax,
+  () => {
+    const next = Math.round(Math.min(railMax.value, Math.max(RAIL_MIN, railPref.value)));
+    if (next !== railW.value) railW.value = next;
+  },
+  { immediate: true },
+);
+/** 设置是异步读盘的：读到后纠正目标宽度。这里只用静态边界夹——
+ *  railMax 依赖 boxW（ResizeObserver 量出来），设置读盘可能先于首次量宽落地 */
+watch(
+  () => [settings.settings.fileTreeRememberWidth, settings.settings.welcomeRailWidth] as const,
+  ([remember]) => {
+    if (!remember) return;
+    const next = Math.round(Math.min(RAIL_MAX, Math.max(RAIL_MIN, settings.settings.welcomeRailWidth)));
+    if (next === railPref.value) return;
+    railPref.value = next;
+    railW.value = Math.round(Math.min(railMax.value, Math.max(RAIL_MIN, next)));
+  },
+);
+/** 记一次目标宽度（拖拽 / 恢复共用）：渲染宽度永远跟着 railMax 夹 */
+function setRailPref(next: number): void {
+  const v = Math.round(Math.min(RAIL_MAX, Math.max(RAIL_MIN, next)));
+  railPref.value = v;
+  railLastW.value = v;
+  railW.value = Math.round(Math.min(railMax.value, Math.max(RAIL_MIN, v)));
+}
+/** 拖宽：本地立刻生效，落盘走 400ms 防抖（拖拽中每帧都会来一次 resize）。
+ *  低于下限时只是在拖向「收起」，只跟手缩窄，不覆盖目标宽度 */
+function onRailResize(w: number): void {
+  if (w >= RAIL_MIN) setRailPref(w);
+  else railW.value = w;
+  if (!settings.settings.fileTreeRememberWidth) return;
+  window.clearTimeout(railSaveTimer);
+  railSaveTimer = window.setTimeout(() => {
+    void settings.update({ welcomeRailWidth: railPref.value });
+  }, 400);
+}
 /** 偏窄的 xl（侧栏展开时常见）：继续写作卡里「纸卡 + 三个按钮 + 保存状态」排不下一行，
  *  这一档把纸卡收窄、隐藏保存状态，避免按钮折行（飞总 2026-10-23 第 4 条）。
  *  有左栏时内容带被吃掉约 146px，同一判据要换算到窗口宽：实测 1283 起折行，取 1300 留余量。
@@ -128,11 +181,17 @@ const tight = computed(() =>
 );
 
 function onRailHide(w: number) {
-  railLastW.value = Math.max(RAIL_MIN, Math.min(RAIL_MAX, Math.round(w)));
+  // 收起途中不落盘：目标宽度归还到「开始拖隐前」的宽度，恢复入口与下次进入都回到原位
+  window.clearTimeout(railSaveTimer);
+  railSaveTimer = undefined;
+  setRailPref(w);
   railClosed.value = true;
+  if (settings.settings.fileTreeRememberWidth) {
+    void settings.update({ welcomeRailWidth: railPref.value });
+  }
 }
 function restoreRail() {
-  railW.value = Math.max(RAIL_MIN, Math.min(railMax.value, railLastW.value));
+  setRailPref(railLastW.value);
   railClosed.value = false;
 }
 
@@ -193,15 +252,25 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (clockTimer !== undefined) window.clearInterval(clockTimer);
   clockTimer = undefined;
+  // 栏宽的防抖落盘：卸载前把待写的值直接刷掉，别丢最后一次拖动
+  if (railSaveTimer !== undefined) {
+    window.clearTimeout(railSaveTimer);
+    railSaveTimer = undefined;
+    if (settings.settings.fileTreeRememberWidth) {
+      // 存目标宽度，不存被窗口临时夹小的渲染宽度
+      void settings.update({ welcomeRailWidth: railPref.value });
+    }
+  }
 });
 
-const dateLine = computed(() => {
+const dateParts = computed(() => {
   const d = new Date(nowTick.value);
   const locale = isEn.value ? 'en-US' : 'zh-CN';
   const md = d.toLocaleDateString(locale, { month: 'long', day: 'numeric' });
   const wd = d.toLocaleDateString(locale, { weekday: 'long' });
-  // 中文「10月23日 星期五」：日期在前、星期在后，中间留一格空；英文仍按「Friday, October 23」
-  return isEn.value ? `${wd}, ${md}` : `${md} ${wd}`;
+  // 中文「10月23日 星期五」拆成两段排版，段间距与后面的问候语统一；
+  // 英文仍按「Friday, October 23」整段
+  return isEn.value ? [`${wd}, ${md}`] : [md, wd];
 });
 
 /** 问候语按系统时间分档：早上 5–11 / 中午 11–13 / 下午 13–18 / 晚上 18–23 / 其余夜深了 */
@@ -819,6 +888,15 @@ const composition = computed(() => {
     .map((s) => ({ ...s, pct: (s.count / total) * 100 }));
 });
 
+/** 每段要扣掉的宽度：flex gap 总共 (n-1)*2px，按段数均摊。
+ *  固定扣 1.5px 只在 4 段时刚好，2/3 段会缩出空隙、5 段会溢出轨道 */
+const compSegInset = computed(() =>
+  composition.value.length > 1 ? ((composition.value.length - 1) * 2) / composition.value.length : 0,
+);
+
+/** 悬停的构成段：横条与下方图例双向共用同一个 key，两边才能联动高亮 */
+const hoverComp = ref<string | null>(null);
+
 const legendLabel: Record<string, string> = {
   md: 'welcome.desk.legendMd',
   mh: 'welcome.desk.legendMh',
@@ -871,7 +949,10 @@ const versionNote = computed(() => {
           </svg>
           <div class="brand-txt">
             <div class="brand-name">{{ BRAND_NAME }}</div>
-            <div class="brand-sub">{{ dateLine }}<span class="brand-greet">{{ greeting }}</span></div>
+            <div class="brand-sub">
+              <span v-for="(part, i) in dateParts" :key="i" :class="{ 'brand-gap': i > 0 }">{{ part }}</span>
+              <span class="brand-greet">{{ greeting }}</span>
+            </div>
           </div>
         </div>
         <button type="button" class="search-pill" v-tip="t('welcome.desk.searchHint')" @click="emit('search')">
@@ -896,7 +977,7 @@ const versionNote = computed(() => {
               resizable
               :min-width="RAIL_MIN"
               :max-width="railMax"
-              @resize="(w: number) => (railW = w)"
+              @resize="onRailResize"
               @hide="onRailHide"
               @open-file="(p: string) => emit('open-tree-file', p)"
               @open-file-dbl="(p: string) => emit('open-tree-file-dbl', p)"
@@ -946,7 +1027,7 @@ const versionNote = computed(() => {
                     <span v-if="lastModifiedMs">{{ t('welcome.desk.metaEdited', { t: relTime(lastModifiedMs) }) }}</span>
                   </div>
                   <div class="actions">
-                    <button type="button" class="btn primary" @click="emit('open-recent', continuePath)">
+                    <button type="button" class="btn primary" @click="emit('continue-edit', continuePath)">
                       {{ continueActionLabel }}
                       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                     </button>
@@ -971,17 +1052,19 @@ const versionNote = computed(() => {
                   </div>
                 </div>
 
-                <!-- 右栏：文档纸卡。整卡可点（等同「继续写作」），悬停微微抬起 -->
+                <!-- 右栏：文档纸卡。整卡可点（等同「继续写作」，落位编辑态），悬停微微抬起 -->
                 <div
                   class="paper"
                   role="button"
                   tabindex="0"
                   :aria-label="`${continueActionLabel} · ${continueName}`"
-                  @click="emit('open-recent', continuePath)"
-                  @keydown.enter.prevent="emit('open-recent', continuePath)"
-                  @keydown.space.prevent="emit('open-recent', continuePath)"
+                  @click="emit('continue-edit', continuePath)"
+                  @keydown.enter.prevent="emit('continue-edit', continuePath)"
+                  @keydown.space.prevent="emit('continue-edit', continuePath)"
                 >
-                  <!-- 卡针：跨在纸卡上边缘，把纸「别」在卡面上 -->
+                  <!-- 卡针：跨在纸卡上边缘，把纸「别」在卡面上。
+                       晴蓝 / 星蓝换成一枚印着码克 logo 的圆形徽章（见下方 palette 规则），
+                       其余配色仍是金属长尾夹 -->
                   <span class="paper-pin" aria-hidden="true">
                     <svg viewBox="0 0 32 26">
                       <defs>
@@ -992,25 +1075,41 @@ const versionNote = computed(() => {
                           <stop offset="0.72" stop-color="#cfd8e2" />
                           <stop offset="1" stop-color="#7c8795" />
                         </linearGradient>
+                        <linearGradient id="deskPinBadge" x1="0" y1="0" x2="0.42" y2="1">
+                          <stop offset="0" stop-color="#a9d8fb" />
+                          <stop offset="0.44" stop-color="#4f9be0" />
+                          <stop offset="1" stop-color="#0c447c" />
+                        </linearGradient>
                       </defs>
-                      <!-- 两根提手钢丝：从金属体顶边向外张开抬起 -->
-                      <path d="M13 9.6C11.2 6.2 10.4 4.2 9 2.4" fill="none" stroke="#b9c4d0" stroke-width="1.9" stroke-linecap="round" />
-                      <path d="M19 9.6C20.8 6.2 21.6 4.2 23 2.4" fill="none" stroke="#b9c4d0" stroke-width="1.9" stroke-linecap="round" />
-                      <path d="M13.1 9.6C11.4 6.3 10.6 4.4 9.2 2.7" fill="none" stroke="#ffffff" stroke-width="0.65" stroke-linecap="round" opacity="0.7" />
-                      <path d="M18.9 9.6C20.6 6.3 21.4 4.4 22.8 2.7" fill="none" stroke="#ffffff" stroke-width="0.65" stroke-linecap="round" opacity="0.7" />
-                      <!-- 金属夹体：上窄下宽的折板，纸从下沿夹进去 -->
-                      <path
-                        d="M9.4 9h13.2l1.5 9.3a2.5 2.5 0 0 1-2.5 2.2H10.4a2.5 2.5 0 0 1-2.5-2.2Z"
-                        fill="url(#deskPinMetal)"
-                        stroke="#ffffff"
-                        stroke-opacity="0.5"
-                        stroke-width="0.8"
-                        stroke-linejoin="round"
-                      />
-                      <path d="M9.9 9.9h12.2" stroke="#ffffff" stroke-width="0.8" opacity="0.85" />
-                      <!-- 夹口：纸从下沿进去 -->
-                      <path d="M10.8 20.1h10.4" stroke="#414b58" stroke-width="2.4" stroke-linecap="round" opacity="0.9" />
-                      <path d="M10.8 20.1h10.4" stroke="#2a323c" stroke-width="1" stroke-linecap="round" opacity="0.55" />
+                      <g class="pin-clip">
+                        <!-- 两根提手钢丝：从金属体顶边向外张开抬起 -->
+                        <path d="M13 9.6C11.2 6.2 10.4 4.2 9 2.4" fill="none" stroke="#b9c4d0" stroke-width="1.9" stroke-linecap="round" />
+                        <path d="M19 9.6C20.8 6.2 21.6 4.2 23 2.4" fill="none" stroke="#b9c4d0" stroke-width="1.9" stroke-linecap="round" />
+                        <path d="M13.1 9.6C11.4 6.3 10.6 4.4 9.2 2.7" fill="none" stroke="#ffffff" stroke-width="0.65" stroke-linecap="round" opacity="0.7" />
+                        <path d="M18.9 9.6C20.6 6.3 21.4 4.4 22.8 2.7" fill="none" stroke="#ffffff" stroke-width="0.65" stroke-linecap="round" opacity="0.7" />
+                        <!-- 金属夹体：上窄下宽的折板，纸从下沿夹进去 -->
+                        <path
+                          d="M9.4 9h13.2l1.5 9.3a2.5 2.5 0 0 1-2.5 2.2H10.4a2.5 2.5 0 0 1-2.5-2.2Z"
+                          fill="url(#deskPinMetal)"
+                          stroke="#ffffff"
+                          stroke-opacity="0.5"
+                          stroke-width="0.8"
+                          stroke-linejoin="round"
+                        />
+                        <path d="M9.9 9.9h12.2" stroke="#ffffff" stroke-width="0.8" opacity="0.85" />
+                        <!-- 夹口：纸从下沿进去 -->
+                        <path d="M10.8 20.1h10.4" stroke="#414b58" stroke-width="2.4" stroke-linecap="round" opacity="0.9" />
+                        <path d="M10.8 20.1h10.4" stroke="#2a323c" stroke-width="1" stroke-linecap="round" opacity="0.55" />
+                      </g>
+                      <g class="pin-badge">
+                        <circle cx="16" cy="13" r="12.6" fill="url(#deskPinBadge)" stroke="#ffffff" stroke-opacity="0.5" stroke-width="0.9" />
+                        <ellipse cx="12.2" cy="7.2" rx="6.4" ry="2.8" fill="#ffffff" opacity="0.18" transform="rotate(-18 12.2 7.2)" />
+                        <!-- 码克 logo：M + 光标，按 102 画布等比缩到这个 13px 的印面 -->
+                        <g transform="translate(2.32 -1.04) scale(0.27)" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M27 72 L27 32 L42 50 L57 32 L57 72" />
+                        </g>
+                        <rect x="19.33" y="15.16" width="2.97" height="3.78" rx="0.68" fill="#cfe9ff" />
+                      </g>
                     </svg>
                   </span>
                   <div class="paper-head">
@@ -1224,15 +1323,17 @@ const versionNote = computed(() => {
                 <i class="dot gap" />
                 <strong>{{ sizeText }}</strong>
               </div>
-              <div v-if="composition.length > 0" class="comp-bar">
+              <div v-if="composition.length > 0" class="comp-bar" @mouseleave="hoverComp = null">
                 <i
                   v-for="seg in composition"
                   :key="seg.key"
-                  :style="{ width: `${seg.pct}%`, background: seg.color }"
+                  :class="{ on: hoverComp === seg.key }"
+                  :style="{ width: `calc(${seg.pct}% - ${compSegInset}px)`, background: seg.color }"
+                  @mouseenter="hoverComp = seg.key"
                 />
               </div>
               <div v-if="composition.length > 0" class="comp-legend">
-                <span v-for="seg in composition" :key="seg.key">
+                <span v-for="seg in composition" :key="seg.key" :class="{ on: hoverComp === seg.key }">
                   <i :style="{ background: seg.color }" />{{ t(legendLabel[seg.key], { n: seg.count }) }}
                 </span>
               </div>
@@ -1488,9 +1589,16 @@ const versionNote = computed(() => {
   color: var(--mk-fg);
   margin-right: -0.16em;
 }
+/* 亮色模式：品牌字取 logo 的深海军蓝，和左上角 logo 同一蓝色系 */
+:root[data-theme='light'] .brand-name {
+  color: var(--desk-brand-deep);
+}
 /* 问候语接在日期行末尾：同一号的弱化色，只靠间距分隔（不加「·」，飞总 2026-10-23） */
+.brand-gap,
 .brand-greet {
   margin-left: 6px;
+}
+.brand-greet {
   white-space: nowrap;
 }
 .compact .brand-name {
@@ -2042,6 +2150,17 @@ kbd {
   width: 100%;
   height: 100%;
 }
+/* 晴蓝 / 星蓝：别针换成印着码克 logo 的圆形徽章——长尾夹与徽章各画一组，
+   只在两套蓝配色下切换显隐，其余配色仍是原来的金属长尾夹 */
+.pin-badge { display: none; }
+:root[data-palette='azure'] .paper-pin .pin-clip,
+:root[data-palette='nebula'] .paper-pin .pin-clip { display: none; }
+:root[data-palette='azure'] .paper-pin .pin-badge,
+:root[data-palette='nebula'] .paper-pin .pin-badge { display: inline; }
+:root[data-palette='azure'] .paper-pin,
+:root[data-palette='nebula'] .paper-pin {
+  filter: drop-shadow(0 3px 5px rgb(9 41 74 / 0.5));
+}
 .paper-head {
   display: flex;
   align-items: center;
@@ -2249,7 +2368,7 @@ kbd {
     transparent 100%
   );
   transform: translateX(-130%) skewX(-12deg);
-  animation: desk-btn-wave 4.4s cubic-bezier(0.4, 0, 0.25, 1) infinite;
+  animation: desk-btn-wave 3.2s cubic-bezier(0.4, 0, 0.25, 1) infinite;
   pointer-events: none;
 }
 @keyframes desk-btn-wave {
@@ -2697,14 +2816,35 @@ kbd {
   height: 7px;
   margin-top: 9px;
   border-radius: 99px;
-  overflow: hidden;
   background: var(--mk-panel-muted);
 }
+/* 段宽由脚本按段数均摊扣掉 gap 份额（见 compSegInset）：总宽恰好等于轨道，
+   不溢出不缩缝；悬停只做竖向放大，宽度不受影响 */
 .comp-bar i {
+  position: relative;
   display: block;
+  flex: 0 0 auto;
   height: 100%;
   border-radius: 99px;
   min-width: 2px;
+  transform-origin: center;
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+/* 7px 高的段太细，用伪元素把命中区上下各撑 5px，不用瞄准 */
+.comp-bar i::before {
+  content: '';
+  position: absolute;
+  inset: -5px 0;
+}
+.comp-bar i.on {
+  transform: scaleY(1.55);
+  filter: saturate(1.18) brightness(1.06);
+  animation: comp-seg-bump 0.36s cubic-bezier(0.22, 0.9, 0.28, 1.15);
+}
+@keyframes comp-seg-bump {
+  0% { transform: scaleY(1); }
+  45% { transform: scaleY(1.95); }
+  100% { transform: scaleY(1.55); }
 }
 .comp-legend {
   display: flex;
@@ -2720,12 +2860,19 @@ kbd {
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+  transition: color 0.18s ease;
 }
+.comp-legend span.on { color: var(--mk-fg); }
 .comp-legend i {
   width: 4px;
   height: 4px;
   border-radius: 50%;
   flex: none;
+  transition: transform 0.2s cubic-bezier(0.22, 0.9, 0.28, 1.15), box-shadow 0.2s ease;
+}
+.comp-legend span.on i {
+  transform: scale(1.7);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--mk-fg) 12%, transparent);
 }
 .ws-recent {
   flex: 1 1 auto;
@@ -2875,11 +3022,15 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .bar-col:hover .bar-fill { animation: none; }
   .c-continue .actions .btn.primary::after { animation: none; opacity: 0; }
+  .comp-bar i.on { animation: none; }
   .bar-fill,
   .bar-val,
   .bar-day,
   .bar-track,
-  .new-mark { transition: none; }
+  .new-mark,
+  .comp-bar i,
+  .comp-legend span,
+  .comp-legend i { transition: none; }
 }
 .week-foot {
   display: flex;

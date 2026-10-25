@@ -191,6 +191,216 @@ pub fn rename_entry(path: &Path, new_name: &str) -> AppResult<WorkspaceNode> {
     })
 }
 
+/// 把条目移动到目标目录（文件树拖拽）。
+///
+/// - 同卷直接 `fs::rename`（原子、瞬时）；
+/// - 跨卷（Windows `ERROR_NOT_SAME_DEVICE` / POSIX `EXDEV`）回退「递归复制 → 删源」，
+///   复制失败时**不动源**，宁可留下半份副本也不丢原文件；
+/// - 拒绝把条目移进它自己或它的子目录（会造成无限层级），拒绝覆盖同名条目，
+///   拖回原父目录按幂等处理（直接返回当前节点）。
+pub fn move_entry(path: &Path, target_dir: &Path) -> AppResult<WorkspaceNode> {
+    if !path.exists() {
+        return Err(AppError::NotFound(format!(
+            "条目不存在: {}",
+            path.display()
+        )));
+    }
+    if !target_dir.is_dir() {
+        return Err(AppError::NotFound(format!(
+            "目标目录不存在: {}",
+            target_dir.display()
+        )));
+    }
+    let name = path
+        .file_name()
+        .ok_or_else(|| AppError::InvalidArg("路径没有条目名".into()))?;
+    if is_same_or_inside(target_dir, path) {
+        return Err(AppError::InvalidArg(
+            "不能把条目移动到它自己或它的子目录里".into(),
+        ));
+    }
+    let target = target_dir.join(name);
+    if is_same_or_inside(&target, path) || path == target {
+        // 拖回原处：当成幂等操作，返回当前节点让前端照常刷新
+        return node_of(path);
+    }
+    if target.exists() {
+        return Err(AppError::Conflict(format!(
+            "目标目录里已存在同名条目: {}",
+            name.to_string_lossy()
+        )));
+    }
+    // 同卷 rename 的「先检查再改名」存在窗口期：标准库没有不覆盖的 rename，
+    // POSIX 的 rename 会静默替换窗口期内冒出来的同名文件。用户拖拽场景下手速
+    // 撞上这个窗口的概率极低，真要闭合得用 renameat2(RENAME_NOREPLACE)（仅 Linux）；
+    // 跨卷回退那条路已经用 create_new 保证不覆盖。
+    match fs::rename(path, &target) {
+        Ok(()) => {}
+        Err(e) if is_cross_device(&e) => move_across_devices(path, &target)?,
+        Err(e) => return Err(e.into()),
+    }
+    node_of(&target)
+}
+
+/// 条目路径 → 节点（移动/原地返回共用）
+fn node_of(path: &Path) -> AppResult<WorkspaceNode> {
+    let md = fs::metadata(path)?;
+    let kind = if md.is_dir() {
+        NodeKind::Dir
+    } else {
+        NodeKind::File
+    };
+    Ok(WorkspaceNode {
+        name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        path: path.to_string_lossy().into_owned(),
+        kind,
+        children: (kind == NodeKind::Dir).then_some(Vec::new()),
+        size: (kind == NodeKind::File).then_some(md.len()),
+        mtime_ms: Some(fs_service::mtime_from_meta(&md)),
+    })
+}
+
+/// 跨卷错误判定：Windows 17 = ERROR_NOT_SAME_DEVICE，POSIX 18 = EXDEV。
+/// 两个值恰好相邻，但绝不能合成 `Some(17) | Some(18)`——Windows 的 18 是
+/// ERROR_NO_MORE_FILES，POSIX 的 17 是 EEXIST，误判会把无关错误当成跨卷。
+fn is_cross_device(e: &std::io::Error) -> bool {
+    #[cfg(windows)]
+    const CROSS_DEVICE: i32 = 17;
+    #[cfg(unix)]
+    const CROSS_DEVICE: i32 = 18;
+    #[cfg(not(any(windows, unix)))]
+    const CROSS_DEVICE: i32 = -1;
+    e.raw_os_error() == Some(CROSS_DEVICE)
+}
+
+/// 跨卷移动：先完整复制到目标，成功后再删源。复制途中失败会清掉半成品，源文件原样保留。
+fn move_across_devices(src: &Path, dst: &Path) -> AppResult<()> {
+    let copied = if src.is_dir() {
+        copy_dir_all(src, dst)
+    } else {
+        copy_file_new(src, dst)
+    };
+    if let Err(e) = copied {
+        // 清掉可能留下的半份副本（只删我们刚创建的目标路径）
+        if dst.exists() {
+            clear_readonly_recursive(dst);
+            let _ = if dst.is_dir() {
+                fs::remove_dir_all(dst)
+            } else {
+                fs::remove_file(dst)
+            };
+        }
+        return Err(AppError::Io(format!("跨盘复制失败: {e}")));
+    }
+    // Windows 下只读属性的条目删不掉，复制过来时也保留了只读属性；
+    // 不清掉的话「复制成功、删源失败」会成常态（副本+原件“双份”）
+    clear_readonly_recursive(src);
+    let removed = if src.is_dir() {
+        fs::remove_dir_all(src)
+    } else {
+        fs::remove_file(src)
+    };
+    if let Err(e) = removed {
+        // 副本已就位、源删不掉：两个路径同时存在比丢文件安全，报错让用户自己处理
+        return Err(AppError::Io(format!(
+            "已复制到目标，但原条目删除失败（可手动删除）: {e}"
+        )));
+    }
+    Ok(())
+}
+
+/// 复制单个文件，目标必须不存在（create_new 一次完成「判重 + 创建」）。
+/// 不用 fs::copy：它会直接覆盖窗口期内新冒出来的同名文件。
+fn copy_file_new(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let mut input = fs::File::open(src)?;
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dst)?;
+    std::io::copy(&mut input, &mut output)?;
+    drop(output);
+    // 保留源文件权限（只读、可执行位），与 fs::copy 的行为对齐
+    fs::set_permissions(dst, fs::metadata(src)?.permissions())?;
+    Ok(())
+}
+
+/// 逐层清除只读属性（Windows 删目录/文件时只读会直接拦下；其他平台是 no-op）
+fn clear_readonly_recursive(path: &Path) {
+    #[cfg(windows)]
+    {
+        if let Ok(md) = fs::metadata(path) {
+            if md.permissions().readonly() {
+                let mut perms = md.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                let _ = fs::set_permissions(path, perms);
+            }
+            if md.is_dir() {
+                if let Ok(rd) = fs::read_dir(path) {
+                    for entry in rd.flatten() {
+                        clear_readonly_recursive(&entry.path());
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = path;
+}
+
+/// 递归复制目录。目标必须不存在：create_dir（不是 create_dir_all）失败即中止，
+/// 防止窗口期内出现的同名目录被「合并」成半新半旧的混合树。
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &to)?;
+        } else {
+            copy_file_new(&entry.path(), &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// child 是否等于 ancestor 或位于其下。
+/// 先按真实路径（canonicalize）比较：软链/目录联接会让字面不同的路径指向同一处，
+/// 只比字面会放过「经联接移进自己的子目录」。路径还不存在（移动目标尚未创建）或
+/// 无权限解析时退回字面比较——字面比较是保守下界，最多漏判、不会误拒。
+fn is_same_or_inside(child: &Path, ancestor: &Path) -> bool {
+    if let (Ok(c), Ok(a)) = (fs::canonicalize(child), fs::canonicalize(ancestor)) {
+        if lexical_same_or_inside(&c, &a) {
+            return true;
+        }
+    }
+    lexical_same_or_inside(child, ancestor)
+}
+
+/// 路径组件逐段比较（Windows 下大小写不敏感）
+fn lexical_same_or_inside(child: &Path, ancestor: &Path) -> bool {
+    fn parts(p: &Path) -> Vec<String> {
+        p.components()
+            .map(|c| {
+                let s = c.as_os_str().to_string_lossy().into_owned();
+                #[cfg(windows)]
+                {
+                    s.to_lowercase()
+                }
+                #[cfg(not(windows))]
+                {
+                    s
+                }
+            })
+            .collect()
+    }
+    let (c, a) = (parts(child), parts(ancestor));
+    a.len() <= c.len() && a.iter().zip(c.iter()).all(|(x, y)| x == y)
+}
+
 pub fn delete_entry(path: &Path) -> AppResult<()> {
     if !path.exists() {
         return Err(AppError::NotFound(format!(
@@ -321,6 +531,101 @@ mod tests {
                 "应拒绝: {bad}"
             );
         }
+    }
+
+    // ---- 拖拽移动 ----
+    #[test]
+    fn move_file_into_subdir() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        touch(dir.path(), "a.md");
+
+        let node = move_entry(&dir.path().join("a.md"), &dir.path().join("sub")).unwrap();
+        assert_eq!(node.name, "a.md");
+        assert!(dir.path().join("sub").join("a.md").exists());
+        assert!(!dir.path().join("a.md").exists(), "源文件应已消失");
+    }
+
+    #[test]
+    fn move_rejects_self_and_descendant() {
+        let dir = tempfile::tempdir().unwrap();
+        let outer = dir.path().join("outer");
+        fs::create_dir(&outer).unwrap();
+        fs::create_dir(outer.join("inner")).unwrap();
+
+        assert!(move_entry(&outer, &outer).is_err(), "不能移进自己");
+        let err = move_entry(&outer, &outer.join("inner")).unwrap_err();
+        assert!(
+            matches!(err, AppError::InvalidArg(_)),
+            "移进子目录应为参数错误: {err:?}"
+        );
+        assert!(outer.is_dir(), "拒绝后目录必须原样还在");
+    }
+
+    #[test]
+    fn move_conflict_keeps_source() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        touch(dir.path(), "a.md");
+        touch(&dir.path().join("sub"), "a.md");
+
+        let err = move_entry(&dir.path().join("a.md"), &dir.path().join("sub")).unwrap_err();
+        assert!(matches!(err, AppError::Conflict(_)), "同名应报冲突: {err:?}");
+        assert!(dir.path().join("a.md").exists(), "冲突时源文件不能被删");
+    }
+
+    #[test]
+    fn move_to_same_parent_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "a.md");
+        let node = move_entry(&dir.path().join("a.md"), dir.path()).unwrap();
+        assert_eq!(node.name, "a.md");
+        assert!(dir.path().join("a.md").exists());
+    }
+
+    #[test]
+    fn cross_device_code_is_platform_specific() {
+        #[cfg(windows)]
+        {
+            assert!(is_cross_device(&std::io::Error::from_raw_os_error(17)));
+            // 18 在 Windows 是 ERROR_NO_MORE_FILES，不能当跨卷
+            assert!(!is_cross_device(&std::io::Error::from_raw_os_error(18)));
+        }
+        #[cfg(unix)]
+        {
+            assert!(is_cross_device(&std::io::Error::from_raw_os_error(18)));
+            // 17 在 POSIX 是 EEXIST，不能当跨卷
+            assert!(!is_cross_device(&std::io::Error::from_raw_os_error(17)));
+        }
+    }
+
+    #[test]
+    fn copy_dir_all_copies_nested_and_rejects_existing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(src.join("nested")).unwrap();
+        fs::write(src.join("a.md"), "a").unwrap();
+        fs::write(src.join("nested").join("b.md"), "b").unwrap();
+        let dst = dir.path().join("dst");
+        copy_dir_all(&src, &dst).unwrap();
+        assert_eq!(fs::read_to_string(dst.join("a.md")).unwrap(), "a");
+        assert_eq!(
+            fs::read_to_string(dst.join("nested").join("b.md")).unwrap(),
+            "b"
+        );
+        // 目标已存在必须报错：合并进已有目录会得到半新半旧的混合树
+        assert!(copy_dir_all(&src, &dst).is_err());
+    }
+
+    #[test]
+    fn copy_file_new_never_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("a.md");
+        fs::write(&src, "new").unwrap();
+        let dst = dir.path().join("b.md");
+        fs::write(&dst, "old").unwrap();
+        assert!(copy_file_new(&src, &dst).is_err());
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "old", "已存在的目标不能被覆盖");
     }
 
     /// Windows 保留设备名（任意扩展名、大小写不敏感）与尾点/尾空格一律拒

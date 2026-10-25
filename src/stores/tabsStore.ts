@@ -56,8 +56,10 @@ export interface DocumentTab {
   isDirty: boolean;
   encoding: string;
   hadBom: boolean;
-  /** 非 UTF-8（GBK 等）禁止就地写 */
+  /** 内容是否本来就是 UTF-8（含 BOM）：仅作信息展示，保存按 encoding 回写 */
   isUtf8: boolean;
+  /** 读取时出现过无法解码的字节（正文已含 U+FFFD）：禁止就地保存，只能另存为 UTF-8 */
+  hadDecodeErrors: boolean;
   mode: EditorMode;
   cursorLine: number;
   /** 内容种类（决定右侧内容区用哪个组件渲染） */
@@ -104,6 +106,7 @@ export const useTabsStore = defineStore('tabs', {
         encoding: file.encoding,
         hadBom: file.hadBom,
         isUtf8: file.isUtf8,
+        hadDecodeErrors: file.hadDecodeErrors,
         mode,
         cursorLine: 1,
         kind: textKindOf(file.path),
@@ -138,6 +141,7 @@ export const useTabsStore = defineStore('tabs', {
         encoding: 'utf-8',
         hadBom: false,
         isUtf8: false,
+        hadDecodeErrors: false,
         mode: 'read',
         cursorLine: 1,
         kind,
@@ -175,6 +179,7 @@ export const useTabsStore = defineStore('tabs', {
         encoding: 'utf-8',
         hadBom: false,
         isUtf8: true,
+        hadDecodeErrors: false,
         mode,
         cursorLine: 1,
         kind,
@@ -265,6 +270,7 @@ export const useTabsStore = defineStore('tabs', {
         encoding: file.encoding,
         hadBom: file.hadBom,
         isUtf8: file.isUtf8,
+        hadDecodeErrors: file.hadDecodeErrors,
       });
     },
     updateTab(id: string, patch: Partial<DocumentTab>) {

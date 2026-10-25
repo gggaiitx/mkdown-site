@@ -191,6 +191,7 @@ function restoreOneTab(
           encoding: 'utf-8',
           hadBom: false,
           isUtf8: true,
+          hadDecodeErrors: false,
           mode: (st.mode as DocumentTab['mode']) ?? 'edit',
           cursorLine: st.cursorLine > 0 ? st.cursorLine : 1,
           kind: (kind as DocumentTab['kind']) ?? 'text',

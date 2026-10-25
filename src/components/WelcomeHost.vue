@@ -26,6 +26,7 @@ const emit = defineEmits<{
   (e: 'new-kernel', kind: 'md' | 'mh' | 'code'): void;
   (e: 'open-recent', path: string): void;
   (e: 'open-recent-preview', path: string): void;
+  (e: 'continue-edit', path: string): void;
   /** 书桌左栏目录树的单击 / 双击 / 新建后打开：与全局侧栏同一套动作，不跟「最近打开」共用 */
   (e: 'open-tree-file', path: string): void;
   (e: 'open-tree-file-dbl', path: string): void;
@@ -131,6 +132,7 @@ watch(showRail, (v) => emit('update:rail', v), { immediate: true });
       @new-kernel="(k: 'md' | 'mh' | 'code') => emit('new-kernel', k)"
       @open-recent="(p: string) => emit('open-recent', p)"
       @open-recent-preview="(p: string) => emit('open-recent-preview', p)"
+      @continue-edit="(p: string) => emit('continue-edit', p)"
       @open-tree-file="(p: string) => emit('open-tree-file', p)"
       @open-tree-file-dbl="(p: string) => emit('open-tree-file-dbl', p)"
       @open-tree-file-edit="(p: string) => emit('open-tree-file-edit', p)"

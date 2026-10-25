@@ -17,6 +17,7 @@ import { isPreviewKind, useTabsStore, type DocumentTab } from '../stores/tabsSto
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEditorStore } from '../stores/editorStore';
 import { useCtxMenu } from '../composables/useCtxMenu';
+import { hideDragGhost, moveDragGhost, showDragGhost } from '../utils/dragGhost';
 import AppDialog from './AppDialog.vue';
 import { useI18n } from '../i18n';
 
@@ -231,9 +232,20 @@ watch(
   () => closeOvMenuNow(),
 );
 
-// ---- 拖拽换序（HTML5 DnD；中点法判定插入到目标之前/之后） ----
+// ---- 拖拽换序（pointer 自绘；Tauri 在 Windows 上拦掉 HTML5 drag，原因见 utils/treeDnd.ts）----
 const dragId = ref<string | null>(null);
 const dropHint = ref<{ id: string; place: 'before' | 'after' } | null>(null);
+/** 位移阈值：小于它算点击（点击 = 激活标签） */
+const DRAG_THRESHOLD = 4;
+/** 松手后这段时间内的 click 一律吞掉，否则拖完会顺手把被拖标签激活 */
+const CLICK_SWALLOW_MS = 300;
+let press: { x: number; y: number; id: string; title: string; pointerId: number } | null = null;
+let dragging = false;
+let swallowClickUntil = 0;
+/** 最后一次指针位置：自动滚动期间指针不动，也要按它重算落点 */
+let lastX = 0;
+let lastY = 0;
+let scrollRaf = 0;
 
 function tabClass(tab: DocumentTab) {
   return {
@@ -244,56 +256,142 @@ function tabClass(tab: DocumentTab) {
   };
 }
 
-function onTabDragStart(e: DragEvent, id: string) {
-  if (!e.dataTransfer) return;
-  dragId.value = id;
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', id); // 不写入数据 Chromium 不进入拖拽
-  closeOvMenuNow();
+/** 指针下的标签与插入侧：中点法（左半 before / 右半 after） */
+function tabAt(x: number, y: number): { id: string; place: 'before' | 'after' } | null {
+  const el = document.elementFromPoint(x, y) as HTMLElement | null;
+  const tabEl = el?.closest<HTMLElement>('.tab');
+  const id = tabEl?.dataset.tabId;
+  if (!tabEl || !id) return null;
+  const r = tabEl.getBoundingClientRect();
+  return { id, place: x < r.left + r.width / 2 ? 'before' : 'after' };
 }
 
-function onTabDragOver(e: DragEvent, id: string) {
-  if (!dragId.value || !e.dataTransfer) return;
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  if (id === dragId.value) {
-    dropHint.value = null; // 拖回自身不放
+function onTabPointerDown(e: PointerEvent, tab: DocumentTab): void {
+  if (e.button !== 0) return; // 只接左键：中键关闭、右键菜单
+  // 关闭按钮上的按下不启动拖拽（点它就是关标签）
+  if ((e.target as HTMLElement | null)?.closest('.close')) return;
+  if (press) return; // 多指/异常序列：先让上一次收场
+  press = {
+    x: e.clientX,
+    y: e.clientY,
+    id: tab.id,
+    title: tab.title,
+    pointerId: e.pointerId,
+  };
+  dragging = false;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  window.addEventListener('pointermove', onTabPointerMove);
+  window.addEventListener('pointerup', onTabPointerUp, { once: true });
+  window.addEventListener('pointercancel', onTabPointerCancel, { once: true });
+  window.addEventListener('blur', onTabPointerCancel);
+}
+
+function onTabPointerMove(e: PointerEvent): void {
+  if (!press) return;
+  // 在窗口外松手（没收到 pointerup）：按取消处理，别让 ghost 与拖拽态挂着
+  if (dragging && e.buttons === 0) {
+    endTabDrag();
     return;
   }
-  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  const place = e.clientX < r.left + r.width / 2 ? 'before' : 'after';
-  if (dropHint.value?.id !== id || dropHint.value.place !== place) {
-    dropHint.value = { id, place };
+  lastX = e.clientX;
+  lastY = e.clientY;
+  if (!dragging) {
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < DRAG_THRESHOLD) return;
+    dragging = true;
+    dragId.value = press.id;
+    document.body.classList.add('mk-dragging');
+    showDragGhost(press.title, e.clientX, e.clientY);
+    closeOvMenuNow();
+    // 越过阈值才捕获（普通点击的 click 目标不受影响）；越过 iframe 也能收到 up
+    try {
+      document.body.setPointerCapture(press.pointerId);
+    } catch {
+      /* 指针已失效：blur / buttons 兜底 */
+    }
+    startAutoScroll();
   }
+  moveDragGhost(e.clientX, e.clientY);
+  const hit = tabAt(e.clientX, e.clientY);
+  dropHint.value = !hit || hit.id === dragId.value ? null : hit; // 拖回自身不放
 }
 
-function onTabDragLeave(e: DragEvent, id: string) {
-  if (dropHint.value?.id !== id) return;
-  const to = e.relatedTarget as Node | null;
-  if (to && (e.currentTarget as HTMLElement).contains(to)) return; // 移入子元素不算离开
-  dropHint.value = null;
+/** 指针贴近 strip 左右边缘时连续平移：每帧一次，指针停着不动也继续滚 */
+function startAutoScroll(): void {
+  if (scrollRaf) return;
+  const tick = (): void => {
+    scrollRaf = 0;
+    if (!dragging) return;
+    const strip = stripRef.value;
+    if (strip) {
+      const r = strip.getBoundingClientRect();
+      let dx = 0;
+      if (lastX < r.left + 32) dx = -8;
+      else if (lastX > r.right - 32) dx = 8;
+      if (dx) {
+        const before = strip.scrollLeft;
+        strip.scrollLeft += dx;
+        if (strip.scrollLeft !== before) {
+          // 标签栏滚动了，指针下的标签跟着换：不重算会丢到旧落点
+          const hit = tabAt(lastX, lastY);
+          dropHint.value = !hit || hit.id === dragId.value ? null : hit;
+        }
+      }
+    }
+    scrollRaf = requestAnimationFrame(tick);
+  };
+  scrollRaf = requestAnimationFrame(tick);
 }
 
-function onTabDrop(e: DragEvent, id: string) {
+function stopAutoScroll(): void {
+  if (scrollRaf) cancelAnimationFrame(scrollRaf);
+  scrollRaf = 0;
+}
+
+function onTabPointerUp(): void {
   const from = dragId.value;
-  const hint = dropHint.value;
-  onDragEnd();
-  e.preventDefault();
-  if (!from || from === id) return;
-  tabs.moveTab(from, id, hint?.id === id ? hint.place : 'before');
+  const wasDragging = dragging;
+  // 以松手坐标为准：快速甩动后原地松手时，dropHint 可能停在旧落点上
+  const hint = wasDragging ? tabAt(lastX, lastY) : null;
+  endTabDrag();
+  if (!wasDragging) return;
+  swallowClickUntil = Date.now() + CLICK_SWALLOW_MS;
+  if (!from || !hint || hint.id === from) return;
+  tabs.moveTab(from, hint.id, hint.place);
 }
-function onDragEnd() {
+
+function onTabPointerCancel(): void {
+  endTabDrag();
+}
+
+function endTabDrag(): void {
+  stopAutoScroll();
+  window.removeEventListener('pointermove', onTabPointerMove);
+  window.removeEventListener('pointerup', onTabPointerUp);
+  window.removeEventListener('pointercancel', onTabPointerCancel);
+  window.removeEventListener('blur', onTabPointerCancel);
+  if (press) {
+    try {
+      if (document.body.hasPointerCapture(press.pointerId)) {
+        document.body.releasePointerCapture(press.pointerId);
+      }
+    } catch {
+      /* 指针已失效 */
+    }
+  }
+  press = null;
+  dragging = false;
   dragId.value = null;
   dropHint.value = null;
+  document.body.classList.remove('mk-dragging');
+  hideDragGhost();
 }
-/** 拖拽时鼠标贴近 strip 左右边缘持续平移标签栏（dragover 高频触发逐步滚动） */
-function onStripDragOver(e: DragEvent) {
-  if (!dragId.value) return;
-  const strip = stripRef.value;
-  if (!strip) return;
-  const r = strip.getBoundingClientRect();
-  if (e.clientX < r.left + 32) strip.scrollLeft -= 8;
-  else if (e.clientX > r.right - 32) strip.scrollLeft += 8;
+
+/** 拖拽结束后的 click 不能落到标签上（否则会激活被拖的标签，打乱用户预期） */
+function onSwallowClick(e: MouseEvent): void {
+  if (Date.now() >= swallowClickUntil) return;
+  e.preventDefault();
+  e.stopPropagation();
 }
 
 // ---- 右键菜单（useCtxMenu：视口夹紧定位） ----
@@ -326,9 +424,16 @@ function closeMenu() {
   closeOvMenuNow();
   closeCtxMenu();
 }
-onMounted(() => document.addEventListener('click', closeMenu));
+onMounted(() => {
+  document.addEventListener('click', closeMenu);
+  // 捕获阶段：拖拽结束后的那次 click 必须先被拦下，否则会激活标签
+  window.addEventListener('click', onSwallowClick, true);
+});
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenu);
+  window.removeEventListener('click', onSwallowClick, true);
+  // 拖拽中卸载（HMR / 布局切换）：撤掉 window 监听与 ghost，别把拖拽态挂在 body 上
+  endTabDrag();
   // 悬停弹出/自动关闭的延时定时器（220~260ms 自停）：卸载时清掉，
   // 避免回调操作已卸载组件的响应式状态（P2-22）
   clearHoverTimer();
@@ -451,7 +556,6 @@ function menuCloseAll() {
     v-if="tabs.tabs.length > 0"
     @wheel="onWheel"
     @scroll="onStripScroll"
-    @dragover="onStripDragOver"
   >
     <div
       v-for="tab in tabs.tabs"
@@ -460,17 +564,12 @@ function menuCloseAll() {
       :class="tabClass(tab)"
       :data-tab-id="tab.id"
       v-tip="tab.path ?? t('tabbar.untitled')"
-      :draggable="true"
+      @pointerdown="onTabPointerDown($event, tab)"
       @click="tabs.activate(tab.id)"
       @auxclick.middle="emit('close', tab.id)"
       @contextmenu="onTabContext($event, tab.id)"
       @mouseenter="onTabEnter($event, tab.id)"
       @mouseleave="onTabLeave"
-      @dragstart="onTabDragStart($event, tab.id)"
-      @dragover="onTabDragOver($event, tab.id)"
-      @dragleave="onTabDragLeave($event, tab.id)"
-      @drop="onTabDrop($event, tab.id)"
-      @dragend="onDragEnd"
     >
       <FileText class="t-icon" />
       <span class="title">{{ tab.title }}</span>

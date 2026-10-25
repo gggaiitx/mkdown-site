@@ -17,8 +17,12 @@ export interface FileContent {
   /** "utf-8" | "utf-8-bom" | "GBK" | ... */
   encoding: string;
   hadBom: boolean;
-  /** 非 UTF-8 文档（如 GBK）禁止就地写，提示另存为 UTF-8 */
+  /** 是否 UTF-8 可无损写回（含 BOM）。保存链路已改为按 `encoding` 回写，
+   *  非 UTF-8 文档（GBK / UTF-16）同样能就地保存，该字段仅作状态展示与旧快照兼容 */
   isUtf8: boolean;
+  /** 读取时按探测编码解码出现过非法字节（正文已含 U+FFFD）。
+   *  这种文档禁止就地保存（后端会拒绝），只能另存为 UTF-8 */
+  hadDecodeErrors: boolean;
   size: number;
   mtimeMs: number;
 }
@@ -203,7 +207,29 @@ export interface AppSettings {
   /** 「回到顶部」显现方式：auto = 指针移入右下角才浮出（默认）/ always = 滚动后常驻。
    *  与开关分开两个字段：关掉再打开时能记住上次选的方式 */
   backTopMode: BackTopMode;
+  /** 文件树每行末尾显示文件大小（只对文件；目录不显示）。出厂关：窄侧栏下两列会挤掉名字 */
+  fileTreeShowSize: boolean;
+  /** 文件树每行末尾显示修改时间。出厂关，同上看宽度取舍 */
+  fileTreeShowMtime: boolean;
+  /** 文件树排序方式（目录恒在前，同组内按此规则；缺值的目录退化为名称序） */
+  fileTreeSort: FileTreeSort;
+  /** 记住用户拖出来的侧栏宽度（设置-操作可关；关掉后每次启动都用默认 260） */
+  fileTreeRememberWidth: boolean;
+  /** 侧栏宽度（px）：仅当上面开关开着时生效，拖拽松手时写入 */
+  fileTreeWidth: number;
+  /** 欢迎页书桌版左栏宽度（px）：与工作台侧栏分开存——书桌要留空间给卡片，
+   *  两处宽度互相不干扰，但共用「记住侧栏宽度」这一个开关 */
+  welcomeRailWidth: number;
 }
+
+/** 文件树排序：名称 / 修改时间 / 大小，各两向 */
+export type FileTreeSort =
+  | 'name-asc'
+  | 'name-desc'
+  | 'mtime-desc'
+  | 'mtime-asc'
+  | 'size-desc'
+  | 'size-asc';
 
 /** 字号档位（顶栏 ± 按钮、Ctrl+滚轮、Ctrl+=/Ctrl+-、设置滑块共用同一组常量）：
  *  12~24px，一档 0.5px。半档是有意的——docx 导出按半磅取整（fontSize × 2），
@@ -251,4 +277,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   previewBarBottom: 8,
   backTopEnabled: true,
   backTopMode: 'auto',
+  fileTreeShowSize: false,
+  fileTreeShowMtime: false,
+  fileTreeSort: 'name-asc',
+  fileTreeRememberWidth: true,
+  fileTreeWidth: 260,
+  welcomeRailWidth: 208,
 };

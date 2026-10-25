@@ -9,6 +9,7 @@ import { openUrl } from '../api/fileApi';
 import { flushSessionSnapshot } from '../utils/sessionSnapshot';
 import { BRAND_NAME } from '../utils/brand';
 import { altKey, modKey, shiftKey } from '../utils/keyHint';
+import { PREVIEW_THEMES } from '../utils/previewTheme';
 import type { AppSettings } from '../api/types';
 import { FONT_MAX, FONT_MIN } from '../api/types';
 import SettingsHintIcon from './SettingsHintIcon.vue';
@@ -197,20 +198,6 @@ function patchPalette(v: string) {
   else patch({ themePaletteLight: v as AppSettings['themePaletteLight'] });
 }
 
-/**
- * 预览主题可选项。内置 6 项来自 @vavt/markdown-theme；
- * win 为本项目自建 Windows 11 Fluent 风主题（样式见 src/styles/win-theme.css）。
- */
-const previewThemes: Array<{ value: string; label: string }> = [
-  { value: 'default', label: 'settings.ptDefault' },
-  { value: 'github', label: 'settings.ptGithub' },
-  { value: 'vuepress', label: 'settings.ptVuepress' },
-  { value: 'mk-cute', label: 'settings.ptMkCute' },
-  { value: 'smart-blue', label: 'settings.ptSmartBlue' },
-  { value: 'cyanosis', label: 'settings.ptCyanosis' },
-  { value: 'win', label: 'settings.ptWin' },
-];
-
 // ---- 下拉选项：label 存 i18n key，渲染时经 tr() 现取当前语言（面板内切语言立即生效） ----
 type SelectItem = { value: string; label: string };
 const tr = (items: SelectItem[]): SelectItem[] =>
@@ -291,6 +278,7 @@ type HintKey =
   | 'engine' | 'auto-save' | 'scroll-sync' | 'toolbar' | 'focus' | 'line-numbers'
   | 'font-family' | 'font-size' | 'export-font' | 'export-image'
   | 'theme-palette' | 'preview-theme' | 'read-layout' | 'outline' | 'welcome'
+  | 'file-tree-meta' | 'tree-width'
   | 'word-engine' | 'word-import';
 const openHint = ref<HintKey | null>(null);
 function toggleHint(key: HintKey) {
@@ -397,7 +385,7 @@ onBeforeUnmount(onDragEnd);
               </span>
               <SettingsSelect
                 :model-value="settings.settings.previewTheme"
-                :options="tr(previewThemes)"
+                :options="tr(PREVIEW_THEMES)"
                 :aria-label="t('settings.previewTheme')"
                 @update:model-value="patch({ previewTheme: $event })"
               />
@@ -474,6 +462,35 @@ onBeforeUnmount(onDragEnd);
               />
             </div>
             <div v-if="openHint === 'welcome'" id="hint-welcome" class="sec-note">{{ t('settings.welcomeLayoutHint') }}</div>
+            <div class="row">
+              <span class="row-label">
+                {{ t('settings.fileTreeShowMtime') }}
+                <SettingsHintIcon target="file-tree-meta" :open="openHint === 'file-tree-meta'" @toggle="toggleHint('file-tree-meta')" />
+              </span>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.fileTreeShowMtime"
+                  @change="patch({ fileTreeShowMtime: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div class="row">
+              <span class="row-label">
+                {{ t('settings.fileTreeShowSize') }}
+                <SettingsHintIcon target="file-tree-meta" :open="openHint === 'file-tree-meta'" @toggle="toggleHint('file-tree-meta')" />
+              </span>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.fileTreeShowSize"
+                  @change="patch({ fileTreeShowSize: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div v-if="openHint === 'file-tree-meta'" id="hint-file-tree-meta" class="sec-note">{{ t('settings.fileTreeMetaHint') }}</div>
             <div class="row">
               <label>{{ t('settings.language') }}</label>
               <SettingsSelect
@@ -726,6 +743,24 @@ onBeforeUnmount(onDragEnd);
                 @update:model-value="patch({ backTopMode: $event as AppSettings['backTopMode'] })"
               />
             </div>
+
+            <!-- 资源管理器：拖宽的侧栏宽度是否记住 -->
+            <div class="sec-sub">
+              <span>{{ t('settings.actionGroupExplorer') }}</span>
+              <SettingsHintIcon target="tree-width" :open="openHint === 'tree-width'" @toggle="toggleHint('tree-width')" />
+            </div>
+            <div class="row">
+              <label>{{ t('settings.rememberTreeWidth') }}</label>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  :checked="settings.settings.fileTreeRememberWidth"
+                  @change="patch({ fileTreeRememberWidth: ($event.target as HTMLInputElement).checked })"
+                />
+                <span class="track" />
+              </label>
+            </div>
+            <div v-if="openHint === 'tree-width'" id="hint-tree-width" class="sec-note">{{ t('settings.rememberTreeWidthHint') }}</div>
 
             <div class="sec-sub">
               <span>{{ t('settings.actionGroupShortcuts') }}</span>

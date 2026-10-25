@@ -229,18 +229,3 @@ export function isCodeExt(name: string): boolean {
   if (dot <= 0 || dot === lower.length - 1) return false;
   return EXT_KIND[lower.slice(dot + 1)] === 'code';
 }
-
-/** 悬浮提示：简要类型说明 */
-export const KIND_HINT: Record<FileKind, string> = {
-  md: '在编辑器中打开',
-  text: '在编辑器中打开',
-  code: '在编辑器中打开',
-  doc: 'Word 文档',
-  sheet: 'Excel 表格',
-  slide: 'PPT 演示',
-  pdf: 'PDF 文档',
-  image: '图片',
-  media: '音视频',
-  archive: '压缩包',
-  other: '文件',
-};

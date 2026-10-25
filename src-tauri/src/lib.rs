@@ -201,7 +201,10 @@ pub fn run() -> tauri::Result<()> {
             commands::workspace_cmd::create_workspace,
             commands::workspace_cmd::create_entry,
             commands::workspace_cmd::rename_entry,
+            commands::workspace_cmd::move_entry,
             commands::workspace_cmd::delete_entry,
+            // 渲染层错误日志（白屏/半白界面的现场）
+            commands::log_cmd::log_renderer_error,
             // 搜索
             commands::search_cmd::search_in_files,
             commands::search_cmd::warm_search_cache,

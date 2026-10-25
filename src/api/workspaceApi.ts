@@ -17,4 +17,8 @@ export const getDefaultWorkspaceParent = () => call<string | null>('default_work
 export const renameEntry = (path: string, newName: string) =>
   call<WorkspaceNode>('rename_entry', { path, newName });
 
+/** 移动条目到目标目录（文件树拖拽）：同卷 rename，跨卷后端会复制后删源 */
+export const moveEntry = (path: string, targetDir: string) =>
+  call<WorkspaceNode>('move_entry', { path, targetDir });
+
 export const deleteEntry = (path: string) => call<void>('delete_entry', { path });

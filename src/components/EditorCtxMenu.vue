@@ -8,8 +8,10 @@
  * 代码引擎同样去掉 Markdown 语义项，换成「搜索 / 复制 / 粘贴代码」三项 + 自动换行；
  * 纯文本（txt/log/csv）沿用这一套动作，但文案改说「文本」。
  * 阅读态与分栏的预览窗格（载荷 read=true，两者都是只读窗格）换成只读那一套：
- * 搜索 / 复制全文 / 版式▸ / 模式对向入口——
+ * 搜索 / 复制全文 / 预览主题▸ / 版式▸ / 模式对向入口——
  * 表格·标题·格式是 Markdown 源码语义，显示行号只画在 CM 编辑窗格，给了都不生效，故一并隐去。
+ * 预览主题只给 md 的预览窗格：.mh 的正文走 wangEditor，previewTheme 对它不生效；
+ * 编辑态没有预览 DOM，改了看不到反馈——两处都不给。
  * 预览窗格（engine='frame'，图片 / HTML / SVG 三处共用这一套）再窄一档，只给视图项：
  * 刷新 / 全屏 / 复制图片（只图片）/ 导出为图片（只 SVG），外加「预览工具条」三档飞窗；
  * 「导出为图片」只给 SVG——HTML 落在 opaque origin 沙箱里，父页取不到它的画面。
@@ -20,13 +22,14 @@ import {
   Table, ArrowUpLeft, ArrowDownRight, ArrowLeft, ArrowRight, Minus,
   WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check, ListEnd, Maximize, Minimize2,
   Search, Copy, ClipboardPaste, MoveHorizontal, Pencil, Columns2, BookOpen, WrapText,
-  ImageDown, Move, RotateCcw,
+  ImageDown, Move, RotateCcw, Palette,
   Text, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Bold, Italic, Quote, Code, SquareCode, List, ListOrdered, ListTodo, Link,
 } from '@lucide/vue';
 import { useI18n } from '../i18n';
 import { useCtxMenu } from '../composables/useCtxMenu';
 import { altHint, modHint, modShiftHint } from '../utils/keyHint';
+import { PREVIEW_THEMES } from '../utils/previewTheme';
 import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
 import type { EditorMode, PreviewBarMode, ReadLayout } from '../api/types';
 import type { TableOp } from '../utils/mdTable';
@@ -50,6 +53,8 @@ const props = defineProps<{
   svg?: boolean;
   /** 内容版式当前值：阅读态「版式」飞窗给当前项打勾（与设置面板「内容版式」同一字段） */
   readLayout?: ReadLayout;
+  /** 预览主题当前值：md 预览窗格「预览主题」飞窗给当前项打勾（与设置面板「预览主题」同一字段） */
+  previewTheme?: string;
   /** 预览浮块工具条当前档：预览窗格「预览工具条」飞窗给当前项打勾（三面板共用一份状态） */
   barMode?: PreviewBarMode;
   /** 当前形态：决定「版式」给不给（md 分栏态不挂 layout--* 类），以及模式项该列哪几档 */
@@ -86,6 +91,8 @@ const emit = defineEmits<{
   (e: 'mode', mode: EditorMode): void;
   /** 内容版式（窄 / 中 / 宽）：写设置，与设置面板同一入口 */
   (e: 'layout', layout: ReadLayout): void;
+  /** 预览主题（default / github / …）：写设置，与设置面板同一入口 */
+  (e: 'previewTheme', theme: string): void;
   /** 代码引擎两项：复制/粘贴的剪贴板与提示在 Workbench */
   (e: 'copyCode'): void;
   (e: 'pasteCode'): void;
@@ -118,6 +125,9 @@ const textDoc = computed(() => codeOnly.value && props.plainText === true);
 const isRead = computed(() => props.ctx?.read === true);
 /** 版式飞窗：md 分栏态不给——那一档根本不挂 layout--* 类（正文宽度由两栏平分决定），选了没反应 */
 const showLayout = computed(() => !codeOnly.value && props.mode !== 'split');
+/** 预览主题飞窗：只给 md 的预览窗格（阅读态 / 分栏预览）。
+ *  .mh 的正文走 wangEditor，previewTheme 对它不生效；编辑态没有预览 DOM，改了看不到反馈 */
+const showPreviewTheme = computed(() => isRead.value && !mhOnly.value && !codeOnly.value && !frameOnly.value);
 /** 模式对向入口。规则：只读窗格里给出「离开这一档」的其它档（阅读态→编辑/分栏，分栏预览→编辑/阅读，
  *  .mh 阅读态只有编辑一档）；编辑窗格只在页面全屏里补「阅读」——平时顶栏有模式按钮，
  *  全屏层把顶栏整个盖住才是真缺口（.mh 功能栏在全屏态已有模式按钮，故不给它补） */
@@ -134,12 +144,13 @@ const modeIcon: Record<EditorMode, Component> = { edit: Pencil, split: Columns2,
 const modeKey: Record<EditorMode, string> = { edit: 'E', split: 'W', read: 'R' };
 
 /** 同时只可能展开一个飞窗，故用独立 ref 而非同名 ref（避免卸载/挂载次序影响测量） */
-type GroupId = 'table' | 'heading' | 'layout' | 'bar';
+type GroupId = 'table' | 'heading' | 'layout' | 'bar' | 'theme';
 const openGroup = ref<GroupId | null>(null);
 const tableSubRef = ref<HTMLElement | null>(null);
 const headingSubRef = ref<HTMLElement | null>(null);
 const layoutSubRef = ref<HTMLElement | null>(null);
 const barSubRef = ref<HTMLElement | null>(null);
+const themeSubRef = ref<HTMLElement | null>(null);
 /** 三档工具条显隐：与设置 previewBarMode 同源，顺序即菜单顺序 */
 const barModes: PreviewBarMode[] = ['auto', 'shown', 'hidden'];
 /** 版式四档：与设置面板「内容版式」同源，顺序即菜单顺序 */
@@ -150,6 +161,7 @@ const subRefs: Record<GroupId, Ref<HTMLElement | null>> = {
   heading: headingSubRef,
   layout: layoutSubRef,
   bar: barSubRef,
+  theme: themeSubRef,
 };
 /** 飞窗定位覆写：默认贴右（left: calc(100% + 2px)），越界时改为贴左并上移 */
 const subStyle = ref<Record<string, string>>({});
@@ -318,11 +330,30 @@ onBeforeUnmount(() => {
       </button>
     </template>
     </template><!-- /!frameOnly（动作区整组） -->
-    <!-- 视图组：版式（与设置面板「内容版式」同字段）+ 模式对向入口。
+    <!-- 视图组：预览主题（md 预览窗格）+ 版式（与设置面板「内容版式」同字段）+ 模式对向入口。
          阅读态给「编辑」（md 另给「分栏」）；编辑/分栏态只在页面全屏里补「阅读」——
          平时顶栏有模式按钮，全屏时顶栏被全屏层盖住才是真缺口（.mh 功能栏已有模式按钮，故不给） -->
     <template v-if="!codeOnly && !frameOnly">
       <div class="mk-menu-sep" />
+      <!-- 预览主题：md 预览窗格专属（阅读态 / 分栏预览）。设置面板同一字段，
+           改完即刻换掉 .md-editor-preview 的主题类，正文排版与代码块底色一起变 -->
+      <div
+        v-if="showPreviewTheme"
+        class="ctx-group"
+        @mouseenter="showGroup('theme')"
+        @mouseleave="hideGroup('theme')"
+      >
+        <button class="mk-menu-item">
+          <Palette class="mk-menu-ico" /><span>{{ t('workbench.ctx.previewTheme') }}</span>
+          <ChevronRight class="ctx-arrow" />
+        </button>
+        <div v-if="openGroup === 'theme'" ref="themeSubRef" class="mk-menu ctx-sub" :style="subStyle">
+          <button v-for="v in PREVIEW_THEMES" :key="v.value" class="mk-menu-item" @click="emit('previewTheme', v.value)">
+            <span>{{ t(v.label) }}</span>
+            <Check v-if="previewTheme === v.value" class="ctx-check" />
+          </button>
+        </div>
+      </div>
       <div v-if="showLayout" class="ctx-group" @mouseenter="showGroup('layout')" @mouseleave="hideGroup('layout')">
         <button class="mk-menu-item">
           <MoveHorizontal class="mk-menu-ico" /><span>{{ t('workbench.ctx.layout') }}</span>

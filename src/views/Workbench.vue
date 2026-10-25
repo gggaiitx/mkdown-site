@@ -50,7 +50,7 @@ import type { OutlineItem } from '../stores/editorStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { textKindOf, isPreviewKind, useTabsStore } from '../stores/tabsStore';
-import type { TabKind } from '../stores/tabsStore';
+import type { DocumentTab, TabKind } from '../stores/tabsStore';
 import { extractHtmlOutline, useEditorStore } from '../stores/editorStore';
 import { useSearchStore } from '../stores/searchStore';
 import { useFilePickerStore } from '../stores/filePickerStore';
@@ -70,6 +70,7 @@ import {
   writeFileAtomic,
 } from '../api/fileApi';
 import { exportDocx, exportHtml, exportPdf, exportPng } from '../api/exportApi';
+import { IpcError } from '../api/ipc';
 import { createWorkspaceDir, getDefaultWorkspaceParent } from '../api/workspaceApi';
 import type { WordStyleOpts } from '../convert/htmlToDocx';
 import { allowAssetDir } from '../api/imageApi';
@@ -150,6 +151,13 @@ const hubMode = ref<'file' | 'global'>('file');
 /** 左侧工作区显示/隐藏（隐藏后经顶栏「展开侧边栏」恢复）。
  *  出厂/升级后默认收起：启动恢复 lastWorkspace 时也保持隐藏，只有用户主动打开或切换工作区才展开 */
 const sidebarVisible = ref(false);
+/** 启动直开闸门（2026-10-24）：从首帧起先不挂欢迎页，等「有没有待打开的启动文件」这一判定回来。
+ *  以前取件排在设置/监听注册/工作区全树/会话恢复之后，双击关联文件要等这一长串跑完，
+ *  期间中心区一直挂着欢迎页（书桌版还要读最近文件摘要、扫工作区、查更新）——
+ *  用户看到的就是"先绕欢迎页一圈"。无启动文件时判定只用几毫秒，正常启动几乎无感。 */
+const bootOpening = ref(true);
+/** 启动文件名（占位提示用）：只取第一个，多文件时给个代表名即可 */
+const bootFileName = ref('');
 /** 书桌版欢迎页是否自带左侧目录栏（WelcomeHost 上报）。
  *  为 true 时全局侧栏让位——书桌页里的目录栏与它是同一份数据，同时出现会重复 */
 const deskRail = ref(false);
@@ -710,21 +718,28 @@ async function routeByType(path: string, openSystem = true): Promise<'text' | 'h
   }
 }
 
-/** `skipTypeCheck`：调用方已做过分流时跳过重复探测 */
-async function openFilePath(path: string, modeOverride?: EditorMode, skipTypeCheck = false) {
-  if (!skipTypeCheck && (await routeByType(path)) !== 'text') return;
+/** `skipTypeCheck`：调用方已做过分流时跳过重复探测。
+ *  返回落位的标签（分流未通过/读盘失败返回 null），启动链路据此把激活权留给它 */
+async function openFilePath(
+  path: string,
+  modeOverride?: EditorMode,
+  skipTypeCheck = false,
+): Promise<DocumentTab | null> {
+  if (!skipTypeCheck && (await routeByType(path)) !== 'text') return null;
   try {
     // 打开默认模式：调用方未指定时，源码类（html/svg/代码）进编辑态，其余用用户偏好视图
     const mode = modeOverride ?? (opensInEdit(path) ? 'edit' : settings.settings.editorMode);
-    await tabs.openByPath(path, mode);
+    const tab = await tabs.openByPath(path, mode);
     ws.expandTo(path);
     ws.select(path);
     rememberRecent(path);
     // 单文件打开（未开工作区）或跨工作区文件：补授权该文档目录，预览图片才能走 asset://
     const dir = path.replace(/[\\/][^\\/]*$/, '');
     if (dir) void allowAssetDir(dir).catch(() => undefined);
+    return tab;
   } catch (err) {
     editor.showToast(err instanceof Error ? err.message : String(err), 'error');
+    return null;
   }
 }
 
@@ -870,11 +885,22 @@ function newFromTemplate(tpl: MdTemplate) {
   editor.showToast(t('workbench.toast.createdFromTpl', { name: tpl.name }), 'success');
 }
 
-/** 欢迎页「预览」：先切全局视图到阅读态再打开——openFilePath 只设标签模式，
- *  不设 editor.mode，视图会停在原模式里，看起来就跟「继续写作」没区别 */
+/** 书桌「继续写作」与整张纸卡：无论用户的默认视图是什么，落位一律编辑态。
+ *  openByPath 命中已开标签时不改它自己的 mode，且切标签的 watcher 会拿 tab.mode 回写全局视图，
+ *  所以必须把 tab.mode 也一起改成 edit，否则会被旧标签的阅读态盖掉。 */
+async function onWelcomeContinue(path: string) {
+  const tab = await openFilePath(path, 'edit');
+  if (!tab) return; // 预览类/系统程序类已在 routeByType 分流，没有编辑态
+  tab.mode = 'edit';
+  editor.setMode('edit');
+}
+
+/** 欢迎页「预览」：与「继续写作」对称，强制阅读态（理由同上：改了全局视图还不够，标签本体的模式也要落） */
 async function onWelcomePreview(path: string) {
+  const tab = await openFilePath(path, 'read');
+  if (!tab) return;
+  tab.mode = 'read';
   editor.setMode('read');
-  await openFilePath(path, 'read');
 }
 
 /** 书桌左栏目录树：单击/双击/新建后打开都与全局侧栏同一套动作（不是「最近打开」那条链路）。
@@ -911,6 +937,15 @@ function onWelcomeNewKernel(kind: 'md' | 'mh' | 'code') {
   else newKernelFile(kind);
 }
 
+/** 保存失败文案：编码类错误要露出后端的具体原因（哪个编码表示不了哪些字符），
+ *  其余走 call() 已本地化的 message（rawMessage 是 Rust 原文，不宜直接给用户看） */
+function saveErrorText(err: unknown): string {
+  if (err instanceof IpcError && err.code === 'ENCODING_ERROR' && err.rawMessage) {
+    return err.rawMessage.replace(/^encoding error:\s*/i, '');
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
 // ---------- 保存流水线 ----------
 async function saveActive(): Promise<void> {
   const tab = tabs.activeTab;
@@ -920,21 +955,19 @@ async function saveActive(): Promise<void> {
     editor.showToast(t('workbench.toast.previewReadonlySave'), 'info');
     return;
   }
-  if (!tab.isUtf8) {
-    editor.showToast(t('workbench.toast.encodingWarning', { encoding: tab.encoding }), 'error');
-    return;
-  }
   if (!tab.path) {
     await saveActiveAs();
     return;
   }
   editor.saving = true;
   try {
-    await writeFileAtomic(tab.path, tab.content, tab.hadBom);
+    // 按标签记录的原编码回写：GBK / UTF-16 文档同样能就地保存，
+    // 只有「目标编码表示不了正文」（如 GBK 里写 emoji）才由后端拒绝并说明原因
+    await writeFileAtomic(tab.path, tab.content, tab.hadBom, tab.encoding, tab.hadDecodeErrors);
     tabs.markSaved(tab.id, tab.content);
     editor.showToast(t('workbench.toast.saved', { name: baseName(tab.path) }), 'success');
   } catch (err) {
-    editor.showToast(t('workbench.toast.saveFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+    editor.showToast(t('workbench.toast.saveFailed', { msg: saveErrorText(err) }), 'error');
   } finally {
     editor.saving = false;
   }
@@ -977,6 +1010,7 @@ async function saveActiveAs(): Promise<string | null> {
       encoding: 'utf-8',
       hadBom: false,
       isUtf8: true,
+      hadDecodeErrors: false, // 另存为按纯 UTF-8 落盘：不可解码的原始字节已经不在
     });
     tabs.markSaved(tab.id, tab.content);
     // 另存进当前工作区：目录树是打开工作区时的快照，不回读就看不到刚写下的新文件
@@ -1004,11 +1038,11 @@ const autoSaveFailed = new Set<string>();
 const autoSaveTick = debounce(
   (id: string, content: string) => {
     const tab = tabs.tabs.find((t) => t.id === id);
-    if (!tab || !tab.isDirty || !tab.path || !tab.isUtf8) return;
+    if (!tab || !tab.isDirty || !tab.path) return;
     if (tabs.activeId !== id) return;
     void (async () => {
       try {
-        await writeFileAtomic(tab.path as string, content, tab.hadBom);
+        await writeFileAtomic(tab.path as string, content, tab.hadBom, tab.encoding, tab.hadDecodeErrors);
         tabs.markSaved(id, content);
         autoSaveFailed.delete(id); // 保存成功：重置，下次失败可再次提示
         editor.showToast(t('workbench.toast.autoSaved', { name: baseName(tab.path as string) }), 'info');
@@ -1016,7 +1050,7 @@ const autoSaveTick = debounce(
         if (autoSaveFailed.has(id)) return; // 本编辑周期已提示过：静默等下次停顿重试
         autoSaveFailed.add(id);
         editor.showToast(
-          t('workbench.toast.autoSaveFailed', { msg: err instanceof Error ? err.message : String(err) }),
+          t('workbench.toast.autoSaveFailed', { msg: saveErrorText(err) }),
           'error',
         );
       }
@@ -1067,14 +1101,14 @@ async function confirmCloseTab(discard: boolean) {
     return;
   }
   const tab = tabs.tabs.find((t) => t.id === id);
-  if (tab?.isDirty && tab.path && tab.isUtf8) {
-    // 先尝试保存再关闭；写盘失败（文件被锁/只读/被删）时提示并保留标签——
+  if (tab?.isDirty && tab.path) {
+    // 先尝试保存再关闭；写盘失败（文件被锁/只读/被删/编码表示不了）时提示并保留标签——
     // 若静默吞错照常关闭，未保存内容随"关标签 + 标记干净 + 快照剔除"三通道丢失（P1-13）
     try {
-      await writeFileAtomic(tab.path, tab.content, tab.hadBom);
+      await writeFileAtomic(tab.path, tab.content, tab.hadBom, tab.encoding, tab.hadDecodeErrors);
       tabs.markSaved(id, tab.content); // 仅在写盘成功后标记已保存
     } catch (err) {
-      editor.showToast(t('workbench.toast.saveFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+      editor.showToast(t('workbench.toast.saveFailed', { msg: saveErrorText(err) }), 'error');
       return; // 中止关闭：标签保留，用户可重试或另存
     }
   }
@@ -1087,13 +1121,13 @@ async function confirmCloseBatch(save: boolean) {
   if (save) {
     for (const id of ids) {
       const tab = tabs.tabs.find((t) => t.id === id);
-      if (tab?.isDirty && tab.path && tab.isUtf8) {
+      if (tab?.isDirty && tab.path) {
         // 任一变失败 → 提示并中止整批关闭（已落盘的标记已生效，未保存的标签保留）
         try {
-          await writeFileAtomic(tab.path, tab.content, tab.hadBom);
+          await writeFileAtomic(tab.path, tab.content, tab.hadBom, tab.encoding, tab.hadDecodeErrors);
           tabs.markSaved(id, tab.content); // 仅在写盘成功后标记已保存
         } catch (err) {
-          editor.showToast(t('workbench.toast.saveFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+          editor.showToast(t('workbench.toast.saveFailed', { msg: saveErrorText(err) }), 'error');
           return;
         }
       }
@@ -1481,8 +1515,9 @@ async function syncTreeToActiveTab(): Promise<void> {
   ws.expandTo(path);
   ws.select(path);
   await nextTick(); // 等祖先展开渲染出新节点
+  // 行是 display:contents 没有盒子，滚它的名字格
   document
-    .querySelector(`[data-path="${CSS.escape(path)}"]`)
+    .querySelector(`[data-path="${CSS.escape(path)}"] .cell-name`)
     ?.scrollIntoView({ block: 'nearest' });
 }
 watch(() => tabs.activeId, () => void syncTreeToActiveTab());
@@ -1823,6 +1858,7 @@ async function stepSibling(step: 1 | -1): Promise<void> {
       encoding: file.encoding,
       hadBom: file.hadBom,
       isUtf8: file.isUtf8,
+      hadDecodeErrors: file.hadDecodeErrors,
       cursorLine: 1,
     });
     // 引擎常驻，滚动位置不会随换文档自己归零：下一份文档从头开始
@@ -2027,6 +2063,13 @@ function onCtxLayout(layout: ReadLayout): void {
   void settings.update({ readLayout: layout });
 }
 
+/** 右键「预览主题」：md 预览窗格专用，与设置面板「预览主题」同一字段，写进设置跨重启保持。
+ *  主题只是给 .md-editor-preview 换主题类，改完当帧生效（引擎 watch 会顺势重测行高） */
+function onCtxPreviewTheme(theme: string): void {
+  editorCtx.value = null;
+  void settings.update({ previewTheme: theme });
+}
+
 /** 右键「预览工具条」三档：图片 / HTML / SVG 共用这一份状态，写进设置跨重启保持。
  *  切到 hidden 后浮块连 hover 都不出、Tab 也够不到——唯一的出口就是这条菜单，
  *  所以图片预览面板也接进了同一套右键（见 ImagePreview 根节点的 contextmenu） */
@@ -2122,6 +2165,18 @@ function handleFormatShortcut(e: KeyboardEvent, k: string): boolean {
   return false;
 }
 
+/** 重载界面：白板 / 界面卡死时的逃生口。
+ *  先把脏草稿刷进会话快照再 reload——不 flush 的话，防抖 800ms 还没落盘的编辑会在
+ *  重载后丢失（热恢复读的正是这份快照）。快照失败也照样重载：卡死的界面更难忍。 */
+async function reloadWindow(): Promise<void> {
+  try {
+    await flushSessionSnapshot();
+  } catch {
+    /* 忽略：继续重载 */
+  }
+  window.location.reload();
+}
+
 function onKeydown(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey;
   // ←/→：同目录同族轮换。正文编辑区有焦点时一律放行（方向键归光标），编辑/分栏态
@@ -2162,6 +2217,14 @@ function onKeydown(e: KeyboardEvent) {
     return;
   }
   if (!ctrl) {
+    // F5：重载界面（白板 / 界面卡死时的逃生口）。用 F5 而不是 Ctrl+Shift+R——
+    // 后者在文件树里是「打开位置」，而本函数的 keydown 挂在捕获阶段（早于树），
+    // 判 defaultPrevented 拦不住冲突，只能换一个没人占的键。
+    if (e.key === 'F5' && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      void reloadWindow();
+      return;
+    }
     if (e.key === 'F1') {
       e.preventDefault();
       showSettings.value = !showSettings.value;
@@ -2290,17 +2353,17 @@ async function confirmCloseWindow(action: 'discard' | 'cancel') {
 }
 
 /** 关窗口确认（对话框承诺"保存全部并退出"，P1-1）：先遍历全部可保存脏标签
- *  （isDirty && path && isUtf8）落盘；任一变失败 → 提示并中止关闭（留在窗口，
+ *  （isDirty && path）按各自原编码落盘；任一变失败 → 提示并中止关闭（留在窗口，
  *  标签与草稿俱在，用户可改用单标签保存/另存处理）；全部成功后再走丢弃路径关闭。 */
 async function confirmCloseWindowSaveAll() {
   closeConfirm.value = { visible: false, tabId: null, batchIds: null };
   for (const tab of tabs.tabs) {
-    if (!tab.isDirty || !tab.path || !tab.isUtf8) continue;
+    if (!tab.isDirty || !tab.path) continue;
     try {
-      await writeFileAtomic(tab.path, tab.content, tab.hadBom);
+      await writeFileAtomic(tab.path, tab.content, tab.hadBom, tab.encoding, tab.hadDecodeErrors);
       tabs.markSaved(tab.id, tab.content);
     } catch (err) {
-      editor.showToast(t('workbench.toast.saveFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+      editor.showToast(t('workbench.toast.saveFailed', { msg: saveErrorText(err) }), 'error');
       return; // 中止关闭：不调 confirmCloseWindow，草稿快照也不剔除
     }
   }
@@ -2342,18 +2405,62 @@ function onDragDrop(ev: { payload: { type: string; paths?: string[] } }) {
 /** 外部打开（资源管理器双击、文件关联、命令行带路径）都走这一条。
  *  ★ 图片按「查看器」用：直接进页面全屏，别让人先看见编辑器外壳再自己按 F11。
  *    只挂这一条路径——从目录树或标签里点图片仍按当前形态显示，
- *    否则在工作区里瞄一眼图就把整个壳全屏掉，回不去。 */
-async function openArgsFiles(paths: string[]) {
-  if (!paths?.length) return;
-  for (const p of paths) await openFilePath(p);
+ *    否则在工作区里瞄一眼图就把整个壳全屏掉，回不去。
+ *  返回最后一个落位的标签（启动链路用来在会话恢复后夺回激活权）。 */
+async function openArgsFiles(paths: string[]): Promise<DocumentTab | null> {
+  if (!paths?.length) return null;
+  let last: DocumentTab | null = null;
+  for (const p of paths) {
+    // 预览类（docx/xlsx/图片/pdf）由 routeByType 直接开好标签、openFilePath 返回 null，
+    // 故以「当前激活标签」兜底
+    last = (await openFilePath(p)) ?? tabs.activeTab ?? last;
+  }
   if (tabs.activeTab?.kind === 'image') editor.pageFull = true;
+  return last;
+}
+
+/** 启动文件的引擎 chunk 提前拉起：探测 + 读盘这几毫秒里把内核下载与求值并行掉。
+ *  只按扩展名猜，猜错最多白拉一个 chunk（与空闲预载的重叠是无害的）。
+ *  预览类（docx/xlsx/图片/PDF）没有编辑器内核，不预载。 */
+function preloadEngineForPath(path: string): void {
+  const kind = textKindOf(path);
+  if (kind === 'md') void import('../adapters/MdEditorV3Engine.vue');
+  else if (kind === 'mh') void import('../adapters/WangEditorEngine.vue');
+  else if (kind === 'html' || kind === 'svg' || isCodeExt(path) || fileKind(baseName(path)) === 'text') {
+    void import('../adapters/CodeEditorEngine.vue');
+  }
 }
 let unlistenOpenArgs: (() => void) | null = null;
 
 // ---------- 生命周期 ----------
 onMounted(async () => {
-  await settings.load();
+  // ---- 启动直开（2026-10-24）----
+  // 取启动参数只依赖「打开文件事件监听」这一条最短路径。监听必须先于取件注册：
+  // 取件即把前端标记为就绪（Rust state.rs），此后到达的文件只走事件，不会重复入队。
+  // 其余启动收尾（工作区全树、会话恢复、关窗/拖放监听）照旧并行，不再挡在文件前面。
+  const pendingArgsTask = (async (): Promise<string[]> => {
+    try {
+      unlistenOpenArgs = await listen<string[]>('open-file-args', (e) => {
+        void openArgsFiles(e.payload);
+      });
+    } catch {
+      /* 非 Tauri 环境忽略 */
+    }
+    try {
+      return await takePendingOpenArgs();
+    } catch {
+      return [];
+    }
+  })();
+  const settingsTask = settings.load();
+  const pending = await pendingArgsTask;
+  // 无启动文件：欢迎页立刻放行，不必等设置读完
+  if (pending.length) bootFileName.value = baseName(pending[0]);
+  else bootOpening.value = false;
+  await settingsTask;
   editor.setMode(settings.settings.editorMode);
+  // 有启动文件：内核 chunk 先拉起来，与探测/读盘并行（见 preloadEngineForPath）
+  for (const p of pending) preloadEngineForPath(p);
   // 空闲预载三引擎 chunk（~280KB gzip 的 wangEditor 那条已有，2026-10-20 补齐另外两个）：
   // 首屏只下载外壳，内核改成点开文档时才按需取——那一下最容易被感知（md 栈 2.2MB min，
   // 求值要几百毫秒）。放到空闲切片里预载，既消掉「欢迎页首次打开文档」的首切延迟，
@@ -2379,7 +2486,8 @@ onMounted(async () => {
   // ---- 启动收尾并行走（2026-10-20 启动提速 P1）----
   // 原先四段逐条 await：窗口事件注册 → 工作区全树遍历 → 会话标签逐个读盘 → 取启动参数。
   // 内容区只依赖第三段，工作区树晚到一点不过是目录树后填一帧，没必要让首屏排队等它。
-  const listenersTask = (async () => {
+  // 2026-10-24：取件已提到最前面（见上），这里只剩关窗/拖放监听；仍不挡启动文件。
+  const windowListenersTask = (async () => {
     try {
       await win.onCloseRequested(onCloseRequested);
     } catch {
@@ -2390,14 +2498,6 @@ onMounted(async () => {
     } catch {
       /* 非 Tauri 环境（浏览器/无头验证）无此事件，忽略 */
     }
-    try {
-      // 二次点击关联文件：单实例插件转发的事件
-      unlistenOpenArgs = await listen<string[]>('open-file-args', (e) => {
-        void openArgsFiles(e.payload);
-      });
-    } catch {
-      /* 非 Tauri 环境忽略 */
-    }
   })();
   const wsTask = settings.settings.lastWorkspace
     ? ws.openWorkspace(settings.settings.lastWorkspace).catch(() => {
@@ -2406,7 +2506,15 @@ onMounted(async () => {
     : Promise.resolve();
   // 会话恢复（更新重启/崩溃后还原标签页与未保存草稿）：干净页读盘，脏页用快照草稿
   const sessionTask = hydrateSession().catch(() => null);
-  const hydrate = (await Promise.all([listenersTask, wsTask, sessionTask]))[2];
+
+  // 启动文件先开：不再等工作区树与会话恢复（两者照常并行，完成后补联动）。
+  // 打开失败或全被分流时 opened 为 null，闸门放开回落欢迎页（toast 已由 openFilePath 给出）。
+  let opened: DocumentTab | null = null;
+  if (pending.length) {
+    opened = await openArgsFiles(pending);
+    bootOpening.value = false;
+  }
+  const [,, hydrate] = await Promise.all([windowListenersTask, wsTask, sessionTask]);
 
   if (hydrate?.restored) {
     applyActiveTabMode(hydrate.activeTab);
@@ -2414,15 +2522,20 @@ onMounted(async () => {
     const at = hydrate.activeTab;
     if (at && at.cursorLine > 1 && !tabs.activeIsPreview) scrollToRestoredCursor(at.id, at.cursorLine);
   }
+  // 会话恢复会把 activeId 抢回上次的标签；启动文件必须拿回激活权。
+  // 顺序也还原成"启动文件落最后"（原来是恢复完再开文件，标签天然在末尾）
+  const openedTab = opened;
+  if (openedTab && tabs.tabs.some((t) => t.id === openedTab.id)) {
+    const lastTab = tabs.tabs[tabs.tabs.length - 1];
+    if (lastTab && lastTab.id !== openedTab.id) tabs.moveTab(openedTab.id, lastTab.id, 'after');
+    // 激活即可：视图模式由 activeId / isCodeTab 那两条既有 watcher 按标签恢复
+    if (tabs.activeId !== openedTab.id) tabs.activate(openedTab.id);
+    // 图片按「查看器」用：会话恢复若重置过全屏态，这里补回来（正常打开路径已设过）
+    if (openedTab.kind === 'image') editor.pageFull = true;
+  }
   // 树与会话并行后，首个恢复标签激活时 ws.root 可能还没落地（联动函数当时直接 return），
   // 这里补一次，保证目录树选中/展开跟得到位
   void syncTreeToActiveTab();
-  // 首次启动带文件路径：工作区就绪后再开，标签落位更自然（激活参数文件为活动标签）
-  try {
-    await openArgsFiles(await takePendingOpenArgs());
-  } catch {
-    /* 非 Tauri 环境忽略 */
-  }
   // 快照 watcher 最后启动：此后任何标签/内容变更都会防抖落盘
   startSessionSnapshot();
 });
@@ -2508,150 +2621,164 @@ watch(() => editor.mode, (m) => {
       />
       <div class="center">
         <TabBar ref="tabBarRef" @close="requestCloseTab" @close-batch="requestCloseBatch" @reloaded="flashReloadArea" @fullscreen="onTabFullscreen" />
-        <div
-          class="editor-area"
-          :class="{ 'area-reloading': reloadFlash, 'page-full': editor.pageFull }"
-          :style="{ '--mk-rail-pad': outlineRailOn ? '44px' : '20px' }"
-          v-if="tabs.activeTab"
-        >
-          <!-- 预览类标签（docx/xlsx/图片/pdf）：只读预览，不进编辑器。
-               :key=path|reloadSeq：左右键换文件时按新路径重挂；右键「刷新」bump 后重挂，
-               两条路都让旧的在途加载随卸载作废，避免串图/串页 -->
-          <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
-          <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
-          <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" @editor-context="onEditorContext" />
-          <PdfPreview v-else-if="tabs.activeTab.kind === 'pdf'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
-          <!-- 文本类标签：md 由 Markdown 引擎、html/svg/code/txt 由代码引擎、.mh 由富文本引擎接管。
-               html/svg 三模式：edit=代码编辑器，split=代码编辑器+Frame，read=Frame。
-               ★ 三引擎均为「首次用到才挂、此后常驻」，显隐走 v-show（script 段有整套约束说明）；
-               布局不再用 .text-area > :first-child 认主引擎（三个根节点会同时在 DOM 里，
-               隐藏的那个依然是 first-child），改按各自根类命中，见 global.css 文本区规则 -->
-          <div
-            v-else
-            ref="textAreaRef"
-            class="text-area"
-            :class="[{ 'html-mode': isMarkupTab }, editor.mode]"
-            :style="textAreaStyle"
-          >
-            <!-- code / html / svg 标签：CodeMirror 6 代码引擎（html/svg 的 split/read 渲染由 Frame 承担） -->
-            <CodeEditorEngine
-              v-if="codeEverMounted"
-              v-show="usesCodeEngine"
-              ref="codeEngineRef"
-              :model-value="codeEditorContent"
-              :theme="settings.themeMode"
-              :focus-mode="settings.settings.focusMode"
-              :line-wrap="settings.settings.codeLineWrap"
-              :path="codeEditorPath"
-              @update:model-value="onCodeContentChange"
-              @save="onCodeSave"
-              @cursor="onCodeCursor"
-              @editor-context="onEditorContext"
-            />
-            <!-- Markdown 引擎：与代码/富文本引擎并列常驻。model-value / mode / doc-path 走
-                 mdEditor* 三个冻结值（隐藏期间不吃外部值，切回来才不被误判成外部变更整篇重建），
-                 active 供引擎自己跳过隐藏期的几何重测与打印宿主挂载（Teleport 出的宿主
-                 不受父级 v-show 管，靠它从 @media print 里摘出去） -->
-            <MdEditorV3Engine
-              v-if="mdEverMounted"
-              v-show="isMdTab"
-              ref="mdEngineRef"
-              :model-value="mdEditorContent"
-              :mode="mdEditorMode"
-              :active="isMdTab"
-              :theme="settings.themeMode"
-              :preview-theme="settings.settings.previewTheme"
-              :read-layout="settings.settings.readLayout"
-              :show-toolbar="settings.settings.showToolbar"
-              :focus-mode="settings.settings.focusMode"
-              :show-line-numbers="settings.settings.showLineNumbers"
-              :scroll-sync="settings.settings.scrollSync"
-              :doc-path="mdEditorDocPath"
-              :language="settings.settings.language"
-              editor-id="mkdown-editor"
-              @update:model-value="onMdContentChange"
-              @save="onMdSave"
-              @outline="onOutline"
-              @cursor="onMdCursor"
-              @html-changed="onMdHtmlChanged"
-              @request-mode="onMdRequestMode"
-              @page-fullscreen="onMdPageFull"
-              @toast="(t: string) => editor.showToast(t, 'error')"
-              @open-link="onOpenLink"
-              @open-doc="onOpenDoc"
-              @editor-context="onEditorContext"
-            />
-            <WangEditorEngine
-              v-if="wangEverMounted"
-              v-show="isMhTab"
-              ref="wangEngineRef"
-              :model-value="mhEditorHtml"
-              :mode="editor.mode"
-              :theme="settings.themeMode"
-              :focus-mode="settings.settings.focusMode"
-              :doc-path="activeDocPath"
-              :language="settings.settings.language"
-              :read-layout="settings.settings.readLayout"
-              :show-toolbar="settings.settings.showToolbar"
-              @update:model-value="onMhContentChange"
-              @save="onMhSave"
-              @outline="onMhOutline"
-              @editor-context="onEditorContext"
-              @page-fullscreen="onMhPageFull"
-              @request-mode="onMhRequestMode"
-              @toast="(msg: string) => editor.showToast(msg, 'error')"
-              @open-link="onOpenLink"
-            />
-            <HtmlFrame
-              v-if="tabs.activeTab.kind === 'html' && editor.mode !== 'edit'"
-              :key="tabs.activeTab.path ?? ''"
-              class="html-frame-host"
-              :content="tabs.activeTab.content"
-              :dir="markupDocDir"
-              :path="tabs.activeTab.path"
-              :dark="settings.isDark"
-              @editor-context="onEditorContext"
-              @sibling-step="onFrameSiblingStep"
-            />
-            <SvgFrame
-              v-else-if="tabs.activeTab.kind === 'svg' && editor.mode !== 'edit'"
-              :key="tabs.activeTab.path ?? ''"
-              ref="svgFrameRef"
-              class="html-frame-host"
-              :content="tabs.activeTab.content"
-              :dir="markupDocDir"
-              :path="tabs.activeTab.path"
-              :dark="settings.isDark"
-              @editor-context="onEditorContext"
-              @sibling-step="onFrameSiblingStep"
-            />
-            <!-- 分栏拖拽把手：骑在源码区与预览区那条 1px 分隔线上，绝对定位不占 flex 流 -->
+        <!-- 欢迎页 → 标签内容的切换过渡（2026-10-24）：只给「进标签」这一侧挂动效，
+             回欢迎页仍即时切换。进场元素留在正常流里，离场的欢迎页绝对定位淡出，两屏不抢高度 -->
+        <div class="center-body">
+          <Transition :name="tabs.activeTab ? 'mk-view-in' : 'mk-view-out'">
             <div
-              v-if="isMarkupTab && editor.mode === 'split'"
-              class="markup-split-handle"
-              @mousedown="onSplitDragStart"
-            ></div>
-          </div>
+              class="editor-area"
+              :class="{ 'area-reloading': reloadFlash, 'page-full': editor.pageFull }"
+              :style="{ '--mk-rail-pad': outlineRailOn ? '44px' : '20px' }"
+              v-if="tabs.activeTab"
+            >
+              <!-- 预览类标签（docx/xlsx/图片/pdf）：只读预览，不进编辑器。
+                   :key=path|reloadSeq：左右键换文件时按新路径重挂；右键「刷新」bump 后重挂，
+                   两条路都让旧的在途加载随卸载作废，避免串图/串页 -->
+              <DocxPreview v-if="tabs.activeTab.kind === 'docx'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
+              <SheetPreview v-else-if="tabs.activeTab.kind === 'xlsx'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
+              <ImagePreview v-else-if="tabs.activeTab.kind === 'image'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" @editor-context="onEditorContext" />
+              <PdfPreview v-else-if="tabs.activeTab.kind === 'pdf'" :key="(tabs.activeTab.path ?? '') + '|' + (tabs.activeTab.reloadSeq ?? 0)" :path="tabs.activeTab.path ?? ''" />
+              <!-- 文本类标签：md 由 Markdown 引擎、html/svg/code/txt 由代码引擎、.mh 由富文本引擎接管。
+                   html/svg 三模式：edit=代码编辑器，split=代码编辑器+Frame，read=Frame。
+                   ★ 三引擎均为「首次用到才挂、此后常驻」，显隐走 v-show（script 段有整套约束说明）；
+                   布局不再用 .text-area > :first-child 认主引擎（三个根节点会同时在 DOM 里，
+                   隐藏的那个依然是 first-child），改按各自根类命中，见 global.css 文本区规则 -->
+              <div
+                v-else
+                ref="textAreaRef"
+                class="text-area"
+                :class="[{ 'html-mode': isMarkupTab }, editor.mode]"
+                :style="textAreaStyle"
+              >
+                <!-- code / html / svg 标签：CodeMirror 6 代码引擎（html/svg 的 split/read 渲染由 Frame 承担） -->
+                <CodeEditorEngine
+                  v-if="codeEverMounted"
+                  v-show="usesCodeEngine"
+                  ref="codeEngineRef"
+                  :model-value="codeEditorContent"
+                  :theme="settings.themeMode"
+                  :focus-mode="settings.settings.focusMode"
+                  :line-wrap="settings.settings.codeLineWrap"
+                  :path="codeEditorPath"
+                  @update:model-value="onCodeContentChange"
+                  @save="onCodeSave"
+                  @cursor="onCodeCursor"
+                  @editor-context="onEditorContext"
+                />
+                <!-- Markdown 引擎：与代码/富文本引擎并列常驻。model-value / mode / doc-path 走
+                     mdEditor* 三个冻结值（隐藏期间不吃外部值，切回来才不被误判成外部变更整篇重建），
+                     active 供引擎自己跳过隐藏期的几何重测与打印宿主挂载（Teleport 出的宿主
+                     不受父级 v-show 管，靠它从 @media print 里摘出去） -->
+                <MdEditorV3Engine
+                  v-if="mdEverMounted"
+                  v-show="isMdTab"
+                  ref="mdEngineRef"
+                  :model-value="mdEditorContent"
+                  :mode="mdEditorMode"
+                  :active="isMdTab"
+                  :theme="settings.themeMode"
+                  :preview-theme="settings.settings.previewTheme"
+                  :read-layout="settings.settings.readLayout"
+                  :show-toolbar="settings.settings.showToolbar"
+                  :focus-mode="settings.settings.focusMode"
+                  :show-line-numbers="settings.settings.showLineNumbers"
+                  :scroll-sync="settings.settings.scrollSync"
+                  :doc-path="mdEditorDocPath"
+                  :language="settings.settings.language"
+                  editor-id="mkdown-editor"
+                  @update:model-value="onMdContentChange"
+                  @save="onMdSave"
+                  @outline="onOutline"
+                  @cursor="onMdCursor"
+                  @html-changed="onMdHtmlChanged"
+                  @request-mode="onMdRequestMode"
+                  @page-fullscreen="onMdPageFull"
+                  @toast="(t: string) => editor.showToast(t, 'error')"
+                  @open-link="onOpenLink"
+                  @open-doc="onOpenDoc"
+                  @editor-context="onEditorContext"
+                />
+                <WangEditorEngine
+                  v-if="wangEverMounted"
+                  v-show="isMhTab"
+                  ref="wangEngineRef"
+                  :model-value="mhEditorHtml"
+                  :mode="editor.mode"
+                  :theme="settings.themeMode"
+                  :focus-mode="settings.settings.focusMode"
+                  :doc-path="activeDocPath"
+                  :language="settings.settings.language"
+                  :read-layout="settings.settings.readLayout"
+                  :show-toolbar="settings.settings.showToolbar"
+                  @update:model-value="onMhContentChange"
+                  @save="onMhSave"
+                  @outline="onMhOutline"
+                  @editor-context="onEditorContext"
+                  @page-fullscreen="onMhPageFull"
+                  @request-mode="onMhRequestMode"
+                  @toast="(msg: string) => editor.showToast(msg, 'error')"
+                  @open-link="onOpenLink"
+                />
+                <HtmlFrame
+                  v-if="tabs.activeTab.kind === 'html' && editor.mode !== 'edit'"
+                  :key="tabs.activeTab.path ?? ''"
+                  class="html-frame-host"
+                  :content="tabs.activeTab.content"
+                  :dir="markupDocDir"
+                  :path="tabs.activeTab.path"
+                  :dark="settings.isDark"
+                  @editor-context="onEditorContext"
+                  @sibling-step="onFrameSiblingStep"
+                />
+                <SvgFrame
+                  v-else-if="tabs.activeTab.kind === 'svg' && editor.mode !== 'edit'"
+                  :key="tabs.activeTab.path ?? ''"
+                  ref="svgFrameRef"
+                  class="html-frame-host"
+                  :content="tabs.activeTab.content"
+                  :dir="markupDocDir"
+                  :path="tabs.activeTab.path"
+                  :dark="settings.isDark"
+                  @editor-context="onEditorContext"
+                  @sibling-step="onFrameSiblingStep"
+                />
+                <!-- 分栏拖拽把手：骑在源码区与预览区那条 1px 分隔线上，绝对定位不占 flex 流 -->
+                <div
+                  v-if="isMarkupTab && editor.mode === 'split'"
+                  class="markup-split-handle"
+                  @mousedown="onSplitDragStart"
+                ></div>
+              </div>
+            </div>
+            <!-- 启动直开占位：判定有启动文件到标签挂上之间只留这一行字，既不放欢迎页也不留白板 -->
+            <div v-else-if="bootOpening" class="boot-opening" aria-live="polite">
+              <span class="boot-opening-dot" aria-hidden="true"></span>
+              <span class="boot-opening-text">{{
+                bootFileName ? t('workbench.openingFile', { name: bootFileName }) : t('workbench.opening')
+              }}</span>
+            </div>
+            <!-- 欢迎页：两版共用同一套动作（书桌版多出「新建内核 / 全局搜索」两个入口） -->
+            <WelcomeHost
+              v-else
+              :templates="TEMPLATES"
+              @open-workspace="openWorkspace"
+              @create-workspace="createWorkspace"
+              @open-file="openFileByDialog"
+              @new-template="newFromTemplate"
+              @new-kernel="onWelcomeNewKernel"
+              @open-recent="openFilePath"
+              @open-recent-preview="onWelcomePreview"
+              @continue-edit="onWelcomeContinue"
+              @switch-workspace="switchWorkspace"
+              @remove-all-workspaces="removeAllWorkspaces"
+              @update:rail="deskRail = $event"
+              @search="openGlobalSearch"
+              @open-tree-file="openFileFromDeskTree"
+              @open-tree-file-dbl="openFileFromDeskTreeDbl"
+              @open-tree-file-edit="openFileFromDeskTreeEdit"
+            />
+          </Transition>
         </div>
-        <!-- 欢迎页：两版共用同一套动作（书桌版多出「新建内核 / 全局搜索」两个入口） -->
-        <WelcomeHost
-          v-else
-          :templates="TEMPLATES"
-          @open-workspace="openWorkspace"
-          @create-workspace="createWorkspace"
-          @open-file="openFileByDialog"
-          @new-template="newFromTemplate"
-          @new-kernel="onWelcomeNewKernel"
-          @open-recent="openFilePath"
-          @open-recent-preview="onWelcomePreview"
-          @switch-workspace="switchWorkspace"
-          @remove-all-workspaces="removeAllWorkspaces"
-          @update:rail="deskRail = $event"
-          @search="openGlobalSearch"
-          @open-tree-file="openFileFromDeskTree"
-          @open-tree-file-dbl="openFileFromDeskTreeDbl"
-          @open-tree-file-edit="openFileFromDeskTreeEdit"
-        />
       </div>
       <OutlinePanel v-if="showOutline && !outlineFresh" @goto="gotoOutline" />
       <!-- 右缘大纲浮标（自带 Teleport 到 body）：清新档常驻，传统档只在全屏阅读态顶替被盖住的面板 -->
@@ -2800,6 +2927,7 @@ watch(() => editor.mode, (m) => {
       :plain-text="isPlainTextTab"
       :svg="isSvgTab"
       :read-layout="settings.settings.readLayout"
+      :preview-theme="settings.settings.previewTheme"
       :bar-mode="settings.settings.previewBarMode"
       :mode="editor.mode"
       @op="onTableOp"
@@ -2816,6 +2944,7 @@ watch(() => editor.mode, (m) => {
       @copy-all="onCtxCopyAll"
       @mode="onCtxMode"
       @layout="onCtxLayout"
+      @preview-theme="onCtxPreviewTheme"
       @bar-mode="onCtxBarMode"
       @bar-reset="onCtxBarReset"
       @copy-code="onCtxCopyCode"

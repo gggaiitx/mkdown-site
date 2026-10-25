@@ -815,6 +815,16 @@ function onDocKeydown(e: KeyboardEvent) {
 .mini-track.on { background: var(--mk-accent); }
 .mini-track.on .mini-knob { transform: translateX(10px); }
 
+/* 顶栏按钮的键盘焦点：底色之外补一圈内描边（inset 不占布局、不会被顶栏裁掉）。
+   只用 --mk-active 底色在浅色主题下对比度约 1.1:1，键盘用户看不出焦点在哪；
+   内描边与 active 态的「底部圆点」形状不同，不会误读成选中 */
+.tb-btn:focus-visible {
+  outline: none;
+  background: var(--mk-active);
+  box-shadow: inset 0 0 0 1.5px var(--mk-accent);
+}
+.tb-btn:focus-visible .icon { color: var(--mk-fg); }
+
 .active-dot {
   position: absolute;
   bottom: 2px; left: 50%;

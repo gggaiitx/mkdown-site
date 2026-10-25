@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Copy,
   ExternalLink, FileCode2, FilePlus2, FileText, FolderOpen, FolderPlus,
-  Link2, PenLine, RefreshCw, Search, Trash2, X,
+  Link2, PenLine, RefreshCw, Search, Trash2, X, ArrowUpDown,
 } from '@lucide/vue';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -14,12 +14,15 @@ import { useCtxMenu } from '../composables/useCtxMenu';
 import { shiftHint, modHint, modShiftHint, modAltHint } from '../utils/keyHint';
 import { fileKind } from '../utils/fileKind';
 import { newFileNameForTab } from '../utils/newFileName';
-import type { NodeKind, WorkspaceNode } from '../api/types';
+import { treeDnd } from '../utils/treeDnd';
+import { sortTreeInPlace } from '../utils/treeSort';
+import type { FileTreeSort, NodeKind, WorkspaceNode } from '../api/types';
 import FileTreeNode from './FileTreeNode.vue';
 import AppDialog from './AppDialog.vue';
 import { useI18n } from '../i18n';
 
 const ws = useWorkspaceStore();
+const settings = useSettingsStore();
 const { t } = useI18n();
 
 const emit = defineEmits<{
@@ -74,6 +77,7 @@ async function toggleWsMenu() {
     wsMenuOpen.value = false;
     return;
   }
+  closeMenu(); // 同一时刻只留一个菜单：排序菜单开着时先收掉
   const btn = wsBtnRef.value;
   wsMenuPos.value = {
     top: Math.round((btn?.getBoundingClientRect().bottom ?? 0) + WS_MENU_GAP),
@@ -101,9 +105,16 @@ function placeWsMenu() {
 /** fixed 菜单不会跟着锚点走：滚动关掉、缩放重新定位（比追着跑省事，也不会飘在半空） */
 function onWinScroll() {
   if (wsMenuOpen.value) wsMenuOpen.value = false;
+  if (sortMenuOpen.value) sortMenuOpen.value = false;
 }
 function onWinResize() {
   if (wsMenuOpen.value) placeWsMenu();
+  if (sortMenuOpen.value) void nextTick(placeSortMenu);
+}
+/** Esc 关掉树上的两个浮层菜单（不受「最近一次点击在树内」的门卫限制，菜单开着就能关） */
+function onMenuKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape') return;
+  if (wsMenuOpen.value || sortMenuOpen.value) closeMenu();
 }
 const recentWorkspaces = computed(() => useSettingsStore().settings.recentWorkspaces);
 function pickWorkspace(dir: string) {
@@ -147,7 +158,15 @@ const minW = computed(() => props.minWidth ?? MIN_W);
 const maxW = computed(() => props.maxWidth ?? MAX_W);
 /** 向左拖到低于该宽度 → 松手隐藏（emit('hide')，与顶栏「隐藏工作区」同一状态链路） */
 const HIDE_AT = 120;
-const width = ref(props.fixedWidth ?? 230);
+/* 默认 260：要放得下名字 + 行末两列（时间 72 / 大小 48）。
+   宽度优先取用户上次拖出来的值（设置-操作「记住侧栏宽度」开着时），否则用默认值 */
+const DEFAULT_W = 260;
+const initialW = settings.settings.fileTreeRememberWidth
+  ? Math.round(settings.settings.fileTreeWidth)
+  : DEFAULT_W;
+const width = ref(
+  props.fixedWidth ?? Math.round(Math.min(maxW.value, Math.max(minW.value, initialW))),
+);
 const dragging = ref(false);
 let startX = 0;
 let startW = 0;
@@ -182,6 +201,11 @@ function onResizeEnd() {
   } else {
     width.value = Math.min(maxW.value, Math.max(minW.value, width.value));
     emit('resize', width.value);
+    // 记住宽度：只在用户自己拖的树上写（fixedWidth 的书桌版由外层决定，不该覆盖全局设置）；
+    // 取整后存，下次启动直接落在这个宽度上
+    if (props.fixedWidth === undefined && settings.settings.fileTreeRememberWidth) {
+      void settings.update({ fileTreeWidth: width.value });
+    }
   }
   willHide = false;
   document.body.style.cursor = '';
@@ -196,6 +220,16 @@ watch(
   (v) => {
     if (dragging.value || typeof v !== 'number') return;
     const next = Math.round(Math.min(maxW.value, Math.max(minW.value, v)));
+    if (next !== width.value) width.value = next;
+  },
+);
+/* 设置是异步读盘的：读到 fileTreeWidth（或用户改了「记住侧栏宽度」）后同步一次。
+   拖动结束时自己写设置也会走这里，但那时 next === width，不会打架 */
+watch(
+  () => [settings.settings.fileTreeRememberWidth, settings.settings.fileTreeWidth] as const,
+  ([remember, w]) => {
+    if (props.fixedWidth !== undefined || !remember) return;
+    const next = Math.round(Math.min(maxW.value, Math.max(minW.value, w)));
     if (next !== width.value) width.value = next;
   },
 );
@@ -268,6 +302,65 @@ function closeMenu() {
   ctxNode.value = null;
   closeCtxMenu();
   wsMenuOpen.value = false;
+  sortMenuOpen.value = false;
+}
+
+// ---- 排序方式（目录恒在前；排序直接改 ws.tree 的顺序，保证渲染 / 键盘导航 / 过滤三者一致）----
+/** 菜单顺序即这里的顺序 */
+const SORTS: Array<{ value: FileTreeSort; label: string }> = [
+  { value: 'name-asc', label: 'filetree.sortNameAsc' },
+  { value: 'name-desc', label: 'filetree.sortNameDesc' },
+  { value: 'mtime-desc', label: 'filetree.sortMtimeDesc' },
+  { value: 'mtime-asc', label: 'filetree.sortMtimeAsc' },
+  { value: 'size-desc', label: 'filetree.sortSizeDesc' },
+  { value: 'size-asc', label: 'filetree.sortSizeAsc' },
+];
+const sortMenuOpen = ref(false);
+const sortBtnRef = ref<HTMLElement | null>(null);
+const sortMenuRef = ref<HTMLElement | null>(null);
+const sortMenuPos = ref({ top: 0, left: 0 });
+const sortLabel = computed(() => {
+  const hit = SORTS.find((s) => s.value === settings.settings.fileTreeSort) ?? SORTS[0];
+  return t(hit.label);
+});
+/** 悬停提示带上当前排序，省得为了确认点了好几次菜单 */
+const sortTip = computed(() => `${t('filetree.sortTip')} · ${sortLabel.value}`);
+
+function applySort(): void {
+  if (ws.tree) sortTreeInPlace(ws.tree, settings.settings.fileTreeSort);
+}
+// 设置变了要重排；树被重新加载（打开/刷新工作区）也要按当前设置重排一次
+watch(() => settings.settings.fileTreeSort, applySort);
+watch(() => ws.tree, applySort, { immediate: true });
+
+function toggleSortMenu(): void {
+  if (sortMenuOpen.value) {
+    sortMenuOpen.value = false;
+    return;
+  }
+  closeMenu();
+  sortMenuOpen.value = true;
+  void nextTick(placeSortMenu);
+}
+
+/** 贴按钮下缘、右对齐并夹在视口内；窗口缩放与首次展开共用 */
+function placeSortMenu(): void {
+  const btn = sortBtnRef.value;
+  if (!btn) return;
+  const r = btn.getBoundingClientRect();
+  // 菜单宽随文案自适应（英文项比中文长），按实测宽度右对齐并夹在视口内
+  const w = sortMenuRef.value?.offsetWidth ?? 176;
+  sortMenuPos.value = {
+    top: Math.round(r.bottom + 4),
+    left: Math.round(Math.max(6, Math.min(r.right - w, window.innerWidth - w - 6))),
+  };
+}
+
+function pickSort(v: FileTreeSort): void {
+  sortMenuOpen.value = false;
+  // 先就地排一次让 UI 立刻响应，再写设置（settings.update 内部防抖落盘，watch 随后会再排一次，幂等）
+  if (ws.tree) sortTreeInPlace(ws.tree, v);
+  void settings.update({ fileTreeSort: v });
 }
 
 /** 右键菜单里的快捷键提示：全部与 FileTree.onTreeKeydown / Workbench.onKeydown 的真实绑定一一对应，
@@ -312,16 +405,16 @@ const visibleRows = computed<WorkspaceNode[]>(() => {
   return rows;
 });
 
-/** 选中行滚动到可见（行 div 带 data-path；CSS.escape 防路径反斜杠破坏属性选择器） */
+/** 选中行滚动到可见（行是 display:contents 没有盒子，滚它的名字格；CSS.escape 防路径反斜杠破坏属性选择器） */
 function scrollSelVisible(path: string): void {
-  document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' });
+  document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"] .cell-name`)?.scrollIntoView({ block: 'nearest' });
 }
 
 /** 树键盘上下文（↑/↓ 导航与全部树内快捷键的共用门卫）：
  *  最近一次鼠标按下在树内、已开工作区、无菜单/对话框/搜索浮层、焦点不在编辑器与输入框 */
 function treeKeyActive(e?: KeyboardEvent): boolean {
   if (!clickInTree.value || !ws.root) return false;
-  if (menu.value || wsMenuOpen.value || createDialog.value.visible
+  if (menu.value || wsMenuOpen.value || sortMenuOpen.value || createDialog.value.visible
     || renameDialog.value.visible || deleteDialog.value.visible) return false;
   if (document.querySelector('.mask, .hub')) return false;
   if (document.querySelector('.cm-editor.cm-focused')) return false; // 双保险：点编辑器已置 clickInTree=false
@@ -392,6 +485,7 @@ onMounted(() => {
   document.addEventListener('click', closeMenu);
   document.addEventListener('pointerdown', onDocPointerDown, true); // capture：先于任何 stopPropagation 记录
   window.addEventListener('keydown', onTreeKeydown);
+  window.addEventListener('keydown', onMenuKeydown);
   window.addEventListener('scroll', onWinScroll, true);
   window.addEventListener('resize', onWinResize);
 });
@@ -399,6 +493,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenu);
   document.removeEventListener('pointerdown', onDocPointerDown, true);
   window.removeEventListener('keydown', onTreeKeydown);
+  window.removeEventListener('keydown', onMenuKeydown);
   window.removeEventListener('scroll', onWinScroll, true);
   window.removeEventListener('resize', onWinResize);
 });
@@ -614,6 +709,17 @@ async function onRefresh() {
   }
 }
 
+// ---- 拖拽落点：树空白区 = 工作区根 ----
+/** 两列都关：没有列要对齐，就不该再为「最长名字」留宽度——
+ *  切回普通块布局，名字按容器宽自适应（超出才省略号），横向滚动条自然消失 */
+const metaOff = computed(
+  () => !settings.settings.fileTreeShowSize && !settings.settings.fileTreeShowMtime,
+);
+
+/** 落点判定与拖拽全过程都在 utils/treeDnd.ts（pointer 自绘）；
+ *  这里只负责把「落在根上」画出来。 */
+const rootDrop = computed(() => !!ws.root && treeDnd.over.value === ws.root);
+
 // ---- 按名称过滤（当前工作区的目录 / 文件名，纯前端过滤已加载的全量树） ----
 const filterVisible = ref(false);
 const filterText = ref('');
@@ -719,8 +825,32 @@ watch(filteredTree, (nodes) => {
           <ChevronsDownUp v-if="!allCollapsed" class="t-icon" />
           <ChevronsUpDown v-else class="t-icon" />
         </button>
+        <!-- 排序：放在过滤搜索之前（与「先整理再查找」的操作顺序一致） -->
+        <button
+          ref="sortBtnRef"
+          class="tool"
+          :class="{ on: sortMenuOpen }"
+          v-tip="sortTip"
+          @click.stop="toggleSortMenu"
+        >
+          <ArrowUpDown class="t-icon" />
+        </button>
         <button class="tool" :class="{ on: filterVisible }" v-tip="t('filetree.filterTip', { key: shiftHint('F') })" @click="toggleFilter"><Search class="t-icon" /></button>
       </span>
+    </div>
+
+    <!-- 排序方式菜单（点击工具条排序按钮弹出） -->
+    <div
+      v-if="sortMenuOpen"
+      ref="sortMenuRef"
+      class="mk-menu sort-menu"
+      :style="{ top: `${sortMenuPos.top}px`, left: `${sortMenuPos.left}px` }"
+      @click.stop
+    >
+      <button v-for="s in SORTS" :key="s.value" class="mk-menu-item" @click="pickSort(s.value)">
+        <span>{{ t(s.label) }}</span>
+        <Check v-if="settings.settings.fileTreeSort === s.value" class="ws-check" :size="13" />
+      </button>
     </div>
 
     <!-- 工作区切换菜单（点击根目录名弹出） -->
@@ -778,11 +908,16 @@ watch(filteredTree, (nodes) => {
       <button class="f-clear" v-if="filterText" v-tip="t('filetree.clear')" @click="filterText = ''; filterIpt?.focus()"><X class="f-clear-ico" /></button>
     </div>
 
-    <div class="tree" v-if="ws.tree && ws.tree.children && ws.tree.children.length > 0">
-      <!-- 过滤模式 -->
-      <template v-if="filterActive">
+    <div
+      class="tree"
+      :class="{ 'root-drop': rootDrop, 'no-meta': metaOff }"
+      v-if="ws.tree && ws.tree.children && ws.tree.children.length > 0"
+    >
+      <!-- grid 容器：名字列吃掉剩余宽度并就地省略，时间/大小列按内容宽钉在右缘；
+           各行列宽天然对齐（名字列含缩进，所以浅层行名字右侧留白） -->
+      <div class="tree-table" v-if="filterActive && filteredTree && filteredTree.length > 0">
         <FileTreeNode
-          v-for="node in filteredTree ?? []"
+          v-for="node in filteredTree"
           :key="node.path"
           :node="node"
           :depth="0"
@@ -790,10 +925,8 @@ watch(filteredTree, (nodes) => {
           @open-file-dbl="(p: string) => emit('open-file-dbl', p)"
           @ctx="(ev, n) => onContextMenu(ev, n)"
         />
-        <div v-if="!filteredTree || filteredTree.length === 0" class="empty">{{ t('filetree.noMatch') }}</div>
-      </template>
-      <!-- 原始树 -->
-      <template v-else>
+      </div>
+      <div class="tree-table" v-else-if="!filterActive">
         <FileTreeNode
           v-for="node in ws.tree.children"
           :key="node.path"
@@ -803,7 +936,8 @@ watch(filteredTree, (nodes) => {
           @open-file-dbl="(p: string) => emit('open-file-dbl', p)"
           @ctx="(ev, n) => onContextMenu(ev, n)"
         />
-      </template>
+      </div>
+      <div v-else class="empty">{{ t('filetree.noMatch') }}</div>
     </div>
     <div v-else-if="ws.tree" class="empty">{{ t('filetree.emptyDir1') }}<br>{{ t('filetree.emptyDir2') }}</div>
     <div v-else class="empty">{{ t('filetree.noFolder1') }}<br>{{ t('filetree.noFolder2') }}</div>
@@ -1046,6 +1180,8 @@ watch(filteredTree, (nodes) => {
 .ws-item.current { color: var(--mk-accent); }
 .ws-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-check { flex: none; }
+/* 排序菜单：勾选靠右（.mk-menu-item 是 flex，Check 默认紧跟文字） */
+.sort-menu .ws-check { margin-left: auto; opacity: 0.85; }
 .ws-ico { flex: none; color: var(--mk-fg-muted); }
 .ws-remove {
   display: inline-flex; align-items: center; justify-content: center;
@@ -1138,7 +1274,46 @@ watch(filteredTree, (nodes) => {
 }
 .f-clear:hover { color: var(--mk-fg); background: var(--mk-hover); }
 .f-clear-ico { width: 12px; height: 12px; }
-.tree { overflow-y: auto; overflow-x: hidden; flex: 1; padding: 4px 6px 16px; }
+/* 横向可滚动：名字列有下限（见下），侧栏窄到放不下下限＋元信息列时出横向滚动条 */
+.tree { overflow-y: auto; overflow-x: auto; flex: 1; padding: 4px 6px 16px; }
+/* grid 布局：名字列 1fr 吃掉剩余宽度，时间/大小两列按内容宽钉在右缘；
+   每行的三个 cell 由 display:contents 的行直接投进同一套列，跨层级天然对齐。
+   名字列下限 283 = 写作态最宽 440 刚好放下名字 + 时间 + 大小的余量：
+   440 - 10（竖滚动条）- 12（内距）- 80.3（时间最宽 MM-DD HH:mm）- 53（大小最宽 1024 KB）
+   = 284.7，取 283 留 1.7px 抗亚像素。更窄不压名字，由 .tree 出横向滚动条。
+   元信息列用 max-content 而不是 auto——auto 轨在空间不足时会被 cell 的 min-width:0
+   一路压到文字溢出，max-content 轨保持内容宽，才会把树撑出滚动 */
+.tree-table { display: grid; grid-template-columns: minmax(283px, 1fr) max-content max-content; }
+
+/* 两列都关：没有要对齐的列，退回普通块布局 —— 名字按容器宽自适应并省略，
+   整树宽度恒等于容器宽，横向滚动条不会出现（飞总要的「刚好不滚」） */
+.tree.no-meta .tree-table { display: block; width: auto; }
+/* 行有了自己的盒子：底色落到行上（cell 高度是 auto，画在 cell 上会短一截），
+   顺便补圆角与右内距，高亮不再贴死面板右缘 */
+.tree.no-meta :deep(.row) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  padding-right: 10px;
+  border-radius: var(--mk-radius-sm);
+}
+.tree.no-meta :deep(.row:hover) { background: var(--mk-hover); }
+.tree.no-meta :deep(.row.selected),
+.tree.no-meta :deep(.row.drop-target) { background: var(--mk-accent-weak); }
+.tree.no-meta :deep(.row:hover .cell),
+.tree.no-meta :deep(.row.selected .cell),
+.tree.no-meta :deep(.row.drop-target .cell) { background: transparent; }
+.tree.no-meta :deep(.cell) { display: block; height: auto; }
+.tree.no-meta :deep(.cell-name) { flex: 1 1 auto; min-width: 0; }
+/* .line 撑满 cell，名字才有剩余空间可收缩；否则按内容宽撑开，横向滚动照样出现 */
+.tree.no-meta :deep(.line) { display: flex; width: 100%; min-width: 0; }
+/* 列关了就把占位 cell 一并收掉，否则首尾的 6/10px 内距还会顶着 */
+.tree.no-meta :deep(.cell-mtime),
+.tree.no-meta :deep(.cell-size) { display: none; }
+.tree.no-meta :deep(.name) { flex: 1 1 auto; min-width: 0; }
+/* 拖到空白区 = 移到工作区根：整块描一圈 accent 内边框，和目录行的落点高亮同款 */
+.tree.root-drop { box-shadow: inset 0 0 0 1.5px var(--mk-accent); border-radius: var(--mk-radius-sm); }
 .empty {
   padding: 24px 16px;
   font-size: 12px;
