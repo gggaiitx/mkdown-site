@@ -694,7 +694,21 @@
         <div class="tl-item is-latest">
           <span class="tl-dot"></span>
           <div class="tl-card">
-            <div class="tl-head"><span class="tl-ver">v0.7.4</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <div class="tl-head"><span class="tl-ver">v0.7.5</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <ul>
+              <li><b>码猫跟进了编辑器</b>：右下角常驻、猫脚贴着状态栏上沿；轻提示抬到它头顶、回顶钮向左让开，窗口窄于 640px 自动收起</li>
+              <li><b>六张表情</b>：新增阅读捧书与保存失败炸毛；写作专注、走神、打盹用轻微前倾 / 侧倾区分姿态，切换时头脚不跳</li>
+              <li><b>写作陪伴</b>：打字时不插话，停下来才提醒——25 分钟起身、卡稿、每 500 字记一笔、未保存 / 未命名、长文提示大纲；提示频率分安静 / 标准 / 话痨三档</li>
+              <li><b>阅读陪伴</b>：跟着滚动方向轻晃，读到一半与文末各回应一次，连续阅读八分钟提醒远眺；阅读态双击码猫缓动回顶</li>
+              <li><b>保存与导出有回应</b>：保存失败一定说，编码装不下直接建议另存 UTF-8；右键可静音 30 分钟、切专注模式、回顶、直达设置或藏起它</li>
+              <li><b>书桌版式</b>：宽屏内容带 1680、摘要按整行裁切、新建磁贴补格式 / 数量信息、最近改动可滚动，回到书桌自动刷新工作区</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.7.4</span><span class="tl-date">2026.10</span></div>
             <ul>
               <li><b>文件树能拖了</b>：拖到目录上即移动、同目录内上下拖是换序；落点只认目录与空白区（自身 / 子目录 / 原父目录不给），位移不足 4px 仍算点击。拖拽是自绘的——Tauri 在 Windows 上接管了系统拖放，原生 drag 事件到不了前端，自己实现后「从资源管理器拖文件进窗口打开」照旧可用</li>
               <li><b>跨盘移动不丢文件</b>：先完整复制再删源，复制失败不动原文件；目标同名一律拒绝覆盖</li>
@@ -1112,9 +1126,9 @@
       <h2>现在就开始书写</h2>
       <p>支持 Windows / macOS，体积小巧，开箱即用。</p>
       <div class="hero-cta">
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.4/Mkdown_0.7.4_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.4/Mkdown_0.7.4_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.4/Mkdown_0.7.4_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.5/Mkdown_0.7.5_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.5/Mkdown_0.7.5_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.5/Mkdown_0.7.5_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
       </div>
       <div class="mac-tip">
         <p class="mac-tip-head">本应用未做 Apple 开发者签名，首次打开若提示「无法验证开发者」或「已损坏」，任选其一绕过：</p>
