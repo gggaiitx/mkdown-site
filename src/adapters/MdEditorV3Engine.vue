@@ -1216,6 +1216,23 @@ function backTopScroller(): HTMLElement | null {
   );
 }
 
+/** 阅读进度 0~1：与上面同口径（阅读态 .read-scroll / 分栏预览栏 / 编辑态源码栏）。
+ *  内容不足一屏返回 0，免得短文档刚打开就被码猫宣布「看完了」 */
+function readingProgress(): number {
+  const root = rootRef.value;
+  if (!root) return 0;
+  const sel = props.mode === 'read'
+    ? '.read-scroll'
+    : props.mode === 'split'
+      ? '.md-editor-preview-wrapper'
+      : '.cm-scroller';
+  const el = root.querySelector<HTMLElement>(sel);
+  if (!el) return 0;
+  const max = el.scrollHeight - el.clientHeight;
+  if (max <= 8) return 0;
+  return Math.min(1, Math.max(0, el.scrollTop / max));
+}
+
 defineExpose({
   scrollToLine,
   insert,
@@ -1237,6 +1254,8 @@ defineExpose({
   captureScroll,
   restoreScroll,
   scrollToTop,
+  smoothBackToTop,
+  readingProgress,
   activeHeadingIndex,
 });
 

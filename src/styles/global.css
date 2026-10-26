@@ -77,6 +77,7 @@
      凡需要浮在编辑器之上的应用浮层，必须进 10100+ 这一段，别再手写裸数字 */
   --mk-z-toolbar: 9500;                 /* 顶栏：盖住下方侧栏/标签栏/编辑器 */
   --mk-z-engine-full: 9600;             /* .mh 引擎页面全屏层：压过顶栏，低于菜单带 */
+  --mk-z-pet: 10090;                    /* 码猫浮层：压过内核页面全屏层，低于面板/菜单 */
   --mk-z-panel: 10100;                  /* 搜索面板 */
   --mk-z-rail: 10105;                   /* 全屏阅读态的大纲浮标：压过全屏层，低于菜单 */
   --mk-z-menu: 10110;                   /* 所有浮层菜单（右键/溢出/下拉/二级飞窗） */
@@ -660,6 +661,11 @@ body.mk-bar-dragging iframe {
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+  transition: bottom 0.2s ease;
+}
+/* 码猫在场时把轻提示抬到它头顶：猫占右下 52×64（bottom 30），轻提示底边让到 104 */
+html.pet-docked .toast-host {
+  bottom: 104px;
 }
 .toast {
   display: flex;

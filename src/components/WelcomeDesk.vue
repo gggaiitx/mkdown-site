@@ -54,10 +54,17 @@ const emit = defineEmits<{
   (e: 'open-tree-file', path: string): void;
   (e: 'open-tree-file-dbl', path: string): void;
   (e: 'open-tree-file-edit', path: string): void;
+  /** 码猫右键菜单「码猫设置…」：书桌自己没有设置面板，交给 Workbench 打开 */
+  (e: 'pet-settings'): void;
 }>();
 
 /** 码猫宽度（px）：固定尺寸，设置里不再暴露 */
 const PET_W = 52;
+/** 码猫离窗口右缘的距离（与 DeskPet.vue 的 right:22px 对齐） */
+const PET_EDGE = 22;
+/** 内容带宽上限（px）：超宽屏把卡片收在一条阅读带里，同时别让两侧留白过大。
+ *  ★ 与样式段 .head/.desk-cols/.foot 的 --desk-band 是同一个值，改一处要同步另一处 */
+const BAND_MAX = 1680;
 
 const { t } = useI18n();
 const settings = useSettingsStore();
@@ -98,6 +105,8 @@ const sizeClass = computed(() => {
 });
 /** 矮窗口：压缩内距、隐藏次要信息（参考稿 max-height:700 那档的等价物） */
 const compact = computed(() => boxH.value < 660);
+/** 新建磁贴的底部信息行需要磁贴本身够高：再矮三行会挤在一起（实测 700 高时磁贴只剩 64px） */
+const roomy = computed(() => sizeClass.value === 'size-xl' && boxH.value >= 780);
 const wide = computed(() => sizeClass.value === 'size-xl');
 
 /* 书桌版左侧目录栏：是否显示由 WelcomeHost 传入（它同时负责让全局侧栏让位），这里只做渲染 */
@@ -112,7 +121,7 @@ const canRestoreRail = computed(() => props.rail === true && !!ws.root && railCl
 /* 目录栏可拖宽（书桌版 2026-10-24）：宽度跟着栅格一起算边界。
    下限沿用目录树自己的 200；上限按「栅格不低于 918px」反推——
    918 是现网左栏最小态（窗口回差阈值 1200 − 左右内距 56 − 间隙 16 − 栏宽 210），
-   再给栏宽封顶 360；超宽屏的内容带被 .desk-cols 封在 1440，算边界前先夹进去。
+   再给栏宽封顶 360；超宽屏的内容带被 .desk-cols 封在 BAND_MAX，算边界前先夹进去。
    窗口变窄时上限跟着收：只夹「渲染宽度」，空间恢复后回到用户宽度 */
 const RAIL_MIN = 200;
 const RAIL_MAX = 360;
@@ -133,7 +142,7 @@ const railW = ref(railPref.value);
 railLastW.value = railPref.value;
 let railSaveTimer: number | undefined;
 const railMax = computed(() => {
-  const band = Math.min(boxW.value - 56, 1440);
+  const band = Math.min(boxW.value - 56, BAND_MAX);
   return Math.max(RAIL_MIN, Math.min(RAIL_MAX, Math.round(band - 16 - BENTO_FLOOR - 2)));
 });
 /** 边界变化只影响渲染宽度（立即执行一次，把首帧 boxW=1280 的兜底也夹进去）。
@@ -183,6 +192,80 @@ function onRailResize(w: number): void {
 const tight = computed(() =>
   boxW.value < (showRail.value ? 1300 + (Math.max(railW.value, RAIL_MIN) - RAIL_W) : 1240),
 );
+
+/** 页脚右栏（引擎说明）默认贴内容带右缘；只有内容带右缘会压到码猫时才让出猫的宽度。
+ *  带宽居中 + 左右内距对称，所以右缘 = 窗口宽 − 内距 − (内容宽 − 带宽)/2（超宽屏被 BAND_MAX 夹住） */
+const footAvoidPet = computed(() => {
+  if (!settings.settings.petEnabled || boxW.value < 460) return false;
+  const pad = showRail.value ? 28 : compact.value ? 34 : 68;
+  const contentW = Math.max(0, boxW.value - pad * 2);
+  const footRight = boxW.value - pad - Math.max(0, (contentW - BAND_MAX) / 2);
+  const petLeft = boxW.value - PET_EDGE - PET_W;
+  return footRight > petLeft - 12;
+});
+
+/* ---------------- 「继续写作」左栏摘要按可用高度取整行 ----------------
+   xl 行高固定，摘要被压到列高以下时第 N 行会被切成半行（无省略号）；这里量出左栏剩余高度，
+   注入整行的 -webkit-line-clamp：窗口变矮少几行（带省略号）、变高多几行，正好填满列高。
+   lg/sm 档卡片高度由内容撑开，不存在裁切，保持 CSS 默认档位即可。 */
+const contMainRef = ref<HTMLElement | null>(null);
+const excerptClamp = ref(0);
+const excerptStyle = computed(() =>
+  excerptClamp.value > 0
+    ? { WebkitLineClamp: String(excerptClamp.value), lineClamp: String(excerptClamp.value) }
+    : undefined,
+);
+let contRO: ResizeObserver | null = null;
+
+function syncExcerptClamp() {
+  const main = contMainRef.value;
+  if (!main || sizeClass.value !== 'size-xl') {
+    excerptClamp.value = 0;
+    return;
+  }
+  const ex = main.querySelector<HTMLElement>('.excerpt');
+  const doc = main.querySelector<HTMLElement>('.doc');
+  const meta = main.querySelector<HTMLElement>('.cont-meta');
+  const acts = main.querySelector<HTMLElement>('.actions');
+  if (!ex || !doc || !meta || !acts) return;
+  const exCs = getComputedStyle(ex);
+  const lineH = parseFloat(exCs.lineHeight);
+  if (!lineH) return;
+  const avail =
+    main.clientHeight -
+    doc.offsetHeight -
+    meta.offsetHeight -
+    acts.offsetHeight -
+    (parseFloat(exCs.marginTop) || 0) -
+    (parseFloat(getComputedStyle(meta).marginTop) || 0);
+  const lines = Math.max(1, Math.floor(avail / lineH));
+  const next = compact.value ? Math.min(lines, 2) : lines;
+  if (excerptClamp.value !== next) excerptClamp.value = next;
+}
+
+/* 摘要出现/消失、标题换行、字数码换行都会改左栏可用高度：把左栏与四个子块一起观察 */
+function observeContMain() {
+  contRO?.disconnect();
+  contRO = null;
+  const main = contMainRef.value;
+  if (!main || typeof ResizeObserver === 'undefined') {
+    excerptClamp.value = 0;
+    return;
+  }
+  contRO = new ResizeObserver(() => syncExcerptClamp());
+  contRO.observe(main);
+  for (const sel of ['.doc', '.excerpt', '.cont-meta', '.actions']) {
+    const el = main.querySelector<HTMLElement>(sel);
+    if (el) contRO.observe(el);
+  }
+  syncExcerptClamp();
+}
+watch(contMainRef, () => observeContMain(), { flush: 'post' });
+watch([sizeClass, compact], () => nextTick(syncExcerptClamp));
+onBeforeUnmount(() => {
+  contRO?.disconnect();
+  contRO = null;
+});
 
 function onRailHide(w: number) {
   // 收起途中不落盘：目标宽度归还到「开始拖隐前」的宽度，恢复入口与下次进入都回到原位
@@ -766,28 +849,30 @@ function pickWorkspace(dir: string) {
   emit('switch-workspace', dir);
 }
 
-// ---------------- 书桌版左侧目录栏 ----------------
-/** 「最近改动」行数按剩余高度自适应：19px 一行，扣掉小标题，1~8 行 */
-const wsRecentRef = ref<HTMLElement | null>(null);
-const wsRecentRows = ref(3);
-let wsRecentRo: ResizeObserver | null = null;
-
-function measureWsRecent() {
-  const el = wsRecentRef.value;
-  if (!el) return;
-  const usable = el.clientHeight - 20;
-  const n = Math.max(1, Math.min(8, Math.floor(usable / 19)));
-  if (n !== wsRecentRows.value) wsRecentRows.value = n;
+// ---------------- 工作区自刷新 ----------------
+/* 欢迎页不在前台时文档被改过、或外部编辑器/资源管理器动过工作区，回来时 ws.tree 还是旧快照，
+   「最近改动」、文件数、构成条、7 天图会一起过期。重新挂载时必扫一次，之后窗口聚焦按
+   WS_SYNC_GAP 合并——全量递归扫描对大工作区不便宜，Alt-Tab 回来一次就扫一遍会拖住书桌。 */
+const WS_SYNC_GAP = 30_000;
+let lastWsSync = 0;
+let wsSyncing = false;
+async function syncWorkspace() {
+  if (!ws.root || ws.loading || wsSyncing || document.visibilityState === 'hidden') return;
+  const now = Date.now();
+  if (now - lastWsSync < WS_SYNC_GAP) return;
+  lastWsSync = now;
+  wsSyncing = true;
+  try {
+    await ws.refresh();
+  } catch {
+    /* 刷新失败不该影响书桌展示 */
+  } finally {
+    wsSyncing = false;
+  }
 }
-
-watch(wsRecentRef, (el) => {
-  wsRecentRo?.disconnect();
-  wsRecentRo = null;
-  if (!el || typeof ResizeObserver === 'undefined') return;
-  wsRecentRo = new ResizeObserver(() => measureWsRecent());
-  wsRecentRo.observe(el);
-  measureWsRecent();
-});
+onMounted(syncWorkspace);
+onMounted(() => window.addEventListener('focus', syncWorkspace));
+onBeforeUnmount(() => window.removeEventListener('focus', syncWorkspace));
 
 // ---------------- 工作区统计（一次遍历出全部数字） ----------------
 interface DeskStats {
@@ -941,7 +1026,7 @@ const versionNote = computed(() => {
   <div
     ref="rootRef"
     class="desk"
-    :class="[sizeClass, { compact, tight, 'has-rail': showRail, 'has-pet': settings.settings.petEnabled }]"
+    :class="[sizeClass, { compact, tight, roomy, 'has-rail': showRail, 'foot-avoid-pet': footAvoidPet }]"
     :style="{ '--pet-w': `${PET_W}px` }"
   >
     <div class="desk-body">
@@ -1012,7 +1097,7 @@ const versionNote = computed(() => {
 
             <template v-if="continuePath">
               <div class="cont-grid">
-                <div class="cont-main">
+                <div ref="contMainRef" class="cont-main">
                   <div class="doc">
                     <span class="badge" :class="`tone-${continueTone}`">{{ continueBadge }}</span>
                     <div class="doc-main">
@@ -1026,8 +1111,8 @@ const versionNote = computed(() => {
                       </div>
                     </div>
                   </div>
-                  <p v-if="excerpt" class="excerpt">{{ excerpt }}</p>
-                  <p v-else class="excerpt excerpt-empty">{{ t('welcome.desk.noExcerpt') }}</p>
+                  <p v-if="excerpt" class="excerpt" :style="excerptStyle">{{ excerpt }}</p>
+                  <p v-else class="excerpt excerpt-empty" :style="excerptStyle">{{ t('welcome.desk.noExcerpt') }}</p>
                   <div class="cont-meta">
                     <span v-if="readUnits > 0">{{ t('welcome.desk.metaWords', { n: fmtCount(readUnits) }) }}</span>
                     <i v-if="readUnits > 0" class="dot" />
@@ -1181,26 +1266,44 @@ const versionNote = computed(() => {
             </div>
             <div class="new-grid">
               <button type="button" class="new-tile tone-md" @click="emit('new-kernel', 'md')">
-                <span class="new-ico tone-md"><FileText :size="16" /></span>
-                <span class="new-txt">
-                  <span class="new-label">Markdown</span>
-                  <span class="new-sub">{{ t('welcome.desk.tileMdSub') }}</span>
+                <span class="new-main">
+                  <span class="new-ico tone-md"><FileText :size="16" /></span>
+                  <span class="new-txt">
+                    <span class="new-label">Markdown</span>
+                    <span class="new-sub">{{ t('welcome.desk.tileMdSub') }}</span>
+                  </span>
+                </span>
+                <span class="new-meta">
+                  <span class="new-meta-txt">{{ t('welcome.desk.tileMdMeta') }}</span>
+                  <svg class="new-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                 </span>
                 <span class="new-mark" aria-hidden="true">MD</span>
               </button>
               <button type="button" class="new-tile tone-mh" @click="emit('new-kernel', 'mh')">
-                <span class="new-ico tone-mh"><PenLine :size="16" /></span>
-                <span class="new-txt">
-                  <span class="new-label">Markhtml</span>
-                  <span class="new-sub">{{ t('welcome.desk.tileMhSub') }}</span>
+                <span class="new-main">
+                  <span class="new-ico tone-mh"><PenLine :size="16" /></span>
+                  <span class="new-txt">
+                    <span class="new-label">Markhtml</span>
+                    <span class="new-sub">{{ t('welcome.desk.tileMhSub') }}</span>
+                  </span>
+                </span>
+                <span class="new-meta">
+                  <span class="new-meta-txt">{{ t('welcome.desk.tileMhMeta') }}</span>
+                  <svg class="new-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                 </span>
                 <span class="new-mark" aria-hidden="true">MH</span>
               </button>
               <button type="button" class="new-tile tone-code" @click="emit('new-kernel', 'code')">
-                <span class="new-ico tone-code"><FileCode2 :size="16" /></span>
-                <span class="new-txt">
-                  <span class="new-label">{{ t('welcome.desk.tileCode') }}</span>
-                  <span class="new-sub">{{ t('welcome.desk.tileCodeSub') }}</span>
+                <span class="new-main">
+                  <span class="new-ico tone-code"><FileCode2 :size="16" /></span>
+                  <span class="new-txt">
+                    <span class="new-label">{{ t('welcome.desk.tileCode') }}</span>
+                    <span class="new-sub">{{ t('welcome.desk.tileCodeSub') }}</span>
+                  </span>
+                </span>
+                <span class="new-meta">
+                  <span class="new-meta-txt">{{ t('welcome.desk.tileCodeMeta') }}</span>
+                  <svg class="new-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                 </span>
                 <span class="new-mark" aria-hidden="true">TXT</span>
               </button>
@@ -1211,10 +1314,16 @@ const versionNote = computed(() => {
                   :aria-expanded="tplOpen"
                   @click="tplOpen = !tplOpen"
                 >
-                  <span class="new-ico tone-tpl"><FilePlus2 :size="16" /></span>
-                  <span class="new-txt">
-                    <span class="new-label">{{ t('welcome.desk.tileTpl') }}</span>
-                    <span class="new-sub">{{ templateList.map((x) => x.name).join(' · ') || t('welcome.desk.tileTplSub') }}</span>
+                  <span class="new-main">
+                    <span class="new-ico tone-tpl"><FilePlus2 :size="16" /></span>
+                    <span class="new-txt">
+                      <span class="new-label">{{ t('welcome.desk.tileTpl') }}</span>
+                      <span class="new-sub">{{ templateList.map((x) => x.name).join(' · ') || t('welcome.desk.tileTplSub') }}</span>
+                    </span>
+                  </span>
+                  <span class="new-meta">
+                    <span class="new-meta-txt">{{ templateList.length > 0 ? t('welcome.desk.tileTplCount', { n: templateList.length }) : t('welcome.desk.tileTplBrowse') }}</span>
+                    <svg class="new-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                   </span>
                   <span class="new-mark" aria-hidden="true">TPL</span>
                 </button>
@@ -1231,18 +1340,30 @@ const versionNote = computed(() => {
                 </div>
               </div>
               <button type="button" class="new-tile tone-ws" @click="emit('open-workspace')">
-                <span class="new-ico tone-ws"><FolderOpen :size="16" /></span>
-                <span class="new-txt">
-                  <span class="new-label">{{ t('welcome.openWorkspace') }}</span>
-                  <span class="new-sub">{{ t('welcome.desk.tileOpenWsSub') }}</span>
+                <span class="new-main">
+                  <span class="new-ico tone-ws"><FolderOpen :size="16" /></span>
+                  <span class="new-txt">
+                    <span class="new-label">{{ t('welcome.openWorkspace') }}</span>
+                    <span class="new-sub">{{ t('welcome.desk.tileOpenWsSub') }}</span>
+                  </span>
+                </span>
+                <span class="new-meta">
+                  <span class="new-meta-txt">{{ otherWorkspaces.length > 0 ? t('welcome.desk.tileOpenWsMeta', { n: otherWorkspaces.length }) : t('welcome.desk.tileOpenWsMetaEmpty') }}</span>
+                  <svg class="new-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                 </span>
                 <span class="new-mark" aria-hidden="true">DIR</span>
               </button>
               <button type="button" class="new-tile tone-ws" @click="emit('create-workspace')">
-                <span class="new-ico tone-ws"><FolderPlus :size="16" /></span>
-                <span class="new-txt">
-                  <span class="new-label">{{ t('welcome.createWorkspace') }}</span>
-                  <span class="new-sub">{{ t('welcome.desk.tileNewWsSub') }}</span>
+                <span class="new-main">
+                  <span class="new-ico tone-ws"><FolderPlus :size="16" /></span>
+                  <span class="new-txt">
+                    <span class="new-label">{{ t('welcome.createWorkspace') }}</span>
+                    <span class="new-sub">{{ t('welcome.desk.tileNewWsSub') }}</span>
+                  </span>
+                </span>
+                <span class="new-meta">
+                  <span class="new-meta-txt">{{ t('welcome.desk.tileNewWsMeta') }}</span>
+                  <svg class="new-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
                 </span>
                 <span class="new-mark" aria-hidden="true">NEW</span>
               </button>
@@ -1346,9 +1467,9 @@ const versionNote = computed(() => {
                   <i :style="{ background: seg.color }" />{{ t(legendLabel[seg.key], { n: seg.count }) }}
                 </span>
               </div>
-              <div v-if="stats.recent.length > 0 && sizeClass !== 'size-sm'" ref="wsRecentRef" class="ws-recent">
+              <div v-if="stats.recent.length > 0 && sizeClass !== 'size-sm'" class="ws-recent">
                 <div class="mini-label">{{ t('welcome.desk.recentChanges') }}</div>
-                <div v-for="f in stats.recent.slice(0, wsRecentRows)" :key="f.path" class="mini-row">
+                <div v-for="f in stats.recent" :key="f.path" class="mini-row">
                   <span>{{ f.name }}</span>
                   <span>{{ relTime(f.mtimeMs) }}</span>
                 </div>
@@ -1446,6 +1567,7 @@ const versionNote = computed(() => {
     <DeskPet
       :continue-name="continueName"
       @continue="continuePath && emit('continue-edit', continuePath)"
+      @action="(a: 'focus' | 'top' | 'settings') => a === 'settings' && emit('pet-settings')"
     />
 
     <!-- 拖到最左收起后的恢复入口：贴左缘的窄把手，位置就是栏原来的垂直范围中部 -->
@@ -1470,6 +1592,8 @@ const versionNote = computed(() => {
   display: flex;
   flex-direction: column;
   background: var(--mk-bg);
+  /* 内容带宽：宽屏下把两侧留白收回一点，但别让卡片贴边（与脚本里的 BAND_MAX 同值） */
+  --desk-band: 1680px;
   /* 品牌色与类型色：--desk-brand / --desk-brand-deep 定义在 global.css :root，
      目录树在书桌态下共用同一份；这里只放本组件专用的派生色 */
   --desk-brand-soft: rgb(47 127 208 / 0.12);
@@ -1538,7 +1662,7 @@ const versionNote = computed(() => {
 .desk-cols,
 .foot {
   width: 100%;
-  max-width: 1440px;
+  max-width: var(--desk-band);
   margin-left: auto;
   margin-right: auto;
 }
@@ -2025,9 +2149,9 @@ kbd {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* 左栏整体垂直居中：卡片比内容高时，余量上下均分，
-     不再出现「摘要下面一大片空」或「按钮孤零零贴底」 */
-  justify-content: center;
+  /* 左栏从纸卡顶边起步、按钮落在纸卡底边上方 8px：左右两栏共用同一条上下边界，
+     不再把整块内容垂直居中在卡片余量里（飞总 2026-10-26 第 2 条） */
+  justify-content: flex-start;
 }
 .doc {
   display: flex;
@@ -2079,7 +2203,7 @@ kbd {
 .excerpt {
   position: relative;
   z-index: 2;
-  margin: 13px 0 0;
+  margin: 12px 0 0;
   font-size: 12.5px;
   line-height: 1.8;
   color: var(--mk-fg-muted);
@@ -2096,7 +2220,7 @@ kbd {
   align-items: center;
   flex-wrap: wrap;
   gap: 7px;
-  margin-top: 13px;
+  margin-top: 10px;
   font-size: 10.5px;
   color: var(--mk-fg-muted);
   font-variant-numeric: tabular-nums;
@@ -2317,13 +2441,18 @@ kbd {
   position: relative;
   z-index: 2;
   margin-top: 0;
-  padding-top: 12px;
+  /* 上 8 下 8：按钮不再压着底边，下沿留出一道呼吸。
+     腾出的 8px 从上面三处内距里补回（摘要上边距/字数行/本节上内距各减一点），
+     左栏可用高度与摘要行数因此保持不变 */
+  padding: 8px 0;
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-.compact .actions { padding-top: 10px; }
+.compact .actions { padding-top: 7px; }
+/* 按钮组吃掉左栏剩余高度，落在纸卡底边上方 8px 处 */
+.cont-main .actions { margin-top: auto; }
 
 .btn {
   display: inline-flex;
@@ -2483,6 +2612,9 @@ kbd {
   transform: translateY(-1px);
 }
 .new-tile:focus-visible { outline: var(--mk-focus-ring); outline-offset: 2px; }
+/* 图标 + 标题/描述这一组：窄档用 contents 让它们继续当磁贴的直接子项（一行布局），
+   宽屏才升格为独立容器，与底部信息栏分两段 */
+.new-main { display: contents; }
 .new-ico {
   --c: var(--desk-c-md);
   position: relative;
@@ -2523,6 +2655,83 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 磁贴底部信息行：宽屏磁贴被行高拉高时，整行横贯磁贴、箭头贴右缘，
+   上面一段放图标与标题，上下两头都不再留孤立空行 */
+.new-meta {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: auto;
+  padding-top: 5px;
+  font-size: 9.5px;
+  line-height: 1.3;
+  color: var(--mk-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.new-meta-txt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+.new-arrow {
+  flex: none;
+  margin-left: auto;
+  width: 11px;
+  height: 11px;
+  color: var(--c, var(--desk-brand));
+  opacity: 0.42;
+  transform: translateX(-2px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.new-tile:hover .new-arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+/* 大屏（xl 且高度富余）：内容区居中、信息栏贴底 */
+.roomy .new-tile {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 10px 12px 8px;
+}
+/* 行高给个上限：屏幕再高也不把磁贴拉成空盒子，多出的高度匀到栅格上下 */
+.roomy .new-grid {
+  grid-auto-rows: clamp(76px, calc((100% - 18px) / 3), 116px);
+  align-content: center;
+}
+.roomy .new-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  min-height: 0;
+}
+.roomy .new-ico {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+.roomy .new-label { font-size: 13px; }
+.roomy .new-sub { font-size: 11px; }
+.roomy .new-meta {
+  display: flex;
+  margin-top: 0;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--mk-border) 70%, transparent);
+  font-size: 10px;
+}
+/* 信息行占了右下角，悬停水印挪到右上；窄档（tight）磁贴太窄，右上会贴住标题，直接收掉 */
+.roomy .new-mark {
+  top: 7px;
+  bottom: auto;
+}
+.roomy.tight .new-mark {
+  display: none;
 }
 /* 悬停水印：右下角的类型缩写。墨色由左上向右下淡开，像压进纸面的暗纹，
    平时完全隐形，不占位也不挡点击 */
@@ -2790,6 +2999,7 @@ kbd {
   background: var(--mk-border);
 }
 .ws-name {
+  flex: none;
   margin-top: 13px;
   font-size: 16px;
   font-weight: 700;
@@ -2801,6 +3011,7 @@ kbd {
   white-space: nowrap;
 }
 .ws-path {
+  flex: none;
   margin-top: 4px;
   font-family: 'JetBrains Mono', Consolas, monospace;
   font-size: 9.5px;
@@ -2811,6 +3022,7 @@ kbd {
   white-space: nowrap;
 }
 .ws-stats {
+  flex: none;
   display: flex;
   align-items: baseline;
   gap: 4px;
@@ -2827,6 +3039,7 @@ kbd {
 }
 .ws-stats .gap { margin: 0 4px; }
 .comp-bar {
+  flex: none;
   display: flex;
   gap: 2px;
   height: 7px;
@@ -2863,6 +3076,7 @@ kbd {
   100% { transform: scaleY(1.55); }
 }
 .comp-legend {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   gap: 3px 9px;
@@ -2895,17 +3109,24 @@ kbd {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  margin-top: 10px;
-  padding-top: 9px;
+  margin-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid var(--mk-border);
-  overflow: hidden;
+  /* 行数不再按高度裁：整份列表可竖向滚动，滚动条本身藏起来 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.ws-recent::-webkit-scrollbar {
+  display: none;
 }
 .mini-label {
   flex: none;
   font-size: 9px;
   letter-spacing: 0.05em;
   color: var(--mk-fg-muted);
-  margin-bottom: 5px;
+  margin-bottom: 7px;
   opacity: 0.9;
 }
 .mini-row {
@@ -2913,8 +3134,8 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 19px;
-  font-size: 10px;
+  height: 22px;
+  font-size: 10.5px;
   color: var(--mk-fg-muted);
 }
 .mini-row span:first-child {
@@ -3156,8 +3377,9 @@ kbd {
   box-shadow: 0 0 7px -1px var(--mk-ok);
 }
 .foot-ver { white-space: nowrap; }
-/* 常驻码猫站在右下角：页脚这行引擎名让出猫的宽度，避免被压住 */
-.desk.has-pet .foot-right {
+/* 常驻码猫站在右下角：只有当内容带右缘会压到猫时才给引擎名让位，
+   否则（宽屏下内容带离猫很远）让它贴齐内容区右边缘 */
+.desk.foot-avoid-pet .foot-right {
   /* 猫右缘距窗口 22px、宽 52px，留 78px 就够，多留会把引擎名推得太左 */
   padding-right: calc(var(--pet-w, 52px) + 26px);
 }

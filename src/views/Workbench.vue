@@ -21,6 +21,7 @@ import AppDialog from '../components/AppDialog.vue';
 import FolderPicker from '../components/FolderPicker.vue';
 import FloatTip from '../components/FloatTip.vue';
 import EditorCtxMenu from '../components/EditorCtxMenu.vue';
+import DeskPet from '../components/DeskPet.vue';
 // docx-preview / xlsx 体积大（合计约 1.6MB 未压缩）且仅在点开对应文件时才渲染：
 // 懒加载拆出首屏 chunk（P1-7），模板用法不变
 const DocxPreview = defineAsyncComponent(() => import('../components/preview/DocxPreview.vue'));
@@ -54,6 +55,7 @@ import type { DocumentTab, TabKind } from '../stores/tabsStore';
 import { extractHtmlOutline, useEditorStore } from '../stores/editorStore';
 import { useSearchStore } from '../stores/searchStore';
 import { useFilePickerStore } from '../stores/filePickerStore';
+import { usePetStore } from '../stores/petStore';
 import { useExternalChangeGuard } from '../composables/useExternalChangeGuard';
 
 import {
@@ -130,6 +132,13 @@ const fileTreeRef = ref<InstanceType<typeof FileTree> | null>(null);
  *  反转产物「转换后打开」的相对路径图片据此解析，不再破图 */
 const activeDocPath = computed(() => tabs.activeTab?.path ?? tabs.activeTab?.draftPath ?? null);
 const showSettings = ref(false);
+/** 设置面板打开时落哪一栏：码猫右键菜单直接进「操作」（码猫分组在那里），其余入口默认外观 */
+type SettingsSection = 'appearance' | 'editor' | 'actions' | 'export' | 'about';
+const settingsSection = ref<SettingsSection>('appearance');
+function openSettings(section: SettingsSection = 'appearance') {
+  settingsSection.value = section;
+  showSettings.value = true;
+}
 
 /** 顶栏 GitHub 入口：用系统默认浏览器打开仓库 */
 const GITHUB_URL = 'https://github.com/gggaiitx/mkdown-site';
@@ -230,7 +239,11 @@ const closeBatchDirtyCount = computed(
 function onContentChange(v: string) {
   const tab = tabs.activeTab;
   if (!tab) return;
+  const wasDirty = tab.isDirty;
   tabs.markDirty(tab.id, v);
+  /* 只有「用户这次确实改了正文」才喂码猫：换文档/程序化同步后内容与基线一致，
+     不会变脏，也就不该触发「开始写作」或专注表情 */
+  if ((wasDirty || tab.isDirty) && v !== tab.savedContent) pet.notifyInput();
 }
 
 /** wangEditor 内容写回门控：引擎常驻（v-show），隐藏期间它承载的是上一份 mh 文档，
@@ -946,6 +959,11 @@ function saveErrorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** 码猫的失败口径：编码错误要换成「另存 UTF-8」的台词，其余只说没写进去 */
+function saveErrKind(err: unknown): 'encoding' | 'other' {
+  return err instanceof IpcError && err.code === 'ENCODING_ERROR' ? 'encoding' : 'other';
+}
+
 // ---------- 保存流水线 ----------
 async function saveActive(): Promise<void> {
   const tab = tabs.activeTab;
@@ -965,8 +983,10 @@ async function saveActive(): Promise<void> {
     // 只有「目标编码表示不了正文」（如 GBK 里写 emoji）才由后端拒绝并说明原因
     await writeFileAtomic(tab.path, tab.content, tab.hadBom, tab.encoding, tab.hadDecodeErrors);
     tabs.markSaved(tab.id, tab.content);
+    pet.notifySaved(false);
     editor.showToast(t('workbench.toast.saved', { name: baseName(tab.path) }), 'success');
   } catch (err) {
+    pet.notifySaveError(saveErrKind(err));
     editor.showToast(t('workbench.toast.saveFailed', { msg: saveErrorText(err) }), 'error');
   } finally {
     editor.saving = false;
@@ -1013,6 +1033,7 @@ async function saveActiveAs(): Promise<string | null> {
       hadDecodeErrors: false, // 另存为按纯 UTF-8 落盘：不可解码的原始字节已经不在
     });
     tabs.markSaved(tab.id, tab.content);
+    pet.notifySaved(false);
     // 另存进当前工作区：目录树是打开工作区时的快照，不回读就看不到刚写下的新文件
     //（expandTo 只改展开态，不会凭空长出节点）。刷新失败不该盖掉「已保存」的事实，静默忽略
     if (isInWorkspace(res.path)) {
@@ -1026,6 +1047,7 @@ async function saveActiveAs(): Promise<string | null> {
     editor.showToast(t('workbench.toast.savedAs', { name: newTitle }), 'success');
     return res.path;
   } catch (err) {
+    pet.notifySaveError(saveErrKind(err));
     editor.showToast(t('workbench.toast.saveAsFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
   }
   return null;
@@ -1045,10 +1067,12 @@ const autoSaveTick = debounce(
         await writeFileAtomic(tab.path as string, content, tab.hadBom, tab.encoding, tab.hadDecodeErrors);
         tabs.markSaved(id, content);
         autoSaveFailed.delete(id); // 保存成功：重置，下次失败可再次提示
+        pet.notifySaved(true);
         editor.showToast(t('workbench.toast.autoSaved', { name: baseName(tab.path as string) }), 'info');
       } catch (err) {
         if (autoSaveFailed.has(id)) return; // 本编辑周期已提示过：静默等下次停顿重试
         autoSaveFailed.add(id);
+        pet.notifySaveError(saveErrKind(err));
         editor.showToast(
           t('workbench.toast.autoSaveFailed', { msg: saveErrorText(err) }),
           'error',
@@ -1107,7 +1131,9 @@ async function confirmCloseTab(discard: boolean) {
     try {
       await writeFileAtomic(tab.path, tab.content, tab.hadBom, tab.encoding, tab.hadDecodeErrors);
       tabs.markSaved(id, tab.content); // 仅在写盘成功后标记已保存
+      pet.notifySaved(false);
     } catch (err) {
+      pet.notifySaveError(saveErrKind(err));
       editor.showToast(t('workbench.toast.saveFailed', { msg: saveErrorText(err) }), 'error');
       return; // 中止关闭：标签保留，用户可重试或另存
     }
@@ -1398,9 +1424,19 @@ function scrollToRestoredCursor(tabId: string, line: number): void {
    宿主与标题集合由当前引擎自己报（activeHeadingIndex），上层只存一个序号。 */
 let spyLast = 0;
 let spyTimer: number | undefined;
+/** 码猫阅读进度：只在阅读/分栏态上报；进度没变化（例如滚的是侧栏目录树）就不算「在读」 */
+let petReadProgress = -1;
+function reportPetReading() {
+  if (editor.mode === 'edit' || !tabs.activeTab || tabs.activeIsPreview) return;
+  const p = engineRef.value?.readingProgress?.() ?? 0;
+  if (Math.abs(p - petReadProgress) < 0.002) return;
+  petReadProgress = p;
+  pet.notifyReading(p);
+}
 function measureActiveHeading() {
   const i = engineRef.value?.activeHeadingIndex?.() ?? -1;
   if (i !== editor.activeHeading) editor.activeHeading = i;
+  reportPetReading();
 }
 /** 90ms 节流 + 尾随补一次：只为一行高亮变色，不需要每帧量；
  *  也不用 rAF —— 页面切到后台时 rAF 停摆，那种写法会把节流标记永久卡住 */
@@ -1426,7 +1462,10 @@ onBeforeUnmount(() => {
 // 切文档 / 切模式 / 大纲重算后不会有 scroll 事件（滚动位置是恢复出来的），主动补量一次
 watch(
   () => [tabs.activeId, editor.mode, editor.outline.length],
-  () => void nextTick(measureActiveHeading),
+  () => {
+    petReadProgress = -1;
+    void nextTick(measureActiveHeading);
+  },
 );
 
 /** 文档内超链接 → 应用内独立 WebView 窗口（md 预览与 mh 阅读态共用）。
@@ -1596,6 +1635,7 @@ async function doExportHtml() {
     }
     const html = deAssetify(wrapExportHtml(body), tab.path ?? t('workbench.untitledMd'));
     const written = await exportHtml(html, out);
+    pet.notifyExport('HTML');
     editor.showToast(t('workbench.toast.exported', { path: written }), 'success');
   } catch (err) {
     editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
@@ -1643,6 +1683,7 @@ async function doExportWord() {
       const data = new Uint8Array(await blob.arrayBuffer());
       const out = await exportDocx(data, target);
       if (out) {
+        pet.notifyExport('Word');
         editor.showToast(
           warnings.length
             ? `${t('workbench.toast.exported', { path: out })}（${t('workbench.toast.wordCommunityWarned', { n: warnings.length })}）`
@@ -1668,6 +1709,7 @@ async function doExportWord() {
     const data = new Uint8Array(await blob.arrayBuffer());
     const out = await exportDocx(data, target);
     if (out) {
+      pet.notifyExport('Word');
       const extra: string[] = [];
       if (degradedFormulas > 0) extra.push(t('workbench.toast.wordFormulaDegraded', { n: degradedFormulas }));
       if (failedImages > 0) extra.push(t('workbench.toast.wordImageFailed', { n: failedImages }));
@@ -1718,6 +1760,7 @@ async function doExportPdf() {
     const { buildPrintDocument } = await import('../convert/printDoc');
     const printDoc = await buildPrintDocument(html);
     const out = await exportPdf(printDoc, target);
+    pet.notifyExport('PDF');
     editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
   } catch (err) {
     editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
@@ -1934,6 +1977,7 @@ async function onCtxExportPng(): Promise<void> {
     );
     if (!target) return;
     const out = await exportPng(bytes, target);
+    pet.notifyExport('PNG');
     editor.showToast(t('workbench.toast.exported', { path: out }), 'success');
   } catch (err) {
     editor.showToast(
@@ -1967,7 +2011,9 @@ async function onCtxCopyImage(): Promise<void> {
 /** 右键「专注模式」：视图级开关，状态落设置文件（跨文档保持），点完即收菜单 */
 function onToggleFocusMode(): void {
   editorCtx.value = null;
-  settings.update({ focusMode: !settings.settings.focusMode });
+  const next = !settings.settings.focusMode;
+  void settings.update({ focusMode: next });
+  pet.noteFocusMode(next);
 }
 
 /** 右键「显示行号」：同上，切换只影响 engine-root 上的 class，不打断输入与撤销栈 */
@@ -2177,6 +2223,89 @@ async function reloadWindow(): Promise<void> {
   window.location.reload();
 }
 
+// ---------- 码猫陪伴（编辑器浮层位） ----------
+const pet = usePetStore();
+
+/** 把当前文档上下文喂给 petStore：表情、悬停文案、阅读/保存提示全靠这一份。
+ *  watch 的 getter 只读原始值，setContext 只写 pet 自己的状态，不会自激 */
+watch(
+  () => [
+    tabs.activeId,
+    tabs.activeTab?.title,
+    tabs.activeTab?.path,
+    tabs.activeTab?.isDirty,
+    editor.mode,
+    settings.settings.autoSave,
+    editor.wordCount,
+    editor.activeHeading,
+  ],
+  () => {
+    const tab = tabs.activeTab;
+    pet.setContext({
+      tabId: tab?.id ?? '',
+      hasDoc: !!tab && !tabs.activeIsPreview,
+      name: tab?.title ?? '',
+      path: tab?.path ?? '',
+      mode: editor.mode,
+      dirty: !!tab?.isDirty,
+      autoSave: settings.settings.autoSave,
+      hasPath: !!tab?.path,
+      wordCount: editor.wordCount,
+      heading: editor.outline[editor.activeHeading]?.text ?? '',
+    });
+  },
+  { immediate: true },
+);
+/** 有弹窗/浮层占据注意力时猫闭嘴：不抢设置面板、搜索、确认框的焦点 */
+const petBlocked = computed(
+  () =>
+    showSettings.value ||
+    search.visible ||
+    wordConvert.value.visible ||
+    closeConfirm.value.visible ||
+    wsSwitch.value.visible ||
+    wsCreate.value.visible ||
+    folderPicker.value.visible ||
+    filePicker.visible ||
+    wsRemoveAll.value ||
+    !!externalConflict.value,
+);
+watch(petBlocked, (v) => pet.setBlocked(v), { immediate: true });
+
+/** 标签数第一次到 3 个时提一次 Ctrl+Tab；old=0 是启动时的整批恢复，不算用户操作 */
+watch(
+  () => tabs.tabs.length,
+  (n, old) => {
+    if (old > 0 && n > old) pet.notifyTabs(n);
+  },
+);
+/** 页面全屏（md/.mh 内核层或 .editor-area 层）：进入时提一次 F11 / Esc */
+const pageFullAny = computed(() => editor.pageFull || mdPageFull.value || mhPageFull.value);
+watch(pageFullAny, (on) => {
+  if (on) pet.notifyFullscreen();
+});
+
+/** 码猫说要回顶：优先走引擎自带缓动（与右下角回顶钮同一手感） */
+function petBackToTop() {
+  const eng = engineRef.value;
+  if (eng?.smoothBackToTop) eng.smoothBackToTop();
+  else eng?.scrollToTop?.();
+  pet.noteBackTop();
+}
+
+/** 编辑器里双击码猫：阅读态回顶，写作/分栏态切专注模式 */
+function onPetPrimary() {
+  if (!tabs.activeTab || tabs.activeIsPreview) return;
+  if (editor.mode === 'read') petBackToTop();
+  else onToggleFocusMode();
+}
+
+function onPetAction(action: 'focus' | 'top' | 'settings') {
+  if (action === 'focus') onToggleFocusMode();
+  else if (action === 'top') petBackToTop();
+  else openSettings('actions');
+}
+
 function onKeydown(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey;
   // ←/→：同目录同族轮换。正文编辑区有焦点时一律放行（方向键归光标），编辑/分栏态
@@ -2227,7 +2356,8 @@ function onKeydown(e: KeyboardEvent) {
     }
     if (e.key === 'F1') {
       e.preventDefault();
-      showSettings.value = !showSettings.value;
+      if (showSettings.value) showSettings.value = false;
+      else openSettings();
       return;
     }
     if (e.key === 'F2') {
@@ -2592,7 +2722,7 @@ watch(() => editor.mode, (m) => {
       @print-pdf="doPrintPdf"
       @word-to-md="openWordConvert('md')"
       @word-to-mh="openWordConvert('mh')"
-      @settings="showSettings = true"
+      @settings="openSettings()"
       @github="openGithub"
       @update="openReleases"
     />
@@ -2776,6 +2906,7 @@ watch(() => editor.mode, (m) => {
               @open-tree-file="openFileFromDeskTree"
               @open-tree-file-dbl="openFileFromDeskTreeDbl"
               @open-tree-file-edit="openFileFromDeskTreeEdit"
+              @pet-settings="openSettings('actions')"
             />
           </Transition>
         </div>
@@ -2787,6 +2918,15 @@ watch(() => editor.mode, (m) => {
 
     <StatusBar :mode="editor.mode" />
 
+    <!-- 码猫跟随到编辑器：只给有正文的标签（预览类没有编辑/阅读语义）。
+         欢迎页由 WelcomeDesk 自己那只负责，两个 v-if 互斥，不会同屏出现两只 -->
+    <DeskPet
+      v-if="tabs.activeTab && !tabs.activeIsPreview"
+      placement="float"
+      @primary="onPetPrimary"
+      @action="onPetAction"
+    />
+
     <SearchHub
       v-if="search.visible"
       :mode="hubMode"
@@ -2797,7 +2937,7 @@ watch(() => editor.mode, (m) => {
       @find="onFind"
       @replace="onReplace"
     />
-    <SettingsDialog v-if="showSettings" @close="showSettings = false" />
+    <SettingsDialog v-if="showSettings" :section="settingsSection" @close="showSettings = false" />
 
     <!-- Word 反转「转换操作页面」（R3/R4，§9.2） -->
     <WordConvertDialog

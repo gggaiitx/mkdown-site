@@ -24,6 +24,8 @@ SOURCES = {
     "happy": ROOT / "vibe_images" / "mkdown-m-cat-3d-happy-v1_1792902398281_a9ec1207.png",
     "greet": ROOT / "vibe_images" / "mascot" / "greet.png",
     "sleepy": ROOT / "vibe_images" / "mascot" / "sleepy.png",
+    "read": ROOT / "vibe_images" / "mascot" / "read.png",
+    "alert": ROOT / "vibe_images" / "mascot" / "alert.png",
 }
 
 CANVAS_W = 240
@@ -139,11 +141,12 @@ def save(faces: dict[str, Image.Image]):
     eyes.save(dst, "PNG", optimize=True)
     print(f"  {dst.name}: {eyes.size[0]}x{eyes.size[1]}  {dst.stat().st_size / 1024:.0f} KB")
 
-    # 四联对照：切换时头/脚是否对齐，一眼能看出来
+    # 全表情对照：切换时头/脚是否对齐，一眼能看出来
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     pad = 10
     w, h = faces["idle"].size
-    board = Image.new("RGBA", (w * 4 + pad * 5, h + pad * 2), (246, 247, 250, 255))
+    cols = len(faces)
+    board = Image.new("RGBA", (w * cols + pad * (cols + 1), h + pad * 2), (246, 247, 250, 255))
     for i, (name, im) in enumerate(faces.items()):
         board.alpha_composite(im, (pad + i * (w + pad), pad))
     d = ImageDraw.Draw(board)

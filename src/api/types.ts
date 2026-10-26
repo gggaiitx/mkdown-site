@@ -222,7 +222,14 @@ export interface AppSettings {
   welcomeRailWidth: number;
   /** 书桌右下角那只「码猫」是否显示。关掉后整只猫不出现（含定时提醒） */
   petEnabled: boolean;
+  /** 码猫提示话量：quiet 只留保存失败等必说项 / normal 标准 / chatty 话痨 */
+  petTipsLevel: PetTipsLevel;
+  /** 已经说过的功能小贴士（onceKey），跨文档、跨启动只提示一次 */
+  petTipsSeen: string[];
 }
+
+/** 码猫提示话量三档（设置-码猫；与 petStore 的限流间隔一一对应） */
+export type PetTipsLevel = 'quiet' | 'normal' | 'chatty';
 
 /** 文件树排序：名称 / 修改时间 / 大小，各两向 */
 export type FileTreeSort =
@@ -286,4 +293,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fileTreeWidth: 260,
   welcomeRailWidth: 208,
   petEnabled: true,
+  petTipsLevel: 'normal',
+  petTipsSeen: [],
 };

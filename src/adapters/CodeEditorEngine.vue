@@ -13,6 +13,7 @@ import { basicSetup } from 'codemirror';
 import { mkFindExtension, setCmFind } from './findHighlight';
 import { focusLineExtension, setFocusMode } from './cmFocusLine';
 import { captureScrollTop, restoreScrollTop } from './scrollRestore';
+import { smoothScrollTop } from '../utils/smoothScroll';
 import { codeDarkTheme, codeLightTheme } from './codeTheme';
 import { buildLanguageExtensions } from './codeLanguage';
 import type { EditorCtxPayload } from './IMarkdownEngine';
@@ -224,7 +225,31 @@ function restoreScroll(top: number): void {
   restoreScrollTop(() => view?.scrollDOM ?? null, top);
 }
 
-defineExpose({ scrollToLine, insert, copyScopeText, highlight, clearHighlight, replaceRange, replaceDocText, captureScroll, restoreScroll });
+/** 换文档后回顶：restoreScrollTop 对 0 明确跳过（0 不算有效存档），这里直接写 */
+function scrollToTop(): void {
+  const host = view?.scrollDOM;
+  if (host) host.scrollTop = 0;
+}
+
+/** 带缓动回顶（码猫双击 / 右键菜单） */
+function smoothBackToTop(): void {
+  smoothScrollTop(view?.scrollDOM ?? null);
+}
+
+/** 阅读进度 0~1（码猫用）：内容不足一屏返回 0 */
+function readingProgress(): number {
+  const host = view?.scrollDOM;
+  if (!host) return 0;
+  const max = host.scrollHeight - host.clientHeight;
+  if (max <= 8) return 0;
+  return Math.min(1, Math.max(0, host.scrollTop / max));
+}
+
+defineExpose({
+  scrollToLine, insert, copyScopeText, highlight, clearHighlight,
+  replaceRange, replaceDocText, captureScroll, restoreScroll,
+  scrollToTop, smoothBackToTop, readingProgress,
+});
 
 onBeforeUnmount(() => {
   view?.destroy();

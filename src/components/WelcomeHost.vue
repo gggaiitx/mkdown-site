@@ -36,6 +36,8 @@ const emit = defineEmits<{
   (e: 'search'): void;
   /** 书桌版是否自带左侧目录栏：外层据此把全局侧栏让位（避免同一棵树出现两次） */
   (e: 'update:rail', rail: boolean): void;
+  /** 书桌码猫右键「码猫设置…」：向上转给 Workbench 开设置面板 */
+  (e: 'pet-settings'): void;
 }>();
 
 const settings = useSettingsStore();
@@ -139,6 +141,7 @@ watch(showRail, (v) => emit('update:rail', v), { immediate: true });
       @switch-workspace="(d: string) => emit('switch-workspace', d)"
       @remove-all-workspaces="emit('remove-all-workspaces')"
       @search="emit('search')"
+      @pet-settings="emit('pet-settings')"
     />
     <Welcome
       v-else

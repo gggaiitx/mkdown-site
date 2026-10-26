@@ -69,6 +69,11 @@ export interface CommonEngineHandle {
   restoreScroll?(top: number): void;
   /** 回到文档顶部（换文档时用：restoreScroll(0) 按「0 不是有效存档」被刻意跳过） */
   scrollToTop?(): void;
+  /** 带缓动的回到顶部（码猫双击/右键菜单用；BackTop 浮标走引擎内部同一套缓动） */
+  smoothBackToTop?(): void;
+  /** 当前阅读进度 0~1：量「读者在看的那一栏」（阅读态 / 分栏预览）。
+   *  未挂载或内容不足一屏返回 0——码猫据它决定要不要说「看了一半 / 看完了」 */
+  readingProgress?(): number;
   /**
    * 当前阅读位置对应的标题序号（滚动联动：内容滚到哪个标题，大纲选中哪一条）。
    * 量的是「读者在看的那一栏」——md 分栏量预览、阅读态量阅读栏，-1 = 无标题/未挂载。

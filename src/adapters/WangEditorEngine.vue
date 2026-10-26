@@ -690,6 +690,15 @@ function smoothBackToTop(): void {
   smoothScrollTop(findScrollRoot());
 }
 
+/** 阅读进度 0~1（码猫用）：内容不足一屏返回 0 */
+function readingProgress(): number {
+  const host = findScrollRoot();
+  if (!host) return 0;
+  const max = host.scrollHeight - host.clientHeight;
+  if (max <= 8) return 0;
+  return Math.min(1, Math.max(0, host.scrollTop / max));
+}
+
 defineExpose({
   scrollToLine,
   scrollToMatch,
@@ -703,6 +712,8 @@ defineExpose({
   captureScroll,
   restoreScroll,
   scrollToTop,
+  smoothBackToTop,
+  readingProgress,
   activeHeadingIndex,
   copyAllText,
 });

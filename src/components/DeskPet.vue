@@ -1,77 +1,121 @@
 <script setup lang="ts">
 /**
- * 书桌右下角的常驻码猫。
+ * 码猫本体：书桌右下角与编辑器右下角共用同一套表情/气泡/微动。
  *
- * 四种表情原图交叉淡化 + CSS 微动（业界"3~5 张表情图"那一档）：
- *   idle  睁眼坐着，默认态，叠一层眨眼
- *   greet 举爪打招呼，指针移上来时切
- *   happy 眯眼笑，点一下切
- *   sleepy 打哈欠闭眼，长时间没操作时切
+ * 两个落位：
+ *   desk  —— 欢迎书桌里，屁股贴在书桌区底边（宿主是 .desk，尺寸由父盒量出来）；
+ *   float —— 编辑器里，fixed 贴窗口右下（状态栏之上），不参与编辑区布局。
  *
- * 四张图已由 scripts/gen-pet-faces.py 归一化到 240x294（头顶到脚底等高、底边对齐、水平居中），
- * 所以切换时头和脚不会跳。微动做在外层容器上，不参与表情切换。
+ * 八种情绪，其中 focus / think 没有单独原画，复用 idle 的脸靠姿态区分：
+ *   idle 坐着 / greet 举爪 / happy 眯眼 / sleepy 打哈欠 / read 捧书 / alert 惊到
+ *   focus 身体微侧、压住呼吸幅度；think 歪头（卡稿时）
+ * 六张原图已由 scripts/gen-pet-faces.py 归一化到 240x294，切换时头脚不跳。
+ *
+ * 状态不落在本组件里：mood / 气泡 / 困倦与提醒计时全在 petStore，书桌与编辑器
+ * 两个实例同时挂载也只有一份计时。本组件只负责 DOM、指针手势与右键菜单。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { Check } from '@lucide/vue';
 import { useI18n } from '../i18n';
+import { useCtxMenu } from '../composables/useCtxMenu';
+import { usePetStore, type PetMood, type PetTipsLevel } from '../stores/petStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import eyesSrc from '../assets/mascot/pet-eyes.png';
 import idleFace from '../assets/mascot/pet-face-idle.webp';
 import happyFace from '../assets/mascot/pet-face-happy.webp';
 import greetFace from '../assets/mascot/pet-face-greet.webp';
 import sleepyFace from '../assets/mascot/pet-face-sleepy.webp';
+import readFace from '../assets/mascot/pet-face-read.webp';
+import alertFace from '../assets/mascot/pet-face-alert.webp';
 
-type Mood = 'idle' | 'happy' | 'greet' | 'sleepy';
-
-const FACES: Record<Mood, string> = {
+const FACES: Record<PetMood, string> = {
   idle: idleFace,
   happy: happyFace,
   greet: greetFace,
   sleepy: sleepyFace,
+  read: readFace,
+  alert: alertFace,
+  /* 专注/思考没有单独原画：借用 idle 的脸，用姿态与呼吸节奏区分 */
+  focus: idleFace,
+  think: idleFace,
 };
 
-const props = defineProps<{
-  /** 继续写作的文件名：悬停气泡里点名 */
-  continueName?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    /** desk = 欢迎书桌（按父盒量坐标）；float = 编辑器浮层（fixed 贴右下） */
+    placement?: 'desk' | 'float';
+    /** 继续写作的文件名：书桌悬停气泡里点名 */
+    continueName?: string;
+    /** float 档离窗口底边的距离：等于状态栏高度，猫脚正好压在状态栏顶边上 */
+    bottom?: number;
+  }>(),
+  { placement: 'desk', bottom: 24 },
+);
 
 const emit = defineEmits<{
+  /** 书桌双击：继续上次的文件 */
   (e: 'continue'): void;
+  /** 编辑区双击：阅读态回顶、写作态切专注模式（由 Workbench 决定） */
+  (e: 'primary'): void;
+  (e: 'action', action: 'focus' | 'top' | 'settings'): void;
 }>();
 
-const { t, tList } = useI18n();
+const { t } = useI18n();
 const settings = useSettingsStore();
+const pet = usePetStore();
 
 /** 归一化画布 240x294 */
 const RATIO = 294 / 240;
 /** 固定显示宽度：它是坐在状态栏上的装饰，尺寸不再做成选项 */
 const PET_W = 52;
-/** 空闲多久切"困了"：半分钟没动就打哈欠 */
-const NAP_AFTER = 30_000;
+const PET_H = Math.round(PET_W * RATIO);
 
 const rootRef = ref<HTMLElement | null>(null);
 const hostW = ref(0);
+const winW = ref(typeof window === 'undefined' ? 1280 : window.innerWidth);
 const dockTop = ref(0);
 const entered = ref(false);
 const ready = ref(false);
-const bubble = ref('');
 const react = ref(false);
-const mood = ref<Mood>('idle');
 
-const petH = Math.round(PET_W * RATIO);
-const visible = computed(() => settings.settings.petEnabled && hostW.value >= 460);
+const petH = PET_H;
+const visible = computed(() => {
+  if (!settings.settings.petEnabled) return false;
+  if (props.placement === 'float') return winW.value >= 640;
+  return hostW.value >= 460;
+});
 
-const rootStyle = {
+const rootStyle = computed(() => ({
   '--pet-w': `${PET_W}px`,
   '--pet-h': `${petH}px`,
-};
+  '--pet-bottom': `${props.bottom}px`,
+}));
+
+const dockStyle = computed(() => (props.placement === 'desk' ? { top: `${dockTop.value}px` } : undefined));
+
+const poseClass = computed(() => ({
+  'is-focus': pet.mood === 'focus',
+  'is-think': pet.mood === 'think',
+  'is-read': pet.mood === 'read',
+  'lean-down': pet.lean > 0,
+  'lean-up': pet.lean < 0,
+}));
+
+const tipsLevel = computed<PetTipsLevel>(() => settings.settings.petTipsLevel ?? 'normal');
+const LEVELS = computed<{ value: PetTipsLevel; label: string }[]>(() => [
+  { value: 'quiet', label: t('pet.menu.levelQuiet') },
+  { value: 'normal', label: t('pet.menu.levelNormal') },
+  { value: 'chatty', label: t('pet.menu.levelChatty') },
+]);
 
 const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
-// ---------------------------------------------------------------- 定位
+// ---------------------------------------------------------------- 定位（仅书桌档）
 let ro: ResizeObserver | null = null;
 
 /** 屁股贴在书桌区最底边（= 应用状态栏上沿）。对齐的是底边，尺寸怎么变都落在同一条线上 */
 function measure() {
+  if (props.placement !== 'desk') return;
   const host = rootRef.value?.parentElement;
   if (!host) return;
   const hr = host.getBoundingClientRect();
@@ -79,199 +123,161 @@ function measure() {
   dockTop.value = Math.round(hr.height - petH);
 }
 
-// ---------------------------------------------------------------- 状态
-let backTimer = 0;
-let napTimer = 0;
-let sayTimer = 0;
-
-function backToIdleAfter(ms: number) {
-  window.clearTimeout(backTimer);
-  backTimer = window.setTimeout(() => {
-    if (mood.value !== 'sleepy') mood.value = 'idle';
-  }, ms);
+function onWinResize() {
+  winW.value = window.innerWidth;
+  measure();
 }
 
-function setMood(next: Mood, backMs?: number) {
-  mood.value = next;
-  if (backMs) backToIdleAfter(backMs);
-  else window.clearTimeout(backTimer);
+// ---------------------------------------------------------------- 入场 / 宿主挂载
+/** 本实例是否真的挂上了 store：不可见时不能盲调 detachHost，否则会把另一个实例的宿主计数减掉 */
+let attached = false;
+
+function syncAttach(on: boolean) {
+  if (on === attached) return;
+  attached = on;
+  if (on) pet.attachHost();
+  else pet.detachHost();
 }
 
-function resetNap() {
-  window.clearTimeout(napTimer);
-  if (!visible.value || document.hidden) return;
-  napTimer = window.setTimeout(() => {
-    if (mood.value === 'idle') mood.value = 'sleepy';
-  }, NAP_AFTER);
-}
+watch(visible, syncAttach, { immediate: true });
 
-// ---------------- 定时提醒 ----------------
-/**
- * 普通提醒半小时一次，**锚点定在每小时的 :01 和 :31**（避开整点——整点常撞会议/系统通知）。
- * 12:00 饭点、17:30 下班是精确时刻，单独排在网格上。
- * 用 setTimeout 直接排到下一个时间戳，不用 setInterval 轮询（后台标签会被节流成分钟粒度）。
- */
-type SlotKind = 'half' | 'lunch' | 'offwork';
-interface Slot {
-  at: number;
-  kind: SlotKind;
-}
+// ---------------------------------------------------------------- 表情微动
+let reactTimer = 0;
+watch(
+  () => pet.hopSeq,
+  () => {
+    react.value = false;
+    requestAnimationFrame(() => {
+      react.value = true;
+      window.clearTimeout(reactTimer);
+      reactTimer = window.setTimeout(() => (react.value = false), 620);
+    });
+  },
+);
 
-/** 普通提醒的分钟锚点 */
-const HALF_ANCHORS = [1, 31];
-
-const HOUR_LINES = computed(() => tList('pet.reminds'));
-const LUNCH_LINES = computed(() => tList('pet.lunch'));
-const OFFWORK_LINES = computed(() => tList('pet.offwork'));
-let remindTimer = 0;
-/** 上一次真正弹出去的时间：饭点和紧随其后的 :01 只差一分钟，靠它压掉重复 */
-let lastFireAt = 0;
-
-function nextSlot(from: number): Slot {
-  const todayAt = (h: number, m: number) => {
-    const d = new Date(from);
-    d.setHours(h, m, 0, 0);
-    return d.getTime();
-  };
-  const hourStart = new Date(from);
-  hourStart.setMinutes(0, 0, 0);
-  const base = hourStart.getTime();
-  // 本小时的 :01 / :31，都过了就落到下一小时的 :01
-  const half = HALF_ANCHORS.map((m) => base + m * 60_000).find((t) => t > from) ?? base + 3_600_000 + 60_000;
-
-  const slots: Slot[] = [{ at: half, kind: 'half' }];
-  const lunch = todayAt(12, 0);
-  const off = todayAt(17, 30);
-  if (lunch > from) slots.push({ at: lunch, kind: 'lunch' });
-  if (off > from) slots.push({ at: off, kind: 'offwork' });
-
-  // 同一时刻撞上时具体事件优先（例如 12:00 与 12:01 挨得太近，先让饭点排上）
-  slots.sort((a, b) => a.at - b.at || (a.kind === 'half' ? 1 : -1));
-  return slots[0];
-}
-
-function pickOne(list: string[], fallback: string): string {
-  return list.length ? list[Math.floor(Math.random() * list.length)] : fallback;
-}
-
-function fireSlot(kind: SlotKind) {
-  if (!visible.value || document.hidden) return;
-  // 饭点 12:00 弹完，12:01 那一轮普通提醒不重复弹（两条相隔一分钟，会像卡了）
-  if (Date.now() - lastFireAt < 90_000) return;
-  lastFireAt = Date.now();
-  const fallback = t('pet.deskGreet');
-  const text =
-    kind === 'lunch'
-      ? pickOne(LUNCH_LINES.value, fallback)
-      : kind === 'offwork'
-        ? pickOne(OFFWORK_LINES.value, fallback)
-        : pickOne(HOUR_LINES.value, fallback);
-  say(text, 9000);
-  setMood('greet', 3800);
-}
-
-function scheduleRemind() {
-  window.clearTimeout(remindTimer);
-  const now = Date.now();
-  const slot = nextSlot(now);
-  remindTimer = window.setTimeout(() => {
-    try {
-      // 系统休眠/唤醒回来时可能晚很多，那一条就作废，别补一发过期的
-      if (Date.now() - slot.at < 120_000) fireSlot(slot.kind);
-    } finally {
-      scheduleRemind();
-    }
-  }, Math.max(1000, slot.at - now));
-}
-
-function say(text: string, ms = 2400) {
-  bubble.value = text;
-  window.clearTimeout(sayTimer);
-  sayTimer = window.setTimeout(() => {
-    if (bubble.value === text) bubble.value = '';
-  }, ms);
-}
-
-// ---------------------------------------------------------------- 交互
-const LINES = computed(() => {
-  const list = tList('pet.lines');
-  return list.length ? list : [t('pet.deskGreet')];
-});
-
+// ---------------------------------------------------------------- 指针手势
 function onEnter() {
   if (!ready.value) return;
-  // 悬停优先：取消待执行的"回 idle"，否则 hover 手势会被上一轮的计时器打断
-  window.clearTimeout(backTimer);
-  resetNap();
-  if (mood.value !== 'happy') setMood('greet');
-  const name = props.continueName;
-  if (name) {
-    const short = name.length > 16 ? `${name.slice(0, 15)}…` : name;
-    say(t('pet.backTo', { name: short }), 4200);
-  } else {
-    say(t('pet.deskGreet'), 4200);
-  }
+  pet.hover(props.continueName);
 }
 
 function onLeave() {
-  if (mood.value === 'happy') {
-    // 点完的开心表情让它再走 0.6s 才收，立刻切 idle 会像闪了一下
-    backToIdleAfter(600);
-    return;
-  }
-  setMood('idle');
-  bubble.value = '';
+  if (!ready.value) return;
+  clearLongPress();
+  pet.leave();
 }
 
-/** 随机取一句，但不连着两次同一句——38 条的池子里连中两次会显得像坏了 */
-let lastLineIdx = -1;
-function pickLine(): string {
-  const list = LINES.value;
-  if (!list.length) return t('pet.deskGreet');
-  if (list.length === 1) return list[0];
-  let i = Math.floor(Math.random() * list.length);
-  if (i === lastLineIdx) i = (i + 1) % list.length;
-  lastLineIdx = i;
-  return list[i];
-}
-
-let reactTimer = 0;
 function onClick(e: MouseEvent) {
   e.stopPropagation();
   if (!ready.value) return;
-  resetNap();
-  setMood('happy', 2200);
-  react.value = false;
-  requestAnimationFrame(() => {
-    react.value = true;
-    window.clearTimeout(reactTimer);
-    reactTimer = window.setTimeout(() => (react.value = false), 620);
-  });
-  say(pickLine(), 4200);
+  if (longPressed) {
+    longPressed = false;
+    return;
+  }
+  pet.press();
 }
 
 function onDblClick(e: MouseEvent) {
   e.stopPropagation();
-  emit('continue');
+  if (!ready.value) return;
+  if (props.placement === 'float') emit('primary');
+  else emit('continue');
 }
 
-/** 任何点击都算"人还在"，从困倦里醒过来 */
-function onDocDown() {
-  if (mood.value === 'sleepy') mood.value = 'idle';
-  resetNap();
+function onKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  if (!ready.value) return;
+  pet.press();
 }
 
-function onVisibility() {
-  if (document.hidden) window.clearTimeout(napTimer);
-  else resetNap();
+/* 长按 = 呼噜：550ms 后触发，松手时把随后那次 click 吃掉 */
+let pressTimer = 0;
+let longPressed = false;
+
+function clearLongPress() {
+  window.clearTimeout(pressTimer);
+  pressTimer = 0;
+}
+
+/** 长按后把指针拖出按钮再松手：按钮收不到 pointerup，得在这里把标记清掉，
+ *  否则下一次正常点击会被 onClick 当成「长按的尾随 click」白吞一次 */
+function onPointerLeave() {
+  clearLongPress();
+  longPressed = false;
+}
+
+function onPointerDown(e: PointerEvent) {
+  if (e.button !== 0) return;
+  longPressed = false;
+  clearLongPress();
+  pressTimer = window.setTimeout(() => {
+    pressTimer = 0;
+    longPressed = true;
+    pet.longPress();
+  }, 550);
+}
+
+function onPointerUp() {
+  clearLongPress();
+}
+
+// ---------------------------------------------------------------- 右键菜单
+const { menu, setMenuRef, open: openMenuAt, close: closeMenu } = useCtxMenu();
+
+function onContextMenu(e: MouseEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  openMenuAt(e.clientX, e.clientY);
+}
+
+function openMenuAtPet() {
+  const r = rootRef.value?.getBoundingClientRect();
+  if (!r) return;
+  openMenuAt(Math.max(8, r.right - 12), Math.max(8, r.bottom - petH));
+}
+
+function pick(level: PetTipsLevel) {
+  closeMenu();
+  void settings.update({ petTipsLevel: level });
+}
+
+function pickQuiet() {
+  closeMenu();
+  pet.toggleQuiet();
+}
+
+function pickScratch() {
+  closeMenu();
+  pet.longPress();
+}
+
+function pickAction(action: 'focus' | 'top' | 'settings') {
+  closeMenu();
+  emit('action', action);
+}
+
+function pickHide() {
+  closeMenu();
+  void settings.update({ petEnabled: false });
+}
+
+function onDocClick() {
+  if (menu.value) closeMenu();
+}
+
+function onDocKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && menu.value) closeMenu();
 }
 
 // ---------------------------------------------------------------- 生命周期
 onMounted(() => {
-  const host = rootRef.value?.parentElement;
-  if (host) {
-    ro = new ResizeObserver(() => measure());
-    ro.observe(host);
+  if (props.placement === 'desk') {
+    const host = rootRef.value?.parentElement;
+    if (host && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => measure());
+      ro.observe(host);
+    }
   }
   measure();
   /* 首帧量到的常是布局落定前的值（字体、栅格列宽都还在变），后面也没有 resize 纠正 */
@@ -286,67 +292,147 @@ onMounted(() => {
     window.setTimeout(() => (ready.value = true), reduceMotion ? 0 : 620);
   });
 
-  window.addEventListener('resize', measure);
-  window.addEventListener('pointerdown', onDocDown, true);
-  // 滚轮也算"人在"：只监听点击的话，专心读文档不点鼠标，30 秒就会被打哈欠
-  window.addEventListener('wheel', resetNap, { capture: true, passive: true });
-  document.addEventListener('visibilitychange', onVisibility);
-  resetNap();
-  scheduleRemind();
+  window.addEventListener('resize', onWinResize);
+  document.addEventListener('click', onDocClick);
+  document.addEventListener('keydown', onDocKey);
 });
 
 onBeforeUnmount(() => {
-  window.clearTimeout(backTimer);
-  window.clearTimeout(napTimer);
-  window.clearTimeout(sayTimer);
+  syncAttach(false);
   window.clearTimeout(reactTimer);
-  window.clearTimeout(remindTimer);
+  clearLongPress();
   ro?.disconnect();
   ro = null;
-  window.removeEventListener('resize', measure);
-  window.removeEventListener('pointerdown', onDocDown, true);
-  window.removeEventListener('wheel', resetNap, true);
-  document.removeEventListener('visibilitychange', onVisibility);
+  window.removeEventListener('resize', onWinResize);
+  document.removeEventListener('click', onDocClick);
+  document.removeEventListener('keydown', onDocKey);
 });
 </script>
 
 <template>
-  <!-- 外层常驻：宿主宽度靠它量（rootRef.parentElement），根节点一加 v-if 就永远测不到宽度 -->
-  <div ref="rootRef" class="desk-pet" :style="rootStyle" aria-hidden="true">
+  <!-- 外层常驻：书桌档靠它量宿主（rootRef.parentElement），根节点一加 v-if 就永远测不到宽度 -->
+  <div
+    ref="rootRef"
+    class="desk-pet"
+    :class="{ 'is-float': placement === 'float' }"
+    :style="rootStyle"
+  >
     <div
       v-if="visible"
       class="pet-dock"
-      :class="{ 'is-in': entered }"
-      :style="{ top: `${dockTop}px` }"
+      :class="{ 'is-in': entered, 'is-float': placement === 'float' }"
+      :style="dockStyle"
       @mouseenter="onEnter"
       @mouseleave="onLeave"
-      @click="onClick"
-      @dblclick="onDblClick"
+      @contextmenu="onContextMenu"
     >
-      <div class="dock-body" :class="{ 'is-react': react, 'is-resting': mood === 'sleepy' }">
-        <div class="face-stack">
-          <img
-            v-for="(src, key) in FACES"
-            :key="key"
-            class="face"
-            :class="{ on: mood === key }"
-            :src="src"
-            alt=""
-            draggable="false"
-          />
-          <!-- 眨眼只叠在 idle 上：另外三张本来就是眯眼/闭眼 -->
-          <img v-if="mood === 'idle'" class="pet-eyes" :src="eyesSrc" alt="" draggable="false" />
+      <button
+        type="button"
+        class="pet-hit"
+        :aria-label="t('pet.aria')"
+        @click="onClick"
+        @dblclick="onDblClick"
+        @keydown="onKeydown"
+        @keydown.shift.f10.prevent="openMenuAtPet"
+        @pointerdown="onPointerDown"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+        @pointerleave="onPointerLeave"
+      >
+        <div
+          class="dock-body"
+          :class="{
+            'is-react': react,
+            'is-resting': pet.mood === 'sleepy',
+            'is-alert': pet.mood === 'alert',
+            'is-typing': pet.mood === 'focus',
+          }"
+        >
+          <div class="pet-pose" :class="poseClass">
+            <div class="face-stack">
+              <img
+                v-for="(src, key) in FACES"
+                :key="key"
+                class="face"
+                :class="{ on: pet.mood === key }"
+                :src="src"
+                alt=""
+                draggable="false"
+              />
+              <!-- 眨眼只叠在 idle 系（idle / focus / think）：其余几张本来就是眯眼/闭眼/捧书 -->
+              <img
+                v-if="pet.mood === 'idle' || pet.mood === 'focus' || pet.mood === 'think'"
+                class="pet-eyes"
+                :src="eyesSrc"
+                alt=""
+                draggable="false"
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      </button>
 
       <Transition name="mk-pet-bubble">
-        <div v-if="bubble" class="pet-bubble">
+        <button
+          v-if="pet.bubble"
+          type="button"
+          class="pet-bubble"
+          :class="`kind-${pet.bubbleKind}`"
+          role="status"
+          aria-live="polite"
+          @click.stop="pet.dismissBubble()"
+        >
           <span class="bubble-dot" />
-          {{ bubble }}
-        </div>
+          {{ pet.bubble }}
+        </button>
       </Transition>
     </div>
 
+    <Teleport to="body">
+      <div
+        v-if="menu"
+        :ref="setMenuRef"
+        class="mk-menu pet-menu"
+        :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
+        @contextmenu.prevent
+      >
+        <div class="pet-menu-title">{{ t('pet.menu.title') }}</div>
+        <button class="mk-menu-item" @click="pickScratch">
+          <span class="menu-ico-space" />{{ t('pet.menu.pet') }}
+        </button>
+        <button class="mk-menu-item" @click="pickQuiet">
+          <span class="menu-ico-space" />{{ pet.quietActive ? t('pet.menu.unquiet') : t('pet.menu.quiet') }}
+        </button>
+        <div class="mk-menu-sep" />
+        <div class="pet-menu-label">{{ t('pet.menu.level') }}</div>
+        <button
+          v-for="lv in LEVELS"
+          :key="lv.value"
+          class="mk-menu-item pet-level"
+          @click="pick(lv.value)"
+        >
+          <Check v-if="tipsLevel === lv.value" class="mk-menu-ico" />
+          <span v-else class="menu-ico-space" />
+          {{ lv.label }}
+        </button>
+        <template v-if="placement === 'float'">
+          <div class="mk-menu-sep" />
+          <button class="mk-menu-item" :disabled="!pet.context.hasDoc" @click="pickAction('focus')">
+            <span class="menu-ico-space" />{{ t('pet.menu.focus') }}
+          </button>
+          <button class="mk-menu-item" :disabled="!pet.context.hasDoc" @click="pickAction('top')">
+            <span class="menu-ico-space" />{{ t('pet.menu.top') }}
+          </button>
+        </template>
+        <div class="mk-menu-sep" />
+        <button class="mk-menu-item" @click="pickAction('settings')">
+          <span class="menu-ico-space" />{{ t('pet.menu.settings') }}
+        </button>
+        <button class="mk-menu-item" @click="pickHide">
+          <span class="menu-ico-space" />{{ t('pet.menu.hide') }}
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -356,6 +442,16 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 6; /* 压过卡片，低于应用菜单带 */
   pointer-events: none;
+}
+/* 编辑器浮层：不占流、不量父盒，只有一只猫那么大（气泡溢出可见） */
+.desk-pet.is-float {
+  position: fixed;
+  inset: auto;
+  right: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  z-index: var(--mk-z-pet);
 }
 
 .pet-dock {
@@ -376,6 +472,27 @@ onBeforeUnmount(() => {
   opacity: 1;
   transform: translateY(0);
 }
+.pet-dock.is-float {
+  position: fixed;
+  right: 22px;
+  bottom: var(--pet-bottom);
+}
+/* 交互语义挂在真按钮上（键盘/读屏）；这里只把原生按钮外观抹掉 */
+.pet-hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 12px;
+}
+.pet-hit:focus-visible {
+  outline: var(--mk-focus-ring);
+  outline-offset: 4px;
+}
 
 /* 微动：呼吸 + 极慢的侧倾。做在外层，和表情切换互不干扰 */
 .dock-body {
@@ -395,6 +512,10 @@ onBeforeUnmount(() => {
 .dock-body.is-resting {
   animation-duration: 7.2s;
 }
+/* 打字时收住幅度：猫在旁边趴着，不抢注意力 */
+.dock-body.is-typing {
+  animation-duration: 6.8s;
+}
 .dock-body.is-react {
   animation: pet-hop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -404,8 +525,40 @@ onBeforeUnmount(() => {
   58% { transform: translateY(0) scale(1.03, 0.96); }
   100% { transform: translateY(0) scale(1, 1); }
 }
+/* 警觉：保存失败这类坏消息，先抖一下再定格 */
+.dock-body.is-alert {
+  animation: pet-alert 0.56s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+@keyframes pet-alert {
+  0%, 100% { transform: translateX(0); }
+  18% { transform: translateX(-3px) rotate(-2deg); }
+  38% { transform: translateX(3px) rotate(2deg); }
+  58% { transform: translateX(-2px) rotate(-1.4deg); }
+  78% { transform: translateX(1.5px) rotate(0.8deg); }
+}
 
-/* 四张表情叠在一起交叉淡化：归一化过，头脚都不会跳 */
+/* 姿态层：歪头/侧身/跟着阅读方向轻倾。和呼吸动画分开，互不覆盖 */
+.pet-pose {
+  transform-origin: 50% 100%;
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pet-pose.is-focus {
+  transform: rotate(-2.2deg) translateY(1px);
+}
+.pet-pose.is-think {
+  transform: rotate(4.5deg);
+}
+.pet-pose.is-read {
+  transform: rotate(-1deg) translateY(2px);
+}
+.pet-pose.is-read.lean-down {
+  transform: rotate(-3.4deg) translateY(2px);
+}
+.pet-pose.is-read.lean-up {
+  transform: rotate(1.6deg) translateY(1px);
+}
+
+/* 六张表情叠在一起交叉淡化：归一化过，头脚都不会跳 */
 .face-stack {
   position: relative;
   width: 100%;
@@ -451,18 +604,21 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   width: max-content;
+  /* 提示文案比台词长（最长一句约 24 字），必须允许折行；上限随窗口收窄，别顶出屏幕 */
+  max-width: min(260px, calc(100vw - 120px));
   padding: 7px 11px 8px;
   border-radius: 10px;
   border: 1px solid var(--mk-border-strong);
   background: var(--mk-panel);
   color: var(--mk-fg);
+  font: inherit;
   font-size: 12px;
-  line-height: 1.4;
-  /* 不折行：折过之后一句 17 字的吐槽被切成两截，读起来断气。
-     宽度交给内容自己决定，最长一句 17 字 ≈ 226px，窗口最窄 460 也放得下 */
-  white-space: nowrap;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
   box-shadow: 0 14px 30px -20px rgb(16 24 40 / 0.55);
-  pointer-events: none;
+  cursor: pointer;
 }
 .pet-bubble::after {
   content: '';
@@ -476,6 +632,10 @@ onBeforeUnmount(() => {
   background: var(--mk-panel);
   transform: rotate(45deg);
 }
+.pet-bubble:focus-visible {
+  outline: var(--mk-focus-ring);
+  outline-offset: 2px;
+}
 .bubble-dot {
   width: 5px;
   height: 5px;
@@ -483,6 +643,17 @@ onBeforeUnmount(() => {
   background: var(--desk-brand);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--desk-brand) 16%, transparent);
   flex: none;
+}
+.pet-bubble.kind-warn {
+  border-color: color-mix(in srgb, var(--mk-warn) 55%, var(--mk-border-strong));
+}
+.pet-bubble.kind-warn .bubble-dot {
+  background: var(--mk-warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mk-warn) 18%, transparent);
+}
+.pet-bubble.kind-ok .bubble-dot {
+  background: var(--mk-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mk-accent) 16%, transparent);
 }
 
 .mk-pet-bubble-enter-active,
@@ -495,16 +666,38 @@ onBeforeUnmount(() => {
   transform: translateY(4px) scale(0.97);
 }
 
+/* ---------- 右键菜单 ---------- */
+.pet-menu {
+  min-width: 176px;
+}
+.pet-menu-title,
+.pet-menu-label {
+  padding: 5px 10px 4px;
+  font-size: 11px;
+  color: var(--mk-fg-muted);
+  letter-spacing: 0.02em;
+}
+.pet-menu-label {
+  padding-top: 2px;
+}
+.menu-ico-space {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pet-dock,
   .face,
+  .pet-pose,
   .mk-pet-bubble-enter-active,
   .mk-pet-bubble-leave-active {
     transition: none;
   }
   .dock-body,
   .pet-eyes,
-  .dock-body.is-react {
+  .dock-body.is-react,
+  .dock-body.is-alert {
     animation: none;
   }
 }

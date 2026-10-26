@@ -260,9 +260,18 @@ const BACK_TOP_MODES: SelectItem[] = [
   { value: 'auto', label: 'settings.backTopAuto' },
   { value: 'always', label: 'settings.backTopAlways' },
 ];
+const PET_TIPS_LEVELS: SelectItem[] = [
+  { value: 'quiet', label: 'settings.petTipsQuiet' },
+  { value: 'normal', label: 'settings.petTipsNormal' },
+  { value: 'chatty', label: 'settings.petTipsChatty' },
+];
 
 // ---- 左右分栏分类导航（对齐 WorkBuddy 设置面板形态） ----
 type SectionId = 'appearance' | 'editor' | 'actions' | 'export' | 'about';
+const props = defineProps<{
+  /** 打开时落哪一栏：码猫右键「设置…」直达操作页，其余入口默认外观 */
+  section?: SectionId;
+}>();
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'settings.sectionAppearance', icon: Palette },
   { id: 'editor', label: 'settings.sectionEditor', icon: SlidersHorizontal },
@@ -270,7 +279,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
   { id: 'export', label: 'settings.sectionExport', icon: SquareArrowOutUpRight },
   { id: 'about', label: 'settings.sectionAbout', icon: Info },
 ];
-const active = ref<SectionId>('appearance');
+const active = ref<SectionId>(props.section ?? 'appearance');
 
 /** 设置页副描述默认收起：点标题旁的信息图标展开，再点收起（全局同时只开一条） */
 type HintKey =
@@ -761,6 +770,15 @@ onBeforeUnmount(onDragEnd);
               </label>
             </div>
             <div v-if="openHint === 'pet'" id="hint-pet" class="sec-note">{{ t('settings.petHint') }}</div>
+            <div class="row" v-if="settings.settings.petEnabled">
+              <label>{{ t('settings.petTipsLevel') }}</label>
+              <SettingsSelect
+                :model-value="settings.settings.petTipsLevel"
+                :options="tr(PET_TIPS_LEVELS)"
+                :aria-label="t('settings.petTipsLevel')"
+                @update:model-value="patch({ petTipsLevel: $event as AppSettings['petTipsLevel'] })"
+              />
+            </div>
 
             <!-- 资源管理器：拖宽的侧栏宽度是否记住 -->
             <div class="sec-sub">

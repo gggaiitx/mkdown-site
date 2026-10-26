@@ -206,6 +206,11 @@ function onClick(): void {
   transform: none;
   pointer-events: auto;
 }
+/* 码猫常驻右下（编辑器浮层位，right 22 / 宽 52）：回顶钮左移让开同一条竖线，
+   两个圆钮并排而不叠成一坨。书桌页没有回顶钮，这条规则实际只在编辑器生效 */
+html.pet-docked .mk-backtop {
+  right: 84px;
+}
 .mk-backtop:hover,
 .mk-backtop:focus-visible {
   color: var(--mk-accent);

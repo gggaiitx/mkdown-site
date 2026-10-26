@@ -233,6 +233,11 @@ fn default_pet_enabled() -> bool {
     true
 }
 
+/// 码猫提示话量：出厂「标准」
+fn default_pet_tips_level() -> String {
+    "normal".into()
+}
+
 /// ←/→ 同目录文件切换：出厂开
 fn default_sibling_nav() -> bool {
     true
@@ -369,6 +374,12 @@ pub struct AppSettings {
     /// 「码猫」开关：书桌右下角那只猫是否显示（关掉后含定时提醒一起停）
     #[serde(default = "default_pet_enabled")]
     pub pet_enabled: bool,
+    /// 码猫提示话量："quiet" | "normal"（默认）| "chatty"
+    #[serde(default = "default_pet_tips_level")]
+    pub pet_tips_level: String,
+    /// 已经说过的功能小贴士（onceKey），跨文档、跨启动只提示一次
+    #[serde(default)]
+    pub pet_tips_seen: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -419,6 +430,8 @@ impl Default for AppSettings {
             file_tree_width: default_file_tree_width(),
             welcome_rail_width: default_welcome_rail_width(),
             pet_enabled: default_pet_enabled(),
+            pet_tips_level: default_pet_tips_level(),
+            pet_tips_seen: Vec::new(),
         }
     }
 }
