@@ -82,6 +82,9 @@ export interface CommonEngineHandle {
   /** 阅读态右键「复制全文」的取文口径（两引擎刻意不同，见各自实现）：
    *  md = 与落盘一致的 Markdown 源码，.mh = 渲染后的纯文本（HTML 源码对读者没用） */
   copyAllText?(): string;
+  /** 长图导出用：当前内容列的内容盒宽度（CSS px），让长图行宽与屏幕上所见一致。
+   *  量不出返回 0，调用方按中等版式兜底；代码引擎不实现。 */
+  getContentWidth?(): number;
 }
 
 /** 右键菜单的复制取文口径：仅代码引擎实现——Markdown/富文本没有「复制代码」语义 */
@@ -110,6 +113,9 @@ export interface MarkdownEngineHandle {
   /** Word 导出用的预览 HTML 快照：同步内容到导出宿主 → 等渲染（mermaid/katex 完成）→ 取 innerHTML。
    *  复用 waitExportPreviewReady 等待机制；编辑态同样可用（宿主恒驻）。 */
   getExportPreviewHtml(): Promise<string>;
+  /** 右键「复制为公众号 / 知乎」用的渲染快照：同一条等待链，但**保留 mermaid 源码**
+   *  （平台编辑器会剥掉内联 svg，转换层据此降级为代码块），也不做尺寸量测。 */
+  getCopyPreviewHtml(): Promise<string>;
   /** 表格编辑：对光标所在表格执行行/列增删、紧凑规整（normalize）或等宽对齐（align-wide）。
    *  返回 false = 光标不在表格内 / 该操作对当前表不适用（如宽表等宽对齐），调用方据此提示 */
   tableOp(op: TableOp): boolean;

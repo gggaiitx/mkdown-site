@@ -219,6 +219,7 @@ pub fn run() -> tauri::Result<()> {
             commands::export_cmd::export_docx,
             commands::export_cmd::export_pdf,
             commands::export_cmd::export_png,
+            commands::export_cmd::export_long_image,
             // 更新检测
             commands::update_cmd::check_update,
             commands::update_cmd::download_update,

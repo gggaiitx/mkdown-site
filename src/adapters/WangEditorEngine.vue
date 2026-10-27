@@ -699,6 +699,24 @@ function readingProgress(): number {
   return Math.min(1, Math.max(0, host.scrollTop / max));
 }
 
+/** 长图导出用：当前正文列的内容盒宽度（CSS px）。正文列 = [data-slate-editor] 的
+ *  padding-inline 之内；量不到时回退根上的版式宽度变量（100% 按容器算）。 */
+function getContentWidth(): number {
+  const container = editorRef.value?.getEditableContainer() as HTMLElement | null;
+  const el = (container?.querySelector<HTMLElement>('[data-slate-editor]') ?? container) ?? null;
+  if (el && el.clientWidth > 0) {
+    const cs = getComputedStyle(el);
+    const w = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    if (w > 0) return Math.round(w);
+  }
+  const root = container?.closest<HTMLElement>('.wang-engine-root') ?? null;
+  if (!root) return 0;
+  const raw = getComputedStyle(root).getPropertyValue('--mk-content-w').trim();
+  if (raw.endsWith('%')) return Math.round((root.clientWidth * parseFloat(raw)) / 100);
+  const px = parseFloat(raw);
+  return Number.isFinite(px) && px > 0 ? Math.round(px) : 0;
+}
+
 defineExpose({
   scrollToLine,
   scrollToMatch,
@@ -714,6 +732,7 @@ defineExpose({
   scrollToTop,
   smoothBackToTop,
   readingProgress,
+  getContentWidth,
   activeHeadingIndex,
   copyAllText,
 });

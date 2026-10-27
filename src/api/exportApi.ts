@@ -20,3 +20,9 @@ export const exportPdf = (html: string, path: string) =>
  *  写到应用内选择器给定的路径 */
 export const exportPng = (data: Uint8Array, path: string) =>
   call<string>('export_png', { data, path });
+
+/** 导出长图：前端传自包含 HTML（convert/longImage.ts 产物）与截图宽度（CSS px）；
+ *  Rust 侧调系统 Edge headless 两趟——量高度、整页截图——写 PNG 到选择器给定路径。
+ *  未检测到 Edge 时抛错 */
+export const exportLongImage = (html: string, width: number, path: string) =>
+  call<string>('export_long_image', { html, width, path });

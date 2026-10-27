@@ -7,6 +7,8 @@
  * D9：光栅化失败时返回 { source }，由映射层降级为 $...$ 源码文本 + toast 汇总。
  */
 
+import { katexTexOf } from '../utils/katexTex';
+
 export interface ImagefyResult {
   /** SVG 字节（Mermaid 直嵌用） */
   svg?: Uint8Array;
@@ -196,10 +198,12 @@ async function rasterizeHtmlText(el: HTMLElement, scale = 2): Promise<Uint8Array
   }
 }
 
-/** KaTeX 节点 → PNG（文本层光栅化）；失败按 D9 返回源码 */
+/** KaTeX 节点 → PNG（文本层光栅化）；失败按 D9 返回源码。
+ *  源码走 katexTexOf 那三条通道；全落空才退回视觉层那一半——绝不能取整棵 textContent，
+ *  MathML 的 mi/mo/mn 会和源码拼成「Emc2E=mc^2」，Word 里就是重复一遍的公式 */
 async function imagefyKatex(katexEl: Element): Promise<ImagefyResult | null> {
-  const annotation = katexEl.querySelector('annotation');
-  const source = (annotation?.textContent ?? katexEl.textContent ?? '').trim();
+  const source = katexTexOf(katexEl)
+    || ((katexEl.querySelector('.katex-html') ?? katexEl).textContent ?? '').trim();
   const rect = katexEl.getBoundingClientRect();
   const w = Math.max(1, Math.round(rect.width || 40));
   const h = Math.max(1, Math.round(rect.height || 20));

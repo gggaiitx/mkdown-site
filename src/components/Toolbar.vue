@@ -7,7 +7,7 @@ import {
   Pencil, Columns2, BookOpen,   Search, FileCode2, Printer,
   Sun, Moon, Settings, Minus, Plus, Download,
   PanelLeftOpen, PanelLeftClose,
-  FileText, ArrowRightLeft, FileType,
+  FileText, ArrowRightLeft, FileType, ImageDown,
   Minus as WinMin, Square, Copy, X,
 } from '@lucide/vue';
 
@@ -61,6 +61,7 @@ const emit = defineEmits<{
   (e: 'export-html'): void;
   (e: 'export-word'): void;
   (e: 'export-pdf'): void;
+  (e: 'export-long-image'): void;
   (e: 'print-pdf'): void;
   (e: 'word-to-md'): void;
   (e: 'word-to-mh'): void;
@@ -378,11 +379,21 @@ function onFileItem(e: 'new' | 'open-file' | 'new-workspace' | 'open-workspace')
 }
 
 /** 导出类菜单项（同属文件菜单）：派发语义事件后统一收起（避免遮挡后续操作） */
-function onExportItem(e: 'export-html' | 'export-word' | 'export-pdf' | 'print-pdf' | 'word-to-md' | 'word-to-mh') {
+function onExportItem(
+  e:
+    | 'export-html'
+    | 'export-word'
+    | 'export-pdf'
+    | 'export-long-image'
+    | 'print-pdf'
+    | 'word-to-md'
+    | 'word-to-mh',
+) {
   closeMenu();
   if (e === 'export-html') emit('export-html');
   else if (e === 'export-word') emit('export-word');
   else if (e === 'export-pdf') emit('export-pdf');
+  else if (e === 'export-long-image') emit('export-long-image');
   else if (e === 'print-pdf') emit('print-pdf');
   else if (e === 'word-to-md') emit('word-to-md');
   else emit('word-to-mh');
@@ -523,6 +534,14 @@ function onDocKeydown(e: KeyboardEvent) {
           <button class="mk-menu-item om-item" :disabled="!exportable || props.exporting" @click="onExportItem('export-pdf')">
             <FileType class="om-ic" />
             <span class="om-label">{{ t('toolbar.exportPdf') }}</span>
+          </button>
+          <button
+            class="mk-menu-item om-item"
+            :disabled="!exportable || props.exporting"
+            @click="onExportItem('export-long-image')"
+          >
+            <ImageDown class="om-ic" />
+            <span class="om-label">{{ t('toolbar.exportLongImage') }}</span>
           </button>
           <div class="om-group">{{ t('toolbar.groupPrint') }}</div>
           <button class="mk-menu-item om-item" :disabled="!printable" @click="onExportItem('print-pdf')">

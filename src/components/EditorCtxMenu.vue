@@ -7,6 +7,8 @@
  * 富文本（.mh）编辑态只给视图级三项：Markdown 源码语义的表格/标题/格式项对它无意义。
  * 代码引擎同样去掉 Markdown 语义项，换成「搜索 / 复制 / 粘贴代码」三项 + 自动换行；
  * 纯文本（txt/log/csv）沿用这一套动作，但文案改说「文本」。
+ * md 的编辑/分栏窗格把「复制全文」升成二级飞窗：「复制原文 / 复制为公众号 / 复制为知乎」
+ * ——后两项是给平台编辑器用的富文本（内联样式 / 语义标签），见 utils/copyHtml.ts。
  * 阅读态与分栏的预览窗格（载荷 read=true，两者都是只读窗格）换成只读那一套：
  * 搜索 / 复制全文 / 预览主题▸ / 版式▸ / 模式对向入口——
  * 表格·标题·格式是 Markdown 源码语义，显示行号只画在 CM 编辑窗格，给了都不生效，故一并隐去。
@@ -23,6 +25,7 @@ import {
   WandSparkles, AlignHorizontalSpaceAround, RefreshCw, ChevronRight, Focus, Check, ListEnd, Maximize, Minimize2,
   Search, Copy, ClipboardPaste, MoveHorizontal, Pencil, Columns2, BookOpen, WrapText,
   ImageDown, Move, RotateCcw, Palette,
+  FileCode2, MessageSquareText, MessagesSquare,
   Text, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Bold, Italic, Quote, Code, SquareCode, List, ListOrdered, ListTodo, Link,
 } from '@lucide/vue';
@@ -31,6 +34,7 @@ import { useCtxMenu } from '../composables/useCtxMenu';
 import { altHint, modHint, modShiftHint } from '../utils/keyHint';
 import { PREVIEW_THEMES } from '../utils/previewTheme';
 import type { EditorCtxPayload } from '../adapters/IMarkdownEngine';
+import type { CopyTarget } from '../utils/copyHtml';
 import type { EditorMode, PreviewBarMode, ReadLayout } from '../api/types';
 import type { TableOp } from '../utils/mdTable';
 import type { FormatId, HeadingId } from '../utils/mdActions';
@@ -85,8 +89,11 @@ const emit = defineEmits<{
   (e: 'barReset'): void;
   /** 文件内查找：与 Ctrl+F 同一条链路（代码引擎与阅读态共用，文案按上下文取） */
   (e: 'search'): void;
-  /** 阅读态「复制全文」：取文口径在引擎（md = 源码，.mh = 渲染纯文本），剪贴板与提示在 Workbench */
+  /** 阅读态「复制全文」：取文口径在引擎（md = 源码，.mh = 渲染纯文本），剪贴板与提示在 Workbench。
+   *  md 编辑/分栏窗格走下面那条 copyAs 链路，这里只剩阅读态与 .mh 编辑态还在用 */
   (e: 'copyAll'): void;
+  /** md 编辑/分栏窗格「复制为公众号 / 知乎」：取渲染快照 → 平台格式 → 富文本剪贴板，全在 Workbench */
+  (e: 'copyAs', target: CopyTarget): void;
   /** 阅读态切回编辑 / 分栏：模式真相源在 Workbench.setMode */
   (e: 'mode', mode: EditorMode): void;
   /** 内容版式（窄 / 中 / 宽）：写设置，与设置面板同一入口 */
@@ -125,6 +132,9 @@ const textDoc = computed(() => codeOnly.value && props.plainText === true);
 const isRead = computed(() => props.ctx?.read === true);
 /** 版式飞窗：md 分栏态不给——那一档根本不挂 layout--* 类（正文宽度由两栏平分决定），选了没反应 */
 const showLayout = computed(() => !codeOnly.value && props.mode !== 'split');
+/** 「复制」二级飞窗：只给 md 的编辑/分栏窗格（源码在手、要发出去的就是这一份）。
+ *  阅读态与 .mh 仍是单条「复制全文」，代码引擎那套是「复制代码 / 粘贴代码」，都不长成三项 */
+const showCopyAs = computed(() => !mhOnly.value && !codeOnly.value && !isRead.value);
 /** 预览主题飞窗：只给 md 的预览窗格（阅读态 / 分栏预览）。
  *  .mh 的正文走 wangEditor，previewTheme 对它不生效；编辑态没有预览 DOM，改了看不到反馈 */
 const showPreviewTheme = computed(() => isRead.value && !mhOnly.value && !codeOnly.value && !frameOnly.value);
@@ -144,24 +154,26 @@ const modeIcon: Record<EditorMode, Component> = { edit: Pencil, split: Columns2,
 const modeKey: Record<EditorMode, string> = { edit: 'E', split: 'W', read: 'R' };
 
 /** 同时只可能展开一个飞窗，故用独立 ref 而非同名 ref（避免卸载/挂载次序影响测量） */
-type GroupId = 'table' | 'heading' | 'layout' | 'bar' | 'theme';
+type GroupId = 'table' | 'heading' | 'layout' | 'bar' | 'theme' | 'copy';
 const openGroup = ref<GroupId | null>(null);
 const tableSubRef = ref<HTMLElement | null>(null);
 const headingSubRef = ref<HTMLElement | null>(null);
 const layoutSubRef = ref<HTMLElement | null>(null);
 const barSubRef = ref<HTMLElement | null>(null);
 const themeSubRef = ref<HTMLElement | null>(null);
+const copySubRef = ref<HTMLElement | null>(null);
 /** 三档工具条显隐：与设置 previewBarMode 同源，顺序即菜单顺序 */
 const barModes: PreviewBarMode[] = ['auto', 'shown', 'hidden'];
 /** 版式四档：与设置面板「内容版式」同源，顺序即菜单顺序 */
 const layouts: ReadLayout[] = ['narrow', 'medium', 'wide', 'full'];
-/** 四组飞窗的测量目标。openGroup 一次只会展开一个，故按档位取对应 ref（比 ternary 链好加档） */
+/** 五组飞窗的测量目标。openGroup 一次只会展开一个，故按档位取对应 ref（比 ternary 链好加档） */
 const subRefs: Record<GroupId, Ref<HTMLElement | null>> = {
   table: tableSubRef,
   heading: headingSubRef,
   layout: layoutSubRef,
   bar: barSubRef,
   theme: themeSubRef,
+  copy: copySubRef,
 };
 /** 飞窗定位覆写：默认贴右（left: calc(100% + 2px)），越界时改为贴左并上移 */
 const subStyle = ref<Record<string, string>>({});
@@ -309,7 +321,8 @@ onBeforeUnmount(() => {
       <kbd class="mk-menu-key">{{ modHint('Shift+F') }}</kbd>
     </button>
     <!-- 动作区：三引擎共用同一条流程，按引擎与形态裁剪，不再各写一套分支。
-         搜索与 Ctrl+F 同源；复制全文的口径在引擎（md = 源码、.mh = 渲染纯文本、代码 = 选区优先）；
+         搜索与 Ctrl+F 同源；复制的取文口径在引擎（md = 源码、.mh = 渲染纯文本、代码 = 选区优先）；
+         md 编辑/分栏把复制做成飞窗（原文 / 公众号 / 知乎），其余形态仍是一条「复制全文」。
          粘贴只有代码引擎给（走 CM 单事务，Ctrl+Z 一步整体撤回），md/.mh 的粘贴原生 Ctrl+V 已可用。
          预览窗格整组不给：iframe 里的文字与应用查找面板不是一套模型 -->
     <template v-if="!frameOnly">
@@ -318,10 +331,36 @@ onBeforeUnmount(() => {
       <Search class="mk-menu-ico" /><span>{{ t(textDoc ? 'workbench.ctx.searchText' : codeOnly ? 'workbench.ctx.searchCode' : 'workbench.ctx.search') }}</span>
       <kbd class="mk-menu-key">{{ modHint('F') }}</kbd>
     </button>
-    <button v-if="!codeOnly" class="mk-menu-item" @click="emit('copyAll')">
+    <button v-if="!codeOnly && !showCopyAs" class="mk-menu-item" @click="emit('copyAll')">
       <Copy class="mk-menu-ico" /><span>{{ t('workbench.ctx.copyAll') }}</span>
     </button>
-    <template v-else>
+    <!-- md 编辑/分栏：「复制」升成二级飞窗。原文 = 源码（粘到别处还能接着编辑），
+         公众号 / 知乎 = 渲染后的富文本，各自按平台清洗规则套样式（utils/copyHtml.ts） -->
+    <div
+      v-if="showCopyAs"
+      class="ctx-group"
+      @mouseenter="showGroup('copy')"
+      @mouseleave="hideGroup('copy')"
+    >
+      <button class="mk-menu-item">
+        <Copy class="mk-menu-ico" /><span>{{ t('workbench.ctx.copy') }}</span>
+        <ChevronRight class="ctx-arrow" />
+      </button>
+      <div v-if="openGroup === 'copy'" ref="copySubRef" class="mk-menu ctx-sub" :style="subStyle">
+        <button class="mk-menu-item" @click="emit('copyAll')">
+          <FileCode2 class="mk-menu-ico" /><span>{{ t('workbench.ctx.copySource') }}</span>
+        </button>
+        <button class="mk-menu-item" @click="emit('copyAs', 'wechat')">
+          <MessageSquareText class="mk-menu-ico" /><span>{{ t('workbench.ctx.copyWechat') }}</span>
+        </button>
+        <button class="mk-menu-item" @click="emit('copyAs', 'zhihu')">
+          <MessagesSquare class="mk-menu-ico" /><span>{{ t('workbench.ctx.copyZhihu') }}</span>
+        </button>
+      </div>
+    </div>
+    <!-- 复制/粘贴代码只给代码引擎（v-if 必须挂在这里：上面复制按钮已是独立 v-if，
+         绑成它的 v-else 会把这两项漏进 .mh / 阅读态的菜单） -->
+    <template v-if="codeOnly">
       <button class="mk-menu-item" @click="emit('copyCode')">
         <Copy class="mk-menu-ico" /><span>{{ t(textDoc ? 'workbench.ctx.copyText' : 'workbench.ctx.copyCode') }}</span><kbd class="mk-menu-key">{{ modHint('C') }}</kbd>
       </button>

@@ -86,6 +86,9 @@ const emit = defineEmits<{
 
 const rootRef = ref<HTMLElement | null>(null);
 const editorRef = ref<InstanceType<typeof MdEditor> | null>(null);
+/** 导出/打印宿主外壳（Teleport 到 body 直下）：md 与 .mh 两个引擎的宿主 id 同名，
+ *  按 document.getElementById 会命中对方——复制快照按这个 ref 在自己的子树里取 */
+const exportHostRef = ref<HTMLElement | null>(null);
 
 // md-editor 的 class prop 只接受 string；编辑器外壳保持铺满（版式不再缩外壳）
 const editorClass = computed(() => 'engine-editor');
@@ -1010,7 +1013,13 @@ function onExportPreviewRendered(): void {
  * 且已过最少 500ms（对齐内核 renderDelay）判就绪。mermaid/图片等异步资源的
  * 继续加载仍由打印对话框弹出前的空档兜底（同原固定等待口径）。
  */
-function waitExportPreviewReady(): Promise<void> {
+function waitExportPreviewReady(scope?: HTMLElement | null): Promise<void> {
+  /** 宿主查找：给了 scope 就只在自己那棵子树里找——md / .mh 两个引擎的导出宿主 id 同名，
+   *  按 document 找会命中对方（常驻 v-show 时两棵都在 DOM 里） */
+  const find = (): HTMLElement | null =>
+    scope
+      ? scope.querySelector<HTMLElement>('#export-pdf-preview')
+      : document.getElementById('export-pdf-preview');
   return new Promise((resolve) => {
     const done = (): void => {
       exportRenderWake = null;
@@ -1018,12 +1027,12 @@ function waitExportPreviewReady(): Promise<void> {
     };
     exportRenderWake = done;
     const startedAt = performance.now();
-    const host = document.getElementById('export-pdf-preview');
+    const host = find();
     let lastLen = host?.textContent?.length ?? -1;
     let missFrames = 0; // 宿主缺失计数：防无限 rAF 空转（缺失由调用方 exportPreviewMissing 报错）
     const tick = (): void => {
       if (!exportRenderWake) return; // 已被 on-html-changed 唤醒
-      const el = document.getElementById('export-pdf-preview');
+      const el = find();
       const len = el?.textContent?.length ?? -1;
       if (len < 0) {
         if (++missFrames > 30) {
@@ -1160,6 +1169,23 @@ async function getExportPreviewHtml(): Promise<string> {
   }
 }
 
+/**
+ * 右键「复制为公众号 / 知乎」的渲染快照：与 getExportPreviewHtml 同一条等待链，但
+ *  ① **不做 mermaid svg 替换**——两个平台的编辑器都会剥掉内联 svg，转换层要靠
+ *     data-content 里的源码降级成代码块，替成 svg 就再也取不回来了；
+ *  ② 不量尺寸，故不必把宿主切成 live（KaTeX/代码高亮都是同步渲染，隐藏 DOM 里照样成形）。
+ * 内容取 CM 实时文档而非 props.modelValue：右键前一瞬打的字也要算进去。
+ */
+async function getCopyPreviewHtml(): Promise<string> {
+  const container = exportHostRef.value;
+  exportContent.value = copyAllText();
+  await waitExportPreviewReady(container);
+  await nextTick();
+  const host = container?.querySelector<HTMLElement>('#export-pdf-preview') ?? null;
+  if (!host) throw new Error(t('engine.exportPreviewMissing'));
+  return host.innerHTML;
+}
+
 /** 当前滚动宿主：阅读态是自建容器 `.read-scroll`，编辑/分栏态是内核的 `.cm-scroller` */
 function scrollHost(): HTMLElement | null {
   return rootRef.value?.querySelector<HTMLElement>(props.mode === 'read' ? '.read-scroll' : '.cm-scroller') ?? null;
@@ -1233,6 +1259,30 @@ function readingProgress(): number {
   return Math.min(1, Math.max(0, el.scrollTop / max));
 }
 
+/** 长图导出用：当前内容列的内容盒宽度（CSS px）——量屏幕上那一栏，长图行宽才与所见一致。
+ *  阅读态量阅读栏里的预览、分栏量右栏；仅编辑态量源码栏（隐藏的预览 clientWidth=0），
+ *  量不到再回退版式宽度变量（100% 按容器算，但那会连两侧 20px 留白一起算进去）。 */
+function getContentWidth(): number {
+  const root = rootRef.value;
+  if (!root) return 0;
+  const el = root.querySelector<HTMLElement>(
+    props.mode === 'read'
+      ? '.read-column .md-editor-preview'
+      : props.mode === 'split'
+        ? '.md-editor-preview'
+        : '.cm-content',
+  );
+  if (el && el.clientWidth > 0) {
+    const cs = getComputedStyle(el);
+    const w = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    if (w > 0) return Math.round(w);
+  }
+  const raw = getComputedStyle(root).getPropertyValue('--mk-content-w').trim();
+  if (raw.endsWith('%')) return Math.round((root.clientWidth * parseFloat(raw)) / 100);
+  const px = parseFloat(raw);
+  return Number.isFinite(px) && px > 0 ? Math.round(px) : 0;
+}
+
 defineExpose({
   scrollToLine,
   insert,
@@ -1245,6 +1295,7 @@ defineExpose({
   clearHighlight,
   exportPdf,
   getExportPreviewHtml,
+  getCopyPreviewHtml,
   tableOp,
   insertTable,
   focusEditor,
@@ -1256,6 +1307,7 @@ defineExpose({
   scrollToTop,
   smoothBackToTop,
   readingProgress,
+  getContentWidth,
   activeHeadingIndex,
 });
 
@@ -1806,7 +1858,7 @@ onBeforeUnmount(() => {
          屏幕上隐藏，打印时由文件末尾 @media print 规则（移植自官方 ExportPDF.css）单独显示。
          theme 恒 light：打印产物固定白底黑字，不跟随应用暗色主题 -->
     <Teleport to="body">
-      <div class="mk-export-host" :class="{ 'mk-host-off': active === false }" aria-hidden="true">
+      <div ref="exportHostRef" class="mk-export-host" :class="{ 'mk-host-off': active === false }" aria-hidden="true">
         <MdPreview
           id="export-pdf-preview"
           :key="language ?? 'zh-CN'"

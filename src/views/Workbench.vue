@@ -40,6 +40,8 @@ import { modHint } from '../utils/keyHint';
 import { formatMarkdown } from '../utils/mdFormat';
 import { formatXml } from '../utils/markup';
 import { copyImageFile } from '../utils/clipboardImage';
+import { buildCopyHtml, type CopyTarget } from '../utils/copyHtml';
+import { writeClipboardHtml, CLIPBOARD_UNAVAILABLE } from '../utils/clipboardHtml';
 import {
   hydrateSession,
   applyActiveTabMode,
@@ -71,7 +73,7 @@ import {
   takePendingOpenArgs,
   writeFileAtomic,
 } from '../api/fileApi';
-import { exportDocx, exportHtml, exportPdf, exportPng } from '../api/exportApi';
+import { exportDocx, exportHtml, exportPdf, exportPng, exportLongImage } from '../api/exportApi';
 import { IpcError } from '../api/ipc';
 import { createWorkspaceDir, getDefaultWorkspaceParent } from '../api/workspaceApi';
 import type { WordStyleOpts } from '../convert/htmlToDocx';
@@ -1769,6 +1771,76 @@ async function doExportPdf() {
   }
 }
 
+/** 长图的 :root 变量：全局字号/字体写在 <html> 行内样式里，headless 文档的
+ *  collectStyles 抓不到，必须显式带过去，否则按默认 13px 出图 */
+function shotRootVars(): Record<string, string> {
+  const cs = getComputedStyle(document.documentElement);
+  const out: Record<string, string> = {};
+  for (const name of ['--mk-font-size', '--mk-font-family', '--mk-text-font-family']) {
+    const v = cs.getPropertyValue(name).trim();
+    if (v) out[name] = v;
+  }
+  return out;
+}
+
+/** 导出长图（自适应当前内容版式宽度）：
+ *  快照 → buildLongImageDocument（按内容列定宽 + 字号/字体变量 + 图片内联）
+ *  → exportLongImage（Rust 侧 Edge headless 两趟：量高度、整页截图）。
+ *  与 Word/PDF/HTML 共用 exportingWord 互斥锁 */
+async function doExportLongImage() {
+  const tab = tabs.activeTab;
+  if (!tab || tabs.activeIsPreview) return;
+  if (usesCodeEngine.value || isMarkupTab.value) {
+    editor.showToast(t('workbench.toast.codeNoExport'), 'info');
+    return;
+  }
+  if (exportingWord.value) return;
+  exportingWord.value = true;
+  try {
+    const target = await pickSaveTarget(
+      t('toolbar.exportLongImage'),
+      exportTargetName(tab.path ?? t('workbench.untitledMd'), 'png'),
+      'png',
+      exportStartDir(),
+    );
+    if (!target) return;
+    editor.showToast(t('workbench.toast.exporting'), 'info');
+    let html: string;
+    let measured: number;
+    if (isMhTab.value) {
+      html = wangEngineRef.value?.getDisplayHtml?.() ?? tab.content;
+      measured = wangEngineRef.value?.getContentWidth?.() ?? 0;
+    } else {
+      html = (await mdEngineRef.value?.getExportPreviewHtml?.()) ?? editor.previewHtml ?? '';
+      measured = mdEngineRef.value?.getContentWidth?.() ?? 0;
+    }
+    if (!html.trim()) {
+      editor.showToast(t('workbench.toast.wordExportEmpty'), 'error');
+      return;
+    }
+    const contentWidth = Math.min(1600, Math.max(420, measured || 940));
+    const { buildLongImageDocument } = await import('../convert/longImage');
+    const doc = await buildLongImageDocument(html, {
+      kind: isMhTab.value ? 'mh' : 'md',
+      contentWidth,
+      title: tab.title,
+      rootVars: shotRootVars(),
+    });
+    const out = await exportLongImage(doc.html, doc.width, target);
+    pet.notifyExport('PNG');
+    const extra =
+      doc.failedImages > 0 ? `（${t('workbench.toast.wordImageFailed', { n: doc.failedImages })}）` : '';
+    editor.showToast(
+      `${t('workbench.toast.exported', { path: out })}${extra}`,
+      doc.failedImages > 0 ? 'info' : 'success',
+    );
+  } catch (err) {
+    editor.showToast(t('workbench.toast.exportFailed', { msg: err instanceof Error ? err.message : String(err) }), 'error');
+  } finally {
+    exportingWord.value = false;
+  }
+}
+
 /** Word 反转入口（R3/R4）：直接打开转换操作页。
  *  弹窗内拖入/选择文件开始转换；激活标签为 docx 预览时由 source-path 预设直转。
  *  并发守卫（V3）：转换进行中忽略二次触发并 toast */
@@ -2080,8 +2152,9 @@ async function onCtxPasteCode(): Promise<void> {
   engineRef.value?.insert(text);
 }
 
-/** 右键「复制全文」（阅读态）：取文口径在引擎——md 给 Markdown 源码（粘出去仍可编辑），
- *  .mh 给渲染后的纯文本（HTML 源码对读者没用）。选区复制不必给：只读正文本就能直接选中，Ctrl+C 是原生的 */
+/** 右键「复制全文」（阅读态 / .mh 编辑态）：取文口径在引擎——md 给 Markdown 源码（粘出去仍可编辑），
+ *  .mh 给渲染后的纯文本（HTML 源码对读者没用）。选区复制不必给：只读正文本就能直接选中，Ctrl+C 是原生的。
+ *  md 编辑/分栏态走下面那条 onCtxCopyAs 的飞窗，这里同时兼任飞窗第一项「复制原文」 */
 async function onCtxCopyAll(): Promise<void> {
   editorCtx.value = null;
   const text = engineRef.value?.copyAllText?.() ?? '';
@@ -2094,6 +2167,45 @@ async function onCtxCopyAll(): Promise<void> {
     editor.showToast(t('workbench.toast.docCopied'), 'success');
   } catch {
     editor.showToast(t('workbench.toast.clipboardBlocked', { k: modHint('C') }), 'error');
+  }
+}
+
+/**
+ * 右键「复制为公众号 / 知乎」：渲染快照 → 目标平台富文本 → 双口味剪贴板。
+ * 两件事必须说清楚，否则用户会以为「复制成功了但正文少了东西」：
+ * 本地图片平台取不到（asset://），图表/公式在平台编辑器里也留不住（内联 svg 与 MathML 被剥），
+ * 转换层把它们降级成占位与源码，这里按计数把降级结果写进提示语。
+ */
+async function onCtxCopyAs(target: CopyTarget): Promise<void> {
+  editorCtx.value = null;
+  // 这一档只给 md 引擎（菜单侧 showCopyAs 同判据），其余引擎没有这个方法就没有富文本可出
+  const engine = engineRef.value;
+  if (!engine?.getCopyPreviewHtml) return;
+  try {
+    const snapshot = await engine.getCopyPreviewHtml();
+    const res = buildCopyHtml(snapshot, target);
+    if (!res.text.trim()) {
+      editor.showToast(t('workbench.toast.codeEmpty'), 'info');
+      return;
+    }
+    await writeClipboardHtml(res.html, res.text);
+    const notes: string[] = [];
+    if (res.droppedImages) notes.push(t('workbench.toast.copyImageSkipped', { n: res.droppedImages }));
+    if (res.chartSources) notes.push(t('workbench.toast.copyChartSource', { n: res.chartSources }));
+    if (res.mathSources) notes.push(t('workbench.toast.copyMathSource', { n: res.mathSources }));
+    const base = t(target === 'wechat' ? 'workbench.toast.copiedWechat' : 'workbench.toast.copiedZhihu');
+    editor.showToast(notes.length ? `${base}（${notes.join('；')}）` : base, 'success');
+  } catch (err) {
+    // 剪贴板被拒与渲染快照没就位是两回事：前者给 Ctrl+C 出路，后者照实说（与导出 Word 同一口径）
+    const msg = err instanceof Error ? err.message : String(err);
+    editor.showToast(
+      msg === CLIPBOARD_UNAVAILABLE
+        ? t('workbench.toast.clipboardBlocked', { k: modHint('C') })
+        : t('workbench.toast.exportFailed', { msg }),
+      'error',
+    );
+  } finally {
+    engineRef.value?.focusEditor?.(); // 菜单点完焦点交还编辑区，能接着打字
   }
 }
 
@@ -2719,6 +2831,7 @@ watch(() => editor.mode, (m) => {
       @export-html="doExportHtml"
       @export-word="doExportWord"
       @export-pdf="doExportPdf"
+      @export-long-image="doExportLongImage"
       @print-pdf="doPrintPdf"
       @word-to-md="openWordConvert('md')"
       @word-to-mh="openWordConvert('mh')"
@@ -3082,6 +3195,7 @@ watch(() => editor.mode, (m) => {
       @copy-image="onCtxCopyImage"
       @search="onCtxSearch"
       @copy-all="onCtxCopyAll"
+      @copy-as="onCtxCopyAs"
       @mode="onCtxMode"
       @layout="onCtxLayout"
       @preview-theme="onCtxPreviewTheme"

@@ -62,8 +62,9 @@ async function inlineCssUrls(css: string): Promise<string> {
   return out;
 }
 
-/** 抓运行 DOM 的全部样式文本（<style> 内联 + <link> fetch），CSS url() 已内联 */
-async function collectStyles(): Promise<string> {
+/** 抓运行 DOM 的全部样式文本（<style> 内联 + <link> fetch），CSS url() 已内联。
+ *  长图导出（longImage.ts）复用同一份：两个产物必须吃同一套 CSS 才对得上版式 */
+export async function collectStyles(): Promise<string> {
   const parts: string[] = [];
   for (const el of Array.from(document.querySelectorAll('style'))) {
     const css = el.textContent ?? '';
