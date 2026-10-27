@@ -694,7 +694,21 @@
         <div class="tl-item is-latest">
           <span class="tl-dot"></span>
           <div class="tl-card">
-            <div class="tl-head"><span class="tl-ver">v0.7.5</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <div class="tl-head"><span class="tl-ver">v0.7.6</span><span class="tl-date">2026.10</span><span class="tl-badge">最新</span></div>
+            <ul>
+              <li><b>复制为公众号 / 知乎</b>：md 右键「复制」升成二级飞窗——复制原文 / 为公众号 / 为知乎，整篇复制不动原文件；两个平台各做一次结构清洗，不是把预览 HTML 原样塞进剪贴板</li>
+              <li><b>公众号侧</b>：微信会重建的标题 / 代码块 / 列表全部降级成带内联样式的段落与 section（代码块自拼换行与不换行空格，列表补 • / 1. 前缀），样式才留得住</li>
+              <li><b>知乎侧</b>：代码块整理成 <code>pre[lang]</code>、列表里的代码提到块级，表格换草稿结构、正文不写死文字颜色，暗色模式不糊</li>
+              <li><b>降级都说清楚</b>：公式给 TeX 源码（公众号行内代码 / 知乎 <code>$…$</code>）、图表给源码块、本地图片留占位并计数，复制完成提示这次少了什么</li>
+              <li><b>导出长图</b>（文件 → 导出）：宽度自适应当前内容版式——窄 / 中 / 宽 / 100% 与阅读栏实际宽度，主题、字号、字体与屏幕所见一致；图片连 asset:// 一起内联，mermaid 保留渲染结果</li>
+              <li><b>长图两趟截图</b>：先量准整页高度再截，DPR 随高度下调控制体积，单张上限 40000px；.md / .mh 都能导，代码与 HTML / SVG 标签置灰</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tl-item">
+          <span class="tl-dot"></span>
+          <div class="tl-card">
+            <div class="tl-head"><span class="tl-ver">v0.7.5</span><span class="tl-date">2026.10</span></div>
             <ul>
               <li><b>码猫跟进了编辑器</b>：右下角常驻、猫脚贴着状态栏上沿；轻提示抬到它头顶、回顶钮向左让开，窗口窄于 640px 自动收起</li>
               <li><b>六张表情</b>：新增阅读捧书与保存失败炸毛；写作专注、走神、打盹用轻微前倾 / 侧倾区分姿态，切换时头脚不跳</li>
@@ -1126,9 +1140,9 @@
       <h2>现在就开始书写</h2>
       <p>支持 Windows / macOS，体积小巧，开箱即用。</p>
       <div class="hero-cta">
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.5/Mkdown_0.7.5_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.5/Mkdown_0.7.5_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
-        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.5/Mkdown_0.7.5_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.6/Mkdown_0.7.6_x64-setup.exe" class="btn btn-primary">下载 Windows 版</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.6/Mkdown_0.7.6_aarch64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Apple 芯片）</a>
+        <a href="https://github.com/gggaiitx/mkdown-site/releases/download/v0.7.6/Mkdown_0.7.6_x86_64-apple-darwin.dmg" class="btn btn-ghost mac-hit" style="color:#fff;border-color:rgba(255,255,255,.35)">macOS 版（Intel）</a>
       </div>
       <div class="mac-tip">
         <p class="mac-tip-head">本应用未做 Apple 开发者签名，首次打开若提示「无法验证开发者」或「已损坏」，任选其一绕过：</p>
