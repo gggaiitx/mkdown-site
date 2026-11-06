@@ -13,5 +13,7 @@ repro/
 scripts/clean_test3.cjs
 _env_probe.txt
 .wbapp_*.genie
+# 本机注册表/发版操作的一次性备份与验证产物
+backup/
 # 码猫表情的原始参考图（22MB）：只作生成输入，产物在 src/assets/mascot/
 vibe_images/
